@@ -1,0 +1,133 @@
+import json
+from collections import Counter
+from typing import List, Any, Dict
+
+import TM1py
+from TM1py import TM1Service, Cube
+from requests import Response
+from .dimension import Dimension
+from .element import Element
+from .hierarchy import Hierarchy
+from .mdxview import MDXView
+from .subset import Subset
+from TM1py.Utils import format_url
+
+
+# {
+# 	"@type":"Cube",
+# 	"Name":"Channel Csoportos Flat Assignment",
+# 	"Dimensions":
+# 	[
+# 		{
+# 			"@id":"Dimensions('Version')"
+# 		},
+# 		{
+# 			"@id":"Dimensions('Period')"
+# 		},
+# 		{
+# 			"@id":"Dimensions('Channel')"
+# 		},
+# 		{
+# 			"@id":"Dimensions('Csoportos Flat')"
+# 		},
+# 		{
+# 			"@id":"Dimensions('Channel Csoportos Flat Assignment Measure')"
+# 		}
+# 	],
+# 	"Views@Code.links":
+# 	[
+# 		"Channel Csoportos Flat Assignment.views/CsoportosFlatSubsetTechnical.json"
+# 	]
+# }
+class Cube:
+    def __init__(self, name, dimensions : List[Dimension], rule, views : List[MDXView], source_path: str):
+        self.type = 'Cube'
+        self.name = name
+        self.dimensions = dimensions
+        self.rule = rule
+        self.views = views
+        self.source_path = source_path
+
+    def as_json(self):
+        return json.dumps({
+            "@type": self.type,
+            "Name": self.name,
+            "Dimensions": [{"@id" : format_url("Dimensions('{}')", d.name)} for d in self.dimensions],
+            "Rules@Code.link": format_url("{}.rules", self.name),
+            "Views@Code.links" : [format_url("{}.views/{}.json", self.name, v.name) for v in self.views],
+        }, indent='\t')
+    
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Cube):
+            return NotImplemented
+        
+        if self.name != other.name:
+            return False
+        
+        self_dim_names = sorted([d.name for d in self.dimensions])
+        other_dim_names = sorted([d.name for d in other.dimensions])
+        if self_dim_names != other_dim_names:
+            return False
+
+        if self.rule != other.rule:
+            return False
+
+        if set(self.views) != set(other.views):
+            return False
+            
+        return True
+
+    def __hash__(self) -> int:
+        return hash((
+            self.name,
+            tuple(sorted([d.name for d in self.dimensions])),
+            self.rule,
+            frozenset(self.views)
+        ))
+    
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'dimensions': [d.to_dict() for d in self.dimensions],
+            'rule': self.rule,
+            'views': [v.to_dict() for v in self.views]
+        }
+
+    @staticmethod
+    def as_link(name):
+        # /cubes/Cube_A.json
+        # /cubes/Cube_A.rules
+        return '/cubes/' + name
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between TM1py and tm1_git_py for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def create_cube(tm1_service: TM1Service, cube: Cube) -> Response:
+    dimensions = [dim.name for dim in cube.dimensions]
+    cube_object = TM1py.Cube(cube.name, dimensions, cube.rule)
+    return tm1_service.cubes.create(cube_object)
+
+
+def update_cube(tm1_service: TM1Service, cube: Dict[str, Any]) -> Response:
+    cube_new = cube.get('new')
+    cube_old = cube.get('old')
+    dimensions_new = [d.name for d in cube_new.dimensions]
+    dimensions_old = [d.name for d in cube_old.dimensions]
+    cube_object = tm1_service.cubes.get(cube_new.name)
+
+    if dimensions_new != dimensions_old:
+        if Counter(dimensions_new) == Counter(dimensions_old):
+            cube_object.update_storage_dimension_order(cube_names=cube_new.name, dimension_names=dimensions_new)
+        else:
+            # TODO: data_copy_intercube to temp
+            delete_cube(tm1_service=tm1_service, cube_name=cube_new.name)
+            return create_cube(tm1_service=tm1_service, cube=cube_new)
+    if cube_new.rule:
+        cube_object.rules = TM1py.Rules(cube_new.rule)
+    return tm1_service.cubes.update(cube=cube_object)
+
+
+def delete_cube(tm1_service: TM1Service, cube_name: str) -> Response:
+    return tm1_service.cubes.delete(cube_name)
