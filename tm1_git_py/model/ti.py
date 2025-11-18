@@ -21,7 +21,20 @@ class TI:
     def __eq__(self, other):
         if not isinstance(other, TI):
             return NotImplemented
-        return self.to_dict() == other.to_dict()
+
+        if self.prolog_procedure != other.prolog_procedure.replace('\r', '').strip():
+            return False
+
+        if self.metadata_procedure != other.metadata_procedure.replace('\r', '').strip():
+            return False
+
+        if self.data_procedure != other.data_procedure.replace('\r', '').strip():
+            return False
+
+        if self.epilog_procedure != other.epilog_procedure.replace('\r', '').strip():
+            return False
+
+        return True
 
     def __hash__(self):
         return hash(tuple(sorted(self.to_dict().items())))

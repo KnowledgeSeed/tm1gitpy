@@ -74,7 +74,7 @@ def update_subset(tm1_service: TM1Service, subset: Dict[str, Any]) -> Response:
         subset_object.expression = subset_new.expression
         return tm1_service.subsets.update(subset_object)
     else:
-        return create_subset(tm1_service=tm1_service, subset=subset_new)
+        raise ValueError(f"Cannot update subset '{subset_new.name}', subset does not exist")
 
 
 def delete_subset(tm1_service: TM1Service, subset: Subset) -> Response:

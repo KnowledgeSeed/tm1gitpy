@@ -72,7 +72,7 @@ class Hierarchy:
         
         if set(self.subsets) != set(other.subsets):
             return False
-            
+
         return True
 
     def __hash__(self) -> int:
@@ -118,7 +118,8 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
         for element in hierarchy.elements:
             if not tm1_service.elements.exists(dimension_name, hierarchy.name, element.name):
                 elements.append(
-                    create_element(tm1_service, dimension=dimension_name, hierarchy=hierarchy.name, element=element)
+                    create_element(tm1_service=tm1_service, dimension_name=dimension_name,
+                                   hierarchy_name=hierarchy.name, element=element)
                 )
 
     return response
@@ -143,12 +144,13 @@ def update_hierarchy(tm1_service: TM1Service, hierarchy: Dict[str, Any]) -> Resp
             for parent, component, weight in edges_to_add:
                 hierarchy_object.add_edge(parent, component, weight)
 
-        _update_hierarchy_elements(tm1_service=tm1_service, dimension_name=dimension_name, hierarchy_new= hierarchy_new, hierarchy_old=hierarchy_old, hierarchy_object=hierarchy_object)
+        _update_hierarchy_elements(tm1_service=tm1_service, dimension_name=dimension_name, hierarchy_new= hierarchy_new,
+                                   hierarchy_old=hierarchy_old, hierarchy_object=hierarchy_object)
 
         return tm1_service.hierarchies.update(hierarchy_object)
 
     else:
-        return create_hierarchy(tm1_service=tm1_service, hierarchy=hierarchy_new)
+        raise ValueError(f"Cannot update hierarchy '{hierarchy_new.name}', hierarchy does not exist")
 
 
 def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
@@ -156,7 +158,13 @@ def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     return tm1_service.hierarchies.delete(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
 
 
-def _update_hierarchy_elements(tm1_service: TM1Service, dimension_name: str, hierarchy_new: Hierarchy, hierarchy_old: Hierarchy, hierarchy_object: TM1py.Hierarchy):
+def _update_hierarchy_elements(
+        tm1_service: TM1Service,
+        dimension_name: str,
+        hierarchy_new: Hierarchy,
+        hierarchy_old: Hierarchy,
+        hierarchy_object: TM1py.Hierarchy
+):
     elements_old = hierarchy_old.elements
     elements_new = hierarchy_new.elements
     if elements_old != elements_new:
@@ -165,10 +173,13 @@ def _update_hierarchy_elements(tm1_service: TM1Service, dimension_name: str, hie
         
         for element in elements_to_remove:
             hierarchy_object.remove_element(element_name=element.name)
-            delete_element(tm1_service=tm1_service, hierarchy_name=hierarchy_old.name, dimension_name=dimension_name, element_name=element.name)
+            delete_element(tm1_service=tm1_service, hierarchy_name=hierarchy_old.name,
+                           dimension_name=dimension_name, element_name=element.name)
             
         for element in elements_to_create_or_update:
-            update_element(tm1_service=tm1_service, hierarchy_name=hierarchy_new.name, dimension_name=dimension_name, element=element)
-            element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_new.name, element_name=element.name)
+            update_element(tm1_service=tm1_service, hierarchy_name=hierarchy_new.name,
+                           dimension_name=dimension_name, element=element)
+            element_object = tm1_service.elements.get(dimension_name=dimension_name,
+                                                      hierarchy_name=hierarchy_new.name, element_name=element.name)
             if element_object not in hierarchy_object.elements.values():
                 hierarchy_object.add_element(element_name=element.name, element_type=element.type)

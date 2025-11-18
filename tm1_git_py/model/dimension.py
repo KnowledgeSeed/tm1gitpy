@@ -52,7 +52,7 @@ class Dimension:
 
         if set(self.hierarchies) != set(other.hierarchies):
             return False
-            
+
         return True
 
     def __hash__(self) -> int:
@@ -110,8 +110,7 @@ def update_dimension(tm1_service: TM1Service, dimension: Dict[str, Any]) -> Resp
 
         return tm1_service.dimensions.update(dimension_object)
     else:
-        return create_dimension(tm1_service=tm1_service, dimension=dimension_new)
-
+        raise ValueError(f"Cannot update dimension '{dimension_new.name}', dimension does not exist")
 
 
 def delete_dimension(tm1_service: TM1Service, dimension_name: str) -> Response:

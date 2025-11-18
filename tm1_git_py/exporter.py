@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from typing import Dict, List
 from TM1py import TM1Service
 from TM1py.Utils import format_url
@@ -17,6 +18,8 @@ from .model.process import Process
 import TM1py
 
 from .model.ti import TI
+from .model.task import Task
+from .model.rule import Rule
 
 
 def tm1_connection() -> TM1Service:
@@ -33,8 +36,7 @@ def tm1_connection() -> TM1Service:
     return tm1
 
 
-def tm1_to_model(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
-
+def export(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
     _dimensions, _dim_errors = dimensions_to_model(tm1_conn)
 
     _cubes, _cube_errors = cubes_to_model(tm1_conn, _dimensions)
@@ -46,7 +48,8 @@ def tm1_to_model(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
     _model = Model(cubes=_cubes.values(),
                    dimensions=_dimensions.values(),
                    processes=_processes.values(),
-                   chores=_chores.values())
+                   chores=_chores.values(),
+                   server_configs=server_configs_to_model(tm1_conn))
 
     _errors = {}
     _errors['dim'] = _dim_errors
@@ -59,12 +62,26 @@ def tm1_to_model(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
 
 def chores_to_model(tm1_conn) -> tuple[Dict[str, Chore], Dict[str, str]]:
     all_chores = tm1_conn.chores.get_all_names()
-
     _chores: Dict[str, Chore] = {}
     _errors: Dict[str, str] = {}
 
     for chore_name in all_chores:
         chore = tm1_conn.chores.get(chore_name=chore_name)
+
+        tasks_for_model = []
+        for tm1py_task in chore.tasks:
+            task_dict = tm1py_task.body_as_dict
+            process_name = ""
+            process_bind = task_dict.get("Process@odata.bind", "")
+            match = re.search(r"Processes\('([^']*)'\)", process_bind)
+            if match:
+                process_name = match.group(1)
+
+            task_obj = Task(
+                process_name=process_name,
+                parameters=task_dict.get('Parameters', [])
+            )
+            tasks_for_model.append(task_obj)
 
         _chore = Chore(
             name=chore.name,
@@ -73,9 +90,11 @@ def chores_to_model(tm1_conn) -> tuple[Dict[str, Chore], Dict[str, str]]:
             active=chore.active,
             execution_mode=chore.execution_mode,
             frequency=chore.frequency.frequency_string,
-            tasks=[task.body_as_dict for task in chore.tasks],
-            source_path=os.path.join('chores', f"{chore_name}.json").replace('\\', '/'))
+            tasks=tasks_for_model,
+            source_path=os.path.join('chores', f"{chore_name}.json").replace('\\', '/')
+        )
         _chores[chore.name] = _chore
+
     return _chores, _errors
 
 
@@ -88,7 +107,7 @@ def procs_to_model(tm1_conn) -> tuple[Dict[str, Process], Dict[str, str]]:
     _processes: Dict[str, Process] = {}
     _errors: Dict[str, str] = {}
 
-    for process_name in regular_procs:
+    for process_name in all_procs:
         process = tm1_conn.processes.get(name_process=process_name)
 
         _ti = TI(prolog_procedure=process.prolog_procedure,
@@ -106,33 +125,58 @@ def procs_to_model(tm1_conn) -> tuple[Dict[str, Process], Dict[str, str]]:
 
 def cubes_to_model(tm1_conn, _dimensions: Dict[str, Dimension]) -> tuple[Dict[str, Cube], Dict[str, str]]:
     all_cubes = tm1_conn.cubes.get_all_names(skip_control_cubes=False)
-    regular_cubes = tm1_conn.cubes.get_all_names(skip_control_cubes=True)
-    control_cubes = list(set(all_cubes) - set(regular_cubes))
 
     _cubes: Dict[str, Cube] = {}
     _errors: Dict[str, str] = {}
 
-    for cube_name in regular_cubes:
-        cube = tm1_conn.cubes.get(cube_name=cube_name)
+    for cube_name in all_cubes:
+        try:
+            cube = tm1_conn.cubes.get(cube_name=cube_name)
 
-        _cube = Cube(name=cube_name, dimensions=[],
-                     rule=cube.rules.body_as_dict['Rules'] if cube.has_rules else None, views=[],
-                     source_path=os.path.join('cubes', f"{cube_name}.json").replace('\\', '/'))
-        _cubes[cube_name] = _cube
-        if cube.dimensions:
-            for dimension in cube.dimensions:
-                _dimension = _dimensions.get(dimension)
-                if not _dimension:
-                    _errors[cube_name] = 'Dimension not found ' + dimension
-                else:
-                    _cube.dimensions.append(_dimension)
+            rule_source_object = cube.rules if cube.has_rules else None
 
-        mdxviews = tm1_conn.views.get_all(cube_name=cube_name)[1]
-        if mdxviews:
-            for view in mdxviews:
-                _mdxview = MDXView(name=view.name, mdx=view.mdx,
-                                   source_path=os.path.join('cubes', f"{cube_name}.views", f"{view.name}.json").replace('\\', '/'))
-                _cube.views.append(_mdxview)
+            rule_text = ""
+            if cube.has_rules:
+                raw_body = cube.rules.body
+                try:
+                    rule_data = json.loads(raw_body)
+                    rule_text = rule_data.get("Rules", "")
+                except (json.JSONDecodeError, AttributeError):
+                    rule_text = raw_body if isinstance(raw_body, str) else ""
+
+            rules_list = _parse_rules(rule_text)
+            _cube = Cube(
+                name=cube_name,
+                dimensions=[],
+                rules=rules_list,
+                views=[],
+                source_path=os.path.join('cubes', cube_name).replace('\\', '/')
+            )
+            _cubes[cube_name] = _cube
+
+            if cube.dimensions:
+                for dimension in cube.dimensions:
+                    _dimension = _dimensions.get(dimension)
+                    if not _dimension:
+                        _errors[cube_name] = f"Dimension '{dimension}' not found"
+                    else:
+                        _cube.dimensions.append(_dimension)
+
+            mdxviews_tuple = tm1_conn.views.get_all(cube_name=cube_name)
+            if mdxviews_tuple:
+                mdxviews = mdxviews_tuple[1]
+                for view in mdxviews:
+                    _mdxview = MDXView(
+                        name=view.name,
+                        mdx=view.mdx,
+                        source_path=os.path.join('cubes', f"{cube_name}.views", f"{view.name}.json").replace('\\', '/')
+                    )
+                    _cube.views.append(_mdxview)
+
+
+        except Exception as e:
+            _errors[cube_name] = str(e)
+
     return _cubes, _errors
 
 
@@ -143,7 +187,7 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
 
     _errors: Dict[str, str] = {}
     _dimensions: Dict[str, Dimension] = {}
-    for dim_name in regular_dims:
+    for dim_name in all_dims:
         dim = tm1_conn.dimensions.get(dimension_name=dim_name)
 
         _dimension = Dimension(name=dim.name, hierarchies=[],
@@ -158,7 +202,8 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
                                    edges=[Edge(k[0], k[1], v)
                                           for k, v in hierarchy.edges.items()],
                                    subsets=[],
-                                   source_path=os.path.join('dimensions', f"{dim_name}.hierarchies", f"{hierarchy.name}.json").replace('\\', '/'))
+                                   source_path=os.path.join('dimensions', f"{dim_name}.hierarchies",
+                                                            f"{hierarchy.name}.json").replace('\\', '/'))
 
             _dimension.hierarchies.append(_hierarchy)
 
@@ -169,8 +214,35 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
                             dimension_name=dim_name, subset_name=subset_name)
                         _subset = Subset(name=subset_name,
                                          expression=subset.expression,
-                                         source_path=os.path.join('dimensions', f"{dim_name}.hierarchies", f"{hierarchy.name}.subsets", f"{subset.name}.json").replace('\\', '/'))
+                                         source_path=os.path.join('dimensions', f"{dim_name}.hierarchies",
+                                                                  f"{hierarchy.name}.subsets",
+                                                                  f"{subset.name}.json").replace('\\', '/'))
                         _hierarchy.subsets.append(_subset)
                     except Exception as e:
                         _errors[dim_name] = str(e)
     return _dimensions, _errors
+
+
+def _parse_rules(rule_text: str) -> List[Rule]:
+    if not rule_text: return []
+    rules = []
+    pattern = re.compile(r"(?P<comment>(?:#.*(?:\r\n|\n|$)\s*)*)?(?P<statement>\[.*?\][^;]*;)", re.DOTALL)
+    header_match = re.match(r'^(.*?)(?=\[|#|$)', rule_text, re.DOTALL)
+    last_pos = 0
+    if header_match:
+        header_text = header_match.group(1).strip()
+        if header_text:
+            rules.append(Rule(area="[HEADER]", full_statement=header_text, comment=""))
+        last_pos = header_match.end()
+    for match in pattern.finditer(rule_text, last_pos):
+        comment = (match.group('comment') or "").strip()
+        statement_text = match.group('statement').strip()
+        area_match = re.search(r'(\[.*?\])', statement_text)
+        area = area_match.group(1) if area_match else "[UNKNOWN]"
+        rules.append(Rule(area=area, full_statement=statement_text, comment=comment))
+    return rules
+
+
+def server_configs_to_model(tm1_conn: TM1Service) -> Dict:
+    configs = tm1_conn.configuration.get_active()
+    return configs

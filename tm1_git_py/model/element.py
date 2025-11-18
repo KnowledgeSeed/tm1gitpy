@@ -62,7 +62,7 @@ def update_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name:
         element_object.element_type = element.type
         return tm1_service.elements.update(element_object)
     else:
-        return create_element(tm1_service=tm1_service, hierarchy_name=hierarchy_name, dimension_name=dimension_name, element=element)
+        raise ValueError(f"Cannot update element '{element.name}', element does not exist")
 
 
 def delete_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element_name: str) -> Response:

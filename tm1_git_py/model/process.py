@@ -59,7 +59,31 @@ class Process:
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Process):
             return NotImplemented
-        return self.to_dict() == other.to_dict()
+
+        if self.name != other.name:
+            return False
+
+        if self.hasSecurityAccess != other.hasSecurityAccess:
+            return False
+
+        if self.code_link != other.code_link:
+            return False
+
+        other.datasource = other.datasource or None
+        if self.datasource != other.datasource:
+            return False
+
+        if self.ti != other.ti:
+            return False
+
+        if self.parameters != other.parameters:
+            return False
+
+        if self.variables != other.variables:
+            return False
+
+        return True
+        #return self.to_dict() == other.to_dict()
 
     def __hash__(self) -> int:
         return hash((
@@ -96,7 +120,6 @@ class Process:
 # ------------------------------------------------------------------------------------------------------------
 
 def create_process(tm1_service: TM1Service, process: Process) -> Response:
-    data_source_type = process.datasource
     process_object = TM1py.Process(
         name=process.name,
         has_security_access=process.hasSecurityAccess,
