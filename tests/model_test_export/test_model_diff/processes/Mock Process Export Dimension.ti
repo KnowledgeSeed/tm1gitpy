@@ -1,0 +1,24 @@
+#region Prolog
+sDimension = pDimensionName;
+sDirectory = pExportDirectory;
+sFilePrefix = pFilePrefix;
+sFile = sDirectory | '/' | sFilePrefix | sDimension | '.csv';
+
+LogOutput('INFO', 'Mock dimension export | Dim=' | sDimension | ' | File=' | sFile);
+
+IF(FileExists(sFile) = 1);
+  ASCIIDelete(sFile);
+ENDIF;
+ASCIIOutput(sFile, 'Element', 'Type', 'Parent', 'Weight');
+#endregion
+#region Metadata
+#In a real export process the subset would be prepared here
+#endregion
+#region Data
+#The mock process simply writes two placeholder records
+ASCIIOutput(sFile, 'Element A', 'Numeric', '', '');
+ASCIIOutput(sFile, 'Element B', 'Numeric', '', '');
+#endregion
+#region Epilog
+LogOutput('INFO', 'Mock dimension export complete | File=' | sFile);
+#endregion

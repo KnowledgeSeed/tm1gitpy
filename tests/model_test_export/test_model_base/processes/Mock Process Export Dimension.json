@@ -1,0 +1,30 @@
+{
+    "@type": "Process",
+    "Name": "Mock Process Export Dimension",
+    "HasSecurityAccess": false,
+    "Code@Code.link": "Mock Process Export Dimension.ti",
+    "DataSource": {
+        "Type": "None"
+    },
+    "Parameters": [
+        {
+            "Name": "pDimensionName",
+            "Prompt": "Dimension to export",
+            "Value": "testbenchProduct",
+            "Type": "String"
+        },
+        {
+            "Name": "pExportDirectory",
+            "Prompt": "Directory for csv export",
+            "Value": "./exports",
+            "Type": "String"
+        },
+        {
+            "Name": "pFilePrefix",
+            "Prompt": "File prefix",
+            "Value": "dim_export_",
+            "Type": "String"
+        }
+    ],
+    "Variables": []
+}

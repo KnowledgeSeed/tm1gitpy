@@ -1,0 +1,27 @@
+{
+    "@type": "Chore",
+    "Name": "Mock Nightly Maintenance",
+    "StartTime": "2024-01-01T01:30:00+00:00",
+    "DSTSensitive": true,
+    "Active": true,
+    "ExecutionMode": "MultipleCommit",
+    "Frequency": "P00DT24H00M00S",
+    "Tasks": [
+        {
+            "Process@odata.bind": "Processes('Mock Process Cleanup Subsets')",
+            "Parameters": [
+                {"Name": "pDimension", "Value": "testbenchProduct"},
+                {"Name": "pKeepSubset", "Value": "Default"},
+                {"Name": "pLogOnly", "Value": "0"}
+            ]
+        },
+        {
+            "Process@odata.bind": "Processes('Mock Process Load Product Data')",
+            "Parameters": [
+                {"Name": "pCubeName", "Value": "testbenchSales"},
+                {"Name": "pViewName", "Value": "NightlyLoad"},
+                {"Name": "pCallerID", "Value": "CHORE_MAINT"}
+            ]
+        }
+    ]
+}

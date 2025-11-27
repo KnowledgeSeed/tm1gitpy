@@ -1,0 +1,5 @@
+{
+	"@type": "Subset",
+	"Name": "}Temp_Subset_-7289650662757893041",
+	"Expression": "{TM1FILTERBYLEVEL({TM1SUBSETALL([testbenchVersion].[testbenchVersion])}, 0)}"
+}

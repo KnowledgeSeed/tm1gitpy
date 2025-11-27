@@ -1,3 +1,4 @@
+import logging
 from typing import List, Dict, Any, Optional, Callable, Tuple, Iterable, Mapping
 
 from .changeset import Changeset
@@ -9,63 +10,81 @@ from .model.model import Model
 from .model.process import Process
 
 
+logger = logging.getLogger(__name__)
+
+
 def _dimensions_equal_shallow(old_dimension: Dimension, new_dimension: Dimension) -> bool:
-    if old_dimension.name != new_dimension.name:
-        return False
+    try:
+        if old_dimension.name != new_dimension.name:
+            return False
 
-    old_hierarchy_names = {hier.name for hier in old_dimension.hierarchies}
-    new_hierarchy_names = {hier.name for hier in new_dimension.hierarchies}
-    if old_hierarchy_names != new_hierarchy_names:
-        return False
+        old_hierarchy_names = {hier.name for hier in old_dimension.hierarchies}
+        new_hierarchy_names = {hier.name for hier in new_dimension.hierarchies}
+        if old_hierarchy_names != new_hierarchy_names:
+            return False
 
-    old_default = getattr(old_dimension.defaultHierarchy, "name", None)
-    new_default = getattr(new_dimension.defaultHierarchy, "name", None)
-    if old_default != new_default:
-        return False
+        old_default = getattr(old_dimension.defaultHierarchy, "name", None)
+        new_default = getattr(new_dimension.defaultHierarchy, "name", None)
+        if old_default != new_default:
+            return False
 
-    return True
+        return True
+
+    except AttributeError as exc:
+        logger.error("Dimension comparison failed due to missing attributes: %s", exc)
+        return False
 
 
 def _hierarchies_equal_shallow(old_hierarchy: Hierarchy, new_hierarchy: Hierarchy) -> bool:
-    if old_hierarchy.name != new_hierarchy.name:
-        return False
+    try:
+        if old_hierarchy.name != new_hierarchy.name:
+            return False
 
-    old_element_names = {element.name for element in old_hierarchy.elements}
-    new_element_names = {element.name for element in new_hierarchy.elements}
-    if old_element_names != new_element_names:
-        return False
+        old_element_names = {element.name for element in old_hierarchy.elements}
+        new_element_names = {element.name for element in new_hierarchy.elements}
+        if old_element_names != new_element_names:
+            return False
 
-    old_edge_names = {edge.name for edge in old_hierarchy.edges}
-    new_edge_names = {edge.name for edge in new_hierarchy.edges}
-    if old_edge_names != new_edge_names:
-        return False
+        old_edge_names = {edge.name for edge in old_hierarchy.edges}
+        new_edge_names = {edge.name for edge in new_hierarchy.edges}
+        if old_edge_names != new_edge_names:
+            return False
 
-    old_subset_names = {subset.name for subset in old_hierarchy.subsets}
-    new_subset_names = {subset.name for subset in new_hierarchy.subsets}
-    if old_subset_names != new_subset_names:
-        return False
+        old_subset_names = {subset.name for subset in old_hierarchy.subsets}
+        new_subset_names = {subset.name for subset in new_hierarchy.subsets}
+        if old_subset_names != new_subset_names:
+            return False
 
-    return True
+        return True
+
+    except AttributeError as exc:
+        logger.error("Hierarchy comparison failed due to missing attributes: %s", exc)
+        return False
 
 
 def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
-    if old_cube.name != new_cube.name:
-        return False
+    try:
+        if old_cube.name != new_cube.name:
+            return False
 
-    old_dim_names = {dim.name for dim in old_cube.dimensions}
-    new_dim_names = {dim.name for dim in new_cube.dimensions}
-    if old_dim_names != new_dim_names:
-        return False
+        old_dim_names = {dim.name for dim in old_cube.dimensions}
+        new_dim_names = {dim.name for dim in new_cube.dimensions}
+        if old_dim_names != new_dim_names:
+            return False
 
-    old_view_names = {view.name for view in old_cube.views}
-    new_view_names = {view.name for view in new_cube.views}
-    if old_view_names != new_view_names:
-        return False
+        old_view_names = {view.name for view in old_cube.views}
+        new_view_names = {view.name for view in new_cube.views}
+        if old_view_names != new_view_names:
+            return False
 
-    if set(old_cube.rules) != set(new_cube.rules):
-        return False
+        if set(old_cube.rules) != set(new_cube.rules):
+            return False
 
-    return True
+        return True
+
+    except AttributeError as exc:
+        logger.error("Cube comparison failed due to missing attributes: %s", exc)
+        return False
 
 
 class Comparator:
@@ -129,7 +148,11 @@ class Comparator:
                 for child_attr, child_cls in child_relations:
                     old_children = getattr(old_obj, child_attr, None) or []
                     new_children = getattr(new_obj, child_attr, None) or []
-                    self._compare_with_children(old_children, new_children, child_cls, changeset, mode)
+                    try:
+                        self._compare_with_children(old_children, new_children, child_cls, changeset, mode)
+                    except Exception as exc:
+                        logger.error("Child comparison failed for relation '%s' of %s: %s", child_attr, object_type_name, exc)
+                        raise
 
         return parent_pairs
 
@@ -143,8 +166,12 @@ class Comparator:
                               mode: str,
                               equals_fn: Optional[Callable[[Any, Any], bool]] = None) -> Dict[str, Tuple[Any, Any]]:
 
-        old_map = {obj.name: obj for obj in old_list}
-        new_map = {obj.name: obj for obj in new_list}
+        try:
+            old_map = {obj.name: obj for obj in old_list}
+            new_map = {obj.name: obj for obj in new_list}
+        except AttributeError as exc:
+            logger.error("Objects missing 'name' attribute in %s comparison: %s", object_type_name, exc)
+            raise
 
         new_names = set(new_map.keys())
         old_names = set(old_map.keys())
@@ -161,12 +188,16 @@ class Comparator:
         common_names = new_names & old_names
         matched_pairs: Dict[str, Tuple[Any, Any]] = {}
         for name in common_names:
-            old_obj = old_map[name]
-            new_obj = new_map[name]
-            matched_pairs[name] = (old_obj, new_obj)
-            objects_equal = equals_fn(old_obj, new_obj) if equals_fn else old_obj == new_obj
-            if not objects_equal:
-                modified_list.append({'old': old_obj, 'new': new_obj,
-                                      'changes': f"Content of {object_type_name} '{name}' changed."})
+            try:
+                old_obj = old_map[name]
+                new_obj = new_map[name]
+                matched_pairs[name] = (old_obj, new_obj)
+                objects_equal = equals_fn(old_obj, new_obj) if equals_fn else old_obj == new_obj
+                if not objects_equal:
+                    modified_list.append({'old': old_obj, 'new': new_obj,
+                                          'changes': f"Content of {object_type_name} '{name}' changed."})
+            except Exception as exc:
+                logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc)
+                raise
 
         return matched_pairs

@@ -1,0 +1,21 @@
+#region Prolog
+# Mock loader that logs which cube/view combination would be processed
+sCubeName = pCubeName;
+sViewName = pViewName;
+sCaller = IF(pCallerID @= '', 'UNIT_TEST', pCallerID);
+
+#Write to message log to emulate activity
+LogOutput('INFO', 'Mock load start | Cube=' | sCubeName | ' | View=' | sViewName | ' | Caller=' | sCaller);
+#endregion
+#region Metadata
+#No metadata actions for the mock process
+#endregion
+#region Data
+#Normally this section would iterate through rows; this placeholder keeps the structure intact
+IF(1);
+  # Placeholder for data loop
+ENDIF;
+#endregion
+#region Epilog
+LogOutput('INFO', 'Mock load end | Cube=' | sCubeName | ' | View=' | sViewName);
+#endregion

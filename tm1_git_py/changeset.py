@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from pathlib import Path
 from typing import List, Dict, Any, TypeVar, Optional, Union
@@ -15,6 +16,8 @@ from .model.chore import Chore, create_chore, update_chore, delete_chore
 from TM1py import TM1Service
 
 from tm1_git_py.model.model import Model
+
+logger = logging.getLogger(__name__)
 
 
 T = TypeVar('T', Cube, Dimension, Process, Chore)
@@ -54,14 +57,16 @@ class Changeset:
     def _ensure_changes(self) -> List[str]:
         if not self.changes:
             lines: List[str] = []
+            try:
+                if self.added:
+                    lines.extend([f"C  /{c.source_path.removesuffix('.json')}" for c in self.added])
+                if self.removed:
+                    lines.extend([f"D  /{c.source_path.removesuffix('.json')}" for c in self.removed])
 
-            if self.added:
-                lines.extend([f"C  /{c.source_path.removesuffix(".json")  }" for c in self.added])
-            if self.removed:
-                lines.extend([f"D  /{c.source_path.removesuffix(".json")}" for c in self.removed])
-
-            if self.modified:
-                lines.extend([f"U  /{c['new'].source_path.removesuffix(".json")}" for c in self.modified])
+                if self.modified:
+                    lines.extend([f"U  /{c['new'].source_path.removesuffix('.json')}" for c in self.modified])
+            except Exception as exc:
+                logger.error("Failed to collect changes for changeset: %s", exc)
 
             if lines:
                 self.changes = lines
@@ -100,58 +105,76 @@ class Changeset:
 
         def __sort_changes(s: str):
             changes_precedence = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'process': 4, 'chore': 5}
+            try:
+                flag_match = re.search(r'\A([UDC])', s)
+                if not flag_match:
+                    raise ValueError(f"Cannot parse change flag '{s}' for sorting")
+                obj_match = re.search(r'/\b(\w*)/', s)
+                if not obj_match:
+                    raise ValueError(f"Cannot parse object type '{s}' for sorting")
+                flag = flag_match.group(1)
+                obj_name = obj_match.group(1)
 
-            flag = re.search(r'\A([UDC])', s).group(1)
-            obj_name = re.search(r'/\b(\w*)/', s).group(1)
+                if 'subsets' in s:
+                    obj_name = 'subsets'
+                elif 'hierarchies' in s:
+                    obj_name = 'hierarchies'
 
-            if 'subsets' in s:
-                obj_name = 'subsets'
-            elif 'hierarchies' in s:
-                obj_name = 'hierarchies'
+                source_path = s.split(obj_name, 1)[1]
 
-            source_path = s.split(obj_name)[1]
+                if flag == 'D':
+                    changes_precedence = {'cubes': 0, 'subsets': 1, 'hierarchies': 2, 'dimensions': 3, 'chore': 4, 'process': 5}
 
-            if flag == 'D':
-                changes_precedence = {'cubes': 0, 'subsets': 1, 'hierarchies': 2, 'dimensions': 3, 'chore': 4, 'process': 5}
+                key = (
+                    flag_precedence.get(flag, 99),
+                    changes_precedence.get(obj_name, 99),
+                    source_path
+                )
 
-            key = (
-                flag_precedence.get(flag, 99),
-                changes_precedence.get(obj_name, 99),
-                source_path
-            )
-
-            return key
+                return key
+            except Exception as exc:
+                logger.error("Failed to sort change entry '%s': %s", s, exc)
+                return (99, 99, s)
 
         def __sort_on_source_path(s: T | Dict[T, Any]):
+            try:
+                if isinstance(s, (Cube, Dimension, Hierarchy, Subset, Chore, Process, MDXView)):
+                    source = s.source_path
+                else:
+                    source = s["new"].source_path
 
-            if isinstance(s, (Cube, Dimension, Hierarchy, Subset, Chore, Process, MDXView)):
-                s = s.source_path
-            else:
-                s = s["new"].source_path
+                obj_match = re.search(r'\A(\w*)/', source)
+                if not obj_match:
+                    raise ValueError(f"Cannot extract object name from source path '{source}'")
+                obj_name = obj_match.group(1)
 
-            obj_name = re.search(r'\A(\w*)/', s).group(1)
+                if 'subsets' in source:
+                    obj_name = 'subsets'
+                elif 'hierarchies' in source:
+                    obj_name = 'hierarchies'
 
-            if 'subsets' in s:
-                obj_name = 'subsets'
-            elif 'hierarchies' in s:
-                obj_name = 'hierarchies'
+                source_path = source.split(obj_name, 1)[1]
 
-            source_path = s.split(obj_name)[1]
+                key = (
+                    object_precedence.get(obj_name, 99),
+                    source_path
+                )
 
-            key = (
-                object_precedence.get(obj_name, 99),
-                source_path
-            )
-
-            return key
+                return key
+            except Exception as exc:
+                logger.error("Failed to sort object '%s': %s", getattr(s, 'name', s), exc)
+                return (99, getattr(s, 'source_path', ''))
 
         if self.has_changes():
-            self.changes.sort(key=__sort_changes)
-            self.added.sort(key=__sort_on_source_path)
-            self.modified.sort(key=__sort_on_source_path)
-            if self.removed:
-                object_precedence = {'cubes': 0, 'subsets': 1, 'hierarchies': 2, 'dimensions': 3, 'chore': 4, 'process': 5}
-                self.removed.sort(key=__sort_on_source_path)
+            try:
+                self.changes.sort(key=__sort_changes)
+                self.added.sort(key=__sort_on_source_path)
+                self.modified.sort(key=__sort_on_source_path)
+                if self.removed:
+                    object_precedence = {'cubes': 0, 'subsets': 1, 'hierarchies': 2, 'dimensions': 3, 'chore': 4, 'process': 5}
+                    self.removed.sort(key=__sort_on_source_path)
+            except Exception as exc:
+                logger.error("Failed to sort changeset entries: %s", exc)
 
 
 def import_changeset(model1: Model, model2: Model, changeset_file) -> Changeset:
@@ -159,7 +182,11 @@ def import_changeset(model1: Model, model2: Model, changeset_file) -> Changeset:
     Build a Changeset instance from a lightweight export file and two models.
     The file is expected to contain {"changes": [...]} entries produced by Changeset.export().
     """
-    payload = _load_changeset_payload(changeset_file)
+    try:
+        payload = _load_changeset_payload(changeset_file)
+    except Exception as exc:
+        logger.error("Failed to load changeset payload from '%s': %s", changeset_file, exc)
+        raise
     entries = payload.get("changes", [])
     if not isinstance(entries, list):
         raise ValueError("changeset payload must contain a list under 'changes'")
@@ -226,7 +253,8 @@ def create_object(tm1_service: TM1Service, object_instance: T) -> Response:
     elif type(object_instance) is Chore:
         return create_chore(tm1_service=tm1_service, chore=object_instance)
 
-    else: raise ValueError
+    else:
+        raise ValueError
 
 
 def delete_object(tm1_service: TM1Service, object_instance: T) -> Response:

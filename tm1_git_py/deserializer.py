@@ -68,7 +68,8 @@ def deserialize_chores(chore_dir) -> tuple[Dict[str, Chore], Dict[str, str]]:
                                                frequency=chore_json['Frequency'], tasks=tasks,
                                                source_path=relative_path)
         except Exception as e:
-            chores_errors[file_name] = str(e)
+            chores_link = Chore.as_link(file_name)
+            chores_errors[chores_link] = str(e)
     return chores, chores_errors
 
 

@@ -1,0 +1,30 @@
+{
+    "@type": "Process",
+    "Name": "Mock Process Load Product Data",
+    "HasSecurityAccess": false,
+    "Code@Code.link": "Mock Process Load Product Data.ti",
+    "DataSource": {
+        "Type": "None"
+    },
+    "Parameters": [
+        {
+            "Name": "pCubeName",
+            "Prompt": "Cube to read from",
+            "Value": "testbenchSales",
+            "Type": "String"
+        },
+        {
+            "Name": "pViewName",
+            "Prompt": "View to load",
+            "Value": "Default",
+            "Type": "String"
+        },
+        {
+            "Name": "pCallerID",
+            "Prompt": "Audit caller",
+            "Value": "",
+            "Type": "String"
+        }
+    ],
+    "Variables": []
+}

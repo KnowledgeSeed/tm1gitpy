@@ -11,6 +11,7 @@ from .model import Model
 from .process import Process
 from .subset import Subset
 from .ti import TI
+from .rule import Rule
 
 __all__ = [
     "Chore",
@@ -24,4 +25,5 @@ __all__ = [
     "Process",
     "Subset",
     "TI",
+    "Rule"
 ]
