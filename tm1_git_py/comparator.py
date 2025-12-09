@@ -134,9 +134,7 @@ class Comparator:
         parent_pairs = self._compare_object_lists(
             list(old_list),
             list(new_list),
-            changeset.added,
-            changeset.removed,
-            changeset.modified,
+            changeset,
             object_type_name=object_type_name,
             mode=mode,
             equals_fn=equals_fn
@@ -159,9 +157,7 @@ class Comparator:
     def _compare_object_lists(self,
                               old_list: List[Any],
                               new_list: List[Any],
-                              added_list: List[Any],
-                              removed_list: List[Any],
-                              modified_list: List[Dict[str, Any]],
+                              changeset: Changeset,
                               object_type_name: str,
                               mode: str,
                               equals_fn: Optional[Callable[[Any, Any], bool]] = None) -> Dict[str, Tuple[Any, Any]]:
@@ -178,12 +174,12 @@ class Comparator:
 
         added_names = new_names - old_names
         for name in added_names:
-            added_list.append(new_map[name])
+            changeset.add_created(new_map[name])
 
         if mode == 'full':
             removed_names = old_names - new_names
             for name in removed_names:
-                removed_list.append(old_map[name])
+                changeset.add_deleted(old_map[name])
 
         common_names = new_names & old_names
         matched_pairs: Dict[str, Tuple[Any, Any]] = {}
@@ -194,8 +190,8 @@ class Comparator:
                 matched_pairs[name] = (old_obj, new_obj)
                 objects_equal = equals_fn(old_obj, new_obj) if equals_fn else old_obj == new_obj
                 if not objects_equal:
-                    modified_list.append({'old': old_obj, 'new': new_obj,
-                                          'changes': f"Content of {object_type_name} '{name}' changed."})
+                    changeset.add_modified(old=old_obj, new=new_obj,
+                                          changes=f"Content of {object_type_name} '{name}' changed.")
             except Exception as exc:
                 logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc)
                 raise

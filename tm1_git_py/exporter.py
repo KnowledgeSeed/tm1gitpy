@@ -49,7 +49,8 @@ def export(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
                    dimensions=_dimensions.values(),
                    processes=_processes.values(),
                    chores=_chores.values(),
-                   server_configs=server_configs_to_model(tm1_conn))
+                   #server_configs=server_configs_to_model(tm1_conn)
+                   )
 
     _errors = {}
     _errors['dim'] = _dim_errors

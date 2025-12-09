@@ -2,11 +2,10 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Any, TypeVar, Optional, Union
+from typing import List, Dict, Any, TypeVar, Union
 
 from requests import Response
 
-from .model import MDXView
 from .model.cube import Cube, create_cube, update_cube, delete_cube
 from .model.dimension import Dimension, create_dimension, update_dimension, delete_dimension
 from .model.hierarchy import Hierarchy, create_hierarchy, update_hierarchy, delete_hierarchy
@@ -24,9 +23,94 @@ T = TypeVar('T', Cube, Dimension, Process, Chore)
 
 _CHILD_RELATIONS: Dict[type, List[str]] = {
     Dimension: ["hierarchies"],
-    Hierarchy: ["subsets", "edges"],
+    Hierarchy: ["subsets", "edges", "elements"],
     Cube: ["views"],
 }
+
+FLAG_PRECEDENCE = {"C": 0, "U": 1, "D": 2}
+OBJECT_PRECEDENCE = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'processes': 4, 'chores': 5}
+DELETE_OBJECT_PRECEDENCE = {'cubes': 0, 'subsets': 1, 'hierarchies': 2, 'dimensions': 3, 'chores': 4, 'processes': 5}
+
+
+def normalize_source_path(source_path: str) -> str:
+    if not source_path:
+        return ""
+
+    normalized = source_path.replace("\\", "/").lstrip("/")
+    if normalized.endswith(".json"):
+        normalized = normalized[:-5]
+
+    return normalized
+
+
+def _sort_change_line_key(s: str):
+    """
+    Sorting key for a single textual change line like:
+        'C  /dimensions/Account'
+        'U  /cubes/Sales'
+        'D  /dimensions/Account.hierarchies/Total'
+    """
+    changes_precedence = OBJECT_PRECEDENCE
+    flag = re.search(r'\A([UDC])', s).group(1)
+    obj_name = re.search(r'/\b(\w*)/', s).group(1)
+
+    if 'subsets' in s:
+        obj_name = 'subsets'
+    elif 'hierarchies' in s:
+        obj_name = 'hierarchies'
+
+    source_path = s.split(obj_name)[1]
+
+    if flag == 'D':
+        changes_precedence = DELETE_OBJECT_PRECEDENCE
+
+    key = (
+        FLAG_PRECEDENCE.get(flag, 99),
+        changes_precedence.get(obj_name, 99),
+        source_path
+    )
+
+    return key
+
+
+def _source_path_sort_key(s: T | Dict[T, Any], delete_precedence = False):
+    """
+    Sorting key for model objects based on their .source_path, used to sort:
+      - added
+      - removed
+      - modified (by new object)
+    """
+    if isinstance(s, (Cube, Dimension, Hierarchy, Subset, Chore, Process)):
+        s = s.source_path
+    else:
+        raise ValueError(f"Cannot sort object type for source path '{s}'")
+
+    s = s.lstrip("/")
+    obj_match = re.search(r'(\w*)/', s)
+    if not obj_match:
+        raise ValueError(f"Cannot extract object name from source path '{s}'")
+    obj_name = obj_match.group(1)
+
+    if 'subsets' in s:
+        obj_name = 'subsets'
+    elif 'hierarchies' in s:
+        obj_name = 'hierarchies'
+
+    source_path = s.split(obj_name)[1]
+
+    if not delete_precedence:
+        key = (
+            OBJECT_PRECEDENCE.get(obj_name, 99),
+            source_path
+        )
+    else:
+        key = (
+            DELETE_OBJECT_PRECEDENCE.get(obj_name, 99),
+            source_path
+        )
+
+    return key
+
 
 class Changeset:
 
@@ -44,41 +128,73 @@ class Changeset:
     def all_removed(self) -> List[str]:
         return self.removed
 
-    def has_changes(self) -> bool:
-        return any([self.added, self.modified, self.removed])
+    @property
+    def lines(self) -> list[str]:
+        return self._build_changes()
 
     def __repr__(self):
-        changes = self._ensure_changes()
+        changes = self.lines
         if not changes:
             return "No changes"
         return "Changeset:\n" + "\n".join(changes)
 
+    def add_created(self, obj: Any, *, message: str | None = None) -> None:
+        self.added.append(obj)
 
-    def _ensure_changes(self) -> List[str]:
-        if not self.changes:
-            lines: List[str] = []
-            try:
-                if self.added:
-                    lines.extend([f"C  /{c.source_path.removesuffix('.json')}" for c in self.added])
-                if self.removed:
-                    lines.extend([f"D  /{c.source_path.removesuffix('.json')}" for c in self.removed])
+    def add_deleted(self, obj: Any, *, message: str | None = None) -> None:
+        self.removed.append(obj)
 
-                if self.modified:
-                    lines.extend([f"U  /{c['new'].source_path.removesuffix('.json')}" for c in self.modified])
-            except Exception as exc:
-                logger.error("Failed to collect changes for changeset: %s", exc)
+    def add_modified(
+            self,
+            old: Any,
+            new: Any,
+            *,
+            changes: str | None = None,
+    ) -> None:
+        self.modified.append(
+            {
+                "old": old,
+                "new": new,
+                "changes": changes or "Content changed.",
+            }
+        )
 
-            if lines:
-                self.changes = lines
-                self.sort()
+    def has_changes(self) -> bool:
+        return any([self.added, self.modified, self.removed])
 
-        return self.changes
+
+    def _build_changes(self) -> list[str]:
+        """
+        Build the normalized, sorted 'C/U/D  path' lines from the current
+        added/modified/removed lists. No side effects.
+        """
+        lines: list[str] = []
+
+        for obj in self.added:
+            path = normalize_source_path(getattr(obj, "source_path", ""))
+            if path:
+                lines.append(f"C  /{path}")
+
+        for mod in self.modified:
+            new_obj = mod["new"]
+            path = normalize_source_path(getattr(new_obj, "source_path", ""))
+            if path:
+                lines.append(f"U  /{path}")
+
+        for obj in self.removed:
+            path = normalize_source_path(getattr(obj, "source_path", ""))
+            if path:
+                lines.append(f"D  /{path}")
+
+        lines.sort(key=_sort_change_line_key)
+        return lines
 
 
     def apply(self, tm1_service: TM1Service) -> List[Any]:
         changes = []
 
         if self.has_changes():
+            self.sort()
             if self.added:
                 changes += [create_object(tm1_service=tm1_service, object_instance=a).url for a in self.added]
 
@@ -90,103 +206,38 @@ class Changeset:
 
         return changes
 
+    def sort(self):
+        if self.has_changes():
+            self.changes.sort(key=_sort_change_line_key)
 
-    def export(self, file_path: Union[str, Path]) -> Path:
+            self.added.sort(key=_source_path_sort_key)
 
+            self.modified.sort(
+                key=lambda m: _source_path_sort_key(m["new"])
+            )
+
+            self.removed.sort(
+                key=lambda obj: _source_path_sort_key(obj, delete_precedence=True)
+            )
+
+
+    def export(self, file_path: Union[str, Path]) -> None:
         output_path = Path(file_path).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps({"changes": self.changes}, indent=2), encoding="utf-8")
-        return output_path
+        output_path.write_text(json.dumps({"changes": self.lines}, indent=2), encoding="utf-8")
 
 
-    def sort(self):
-        flag_precedence = {'C': 0, 'U': 1, 'D': 2}
-        object_precedence = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'process': 4, 'chore': 5}
-
-        def __sort_changes(s: str):
-            changes_precedence = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'process': 4, 'chore': 5}
-            try:
-                flag_match = re.search(r'\A([UDC])', s)
-                if not flag_match:
-                    raise ValueError(f"Cannot parse change flag '{s}' for sorting")
-                obj_match = re.search(r'/\b(\w*)/', s)
-                if not obj_match:
-                    raise ValueError(f"Cannot parse object type '{s}' for sorting")
-                flag = flag_match.group(1)
-                obj_name = obj_match.group(1)
-
-                if 'subsets' in s:
-                    obj_name = 'subsets'
-                elif 'hierarchies' in s:
-                    obj_name = 'hierarchies'
-
-                source_path = s.split(obj_name, 1)[1]
-
-                if flag == 'D':
-                    changes_precedence = {'cubes': 0, 'subsets': 1, 'hierarchies': 2, 'dimensions': 3, 'chore': 4, 'process': 5}
-
-                key = (
-                    flag_precedence.get(flag, 99),
-                    changes_precedence.get(obj_name, 99),
-                    source_path
-                )
-
-                return key
-            except Exception as exc:
-                logger.error("Failed to sort change entry '%s': %s", s, exc)
-                return (99, 99, s)
-
-        def __sort_on_source_path(s: T | Dict[T, Any]):
-            try:
-                if isinstance(s, (Cube, Dimension, Hierarchy, Subset, Chore, Process, MDXView)):
-                    source = s.source_path
-                else:
-                    source = s["new"].source_path
-
-                obj_match = re.search(r'\A(\w*)/', source)
-                if not obj_match:
-                    raise ValueError(f"Cannot extract object name from source path '{source}'")
-                obj_name = obj_match.group(1)
-
-                if 'subsets' in source:
-                    obj_name = 'subsets'
-                elif 'hierarchies' in source:
-                    obj_name = 'hierarchies'
-
-                source_path = source.split(obj_name, 1)[1]
-
-                key = (
-                    object_precedence.get(obj_name, 99),
-                    source_path
-                )
-
-                return key
-            except Exception as exc:
-                logger.error("Failed to sort object '%s': %s", getattr(s, 'name', s), exc)
-                return (99, getattr(s, 'source_path', ''))
-
-        if self.has_changes():
-            try:
-                self.changes.sort(key=__sort_changes)
-                self.added.sort(key=__sort_on_source_path)
-                self.modified.sort(key=__sort_on_source_path)
-                if self.removed:
-                    object_precedence = {'cubes': 0, 'subsets': 1, 'hierarchies': 2, 'dimensions': 3, 'chore': 4, 'process': 5}
-                    self.removed.sort(key=__sort_on_source_path)
-            except Exception as exc:
-                logger.error("Failed to sort changeset entries: %s", exc)
-
+# --------------------------------------------------------------------------------
+# Import changeset function & helpers
+# --------------------------------------------------------------------------------
 
 def import_changeset(model1: Model, model2: Model, changeset_file) -> Changeset:
-    """
-    Build a Changeset instance from a lightweight export file and two models.
-    The file is expected to contain {"changes": [...]} entries produced by Changeset.export().
-    """
     try:
         payload = _load_changeset_payload(changeset_file)
     except Exception as exc:
         logger.error("Failed to load changeset payload from '%s': %s", changeset_file, exc)
         raise
+
     entries = payload.get("changes", [])
     if not isinstance(entries, list):
         raise ValueError("changeset payload must contain a list under 'changes'")
@@ -195,117 +246,43 @@ def import_changeset(model1: Model, model2: Model, changeset_file) -> Changeset:
     new_index = _build_path_index(model2)
 
     changeset = Changeset()
-    changeset.changes = []
 
     for raw in entries:
-        if not isinstance(raw, str) or not raw:
+        if not isinstance(raw, str):
+            continue
+        line = raw.strip()
+        if not line:
             continue
 
-        flag = raw[0]
-        path_match = re.search(r"/(.+)$", raw)
-        if not path_match:
+        parts = line.split(None, 2)
+        if len(parts) < 2:
             continue
 
-        rel_path = path_match.group(1).strip()
+        flag, path_part = parts[0], parts[1]
+
+        rel_path = path_part.lstrip("/")
+
         old_obj = _resolve_path(rel_path, old_index)
         new_obj = _resolve_path(rel_path, new_index)
 
         if flag == "C":
-            if new_obj:
-                changeset.added.append(new_obj)
+            if new_obj is not None:
+                changeset.add_created(new_obj)
         elif flag == "D":
-            if old_obj:
-                changeset.removed.append(old_obj)
+            if old_obj is not None:
+                changeset.add_deleted(old_obj)
         elif flag == "U":
-            if old_obj and new_obj:
-                changeset.modified.append({
-                    "old": old_obj,
-                    "new": new_obj,
-                    "changes": f"Content of {new_obj.__class__.__name__} '{getattr(new_obj, 'name', '')}' changed."
-                })
-
-        #changeset.changes.append(raw)
+            if old_obj is not None and new_obj is not None:
+                changeset.add_modified(
+                    old=old_obj,
+                    new=new_obj,
+                    changes=f"Content of {new_obj.__class__.__name__} "
+                            f"'{getattr(new_obj, 'name', '')}' changed."
+                )
+    changeset.sort()
 
     return changeset
 
-
-
-# --------------------------------------------------------------------------------
-# CRUD operations for apply changeset function
-# --------------------------------------------------------------------------------
-
-def create_object(tm1_service: TM1Service, object_instance: T) -> Response:
-    if type(object_instance) is Dimension:
-        return create_dimension(tm1_service=tm1_service, dimension=object_instance)
-
-    elif type(object_instance) is Hierarchy:
-        return create_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
-
-    elif type(object_instance) is Subset:
-        return create_subset(tm1_service=tm1_service, subset=object_instance)
-
-    elif type(object_instance) is Cube:
-        return create_cube(tm1_service=tm1_service, cube=object_instance)
-
-    elif type(object_instance) is Process:
-        return create_process(tm1_service=tm1_service, process=object_instance)
-
-    elif type(object_instance) is Chore:
-        return create_chore(tm1_service=tm1_service, chore=object_instance)
-
-    else:
-        raise ValueError
-
-
-def delete_object(tm1_service: TM1Service, object_instance: T) -> Response:
-    if type(object_instance) is Cube:
-        return delete_cube(tm1_service=tm1_service, cube_name=object_instance.name)
-
-    elif type(object_instance) is Subset:
-        return delete_subset(tm1_service=tm1_service, subset=object_instance)
-
-    elif type(object_instance) is Hierarchy:
-        return delete_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
-
-    elif type(object_instance) is Dimension:
-        return delete_dimension(tm1_service=tm1_service, dimension_name=object_instance.name)
-
-    elif type(object_instance) is Chore:
-        return delete_chore(tm1_service=tm1_service, chore=object_instance.name)
-
-    elif type(object_instance) is Process:
-        return delete_process(tm1_service=tm1_service, process=object_instance.name)
-
-    else:
-        raise ValueError
-
-
-def update_object(tm1_service: TM1Service, object_instance: Dict[T, Any]) -> Response:
-    if type(object_instance['new']) is Dimension:
-        return update_dimension(tm1_service=tm1_service, dimension=object_instance)
-
-    elif type(object_instance['new']) is Hierarchy:
-        return update_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
-
-    elif type(object_instance['new']) is Subset:
-        return update_subset(tm1_service=tm1_service, subset=object_instance)
-
-    elif type(object_instance['new']) is Cube:
-        return update_cube(tm1_service=tm1_service, cube=object_instance)
-
-    elif type(object_instance['new']) is Process:
-        return update_process(tm1_service=tm1_service, process=object_instance)
-
-    elif type(object_instance['new']) is Chore:
-        return update_chore(tm1_service=tm1_service, chore=object_instance)
-
-    else:
-        raise ValueError
-
-
-# --------------------------------------------------------------------------------
-# Utility for import
-# --------------------------------------------------------------------------------
 
 def _load_changeset_payload(changeset_file) -> Dict[str, Any]:
     if hasattr(changeset_file, "read"):
@@ -320,32 +297,110 @@ def _build_path_index(model: Model) -> Dict[str, Any]:
     for collection in (model.cubes, model.dimensions, model.processes, model.chores):
         for obj in collection:
             _index_object_paths(index, obj)
+
     return index
 
 
-def _resolve_path(path_fragment: str, index: Dict[str, Any]) -> Optional[Any]:
-    cleaned = path_fragment.lstrip("/")
-    if cleaned in index:
-        return index[cleaned]
-    if cleaned.endswith(".json"):
-        trimmed = cleaned[:-5]
-        return index.get(trimmed)
-    with_suffix = f"{cleaned}.json"
-    return index.get(with_suffix)
+def _resolve_path(path: str, index: Dict[str, Any]) -> Any:
+    if not path:
+        return None
+
+    if path in index:
+        return index[path]
+
+    normalized = normalize_source_path(path)
+    if normalized in index:
+        return index[normalized]
+
+    candidate_with_json = f"{normalized}.json"
+    if candidate_with_json in index:
+        return index[candidate_with_json]
+
+    return None
 
 
 def _index_object_paths(index: Dict[str, Any], obj: Any) -> None:
     source_path = getattr(obj, "source_path", None)
     if source_path:
-        normalized = source_path.replace("\\", "/").lstrip("/")
-        index[normalized] = obj
-        if normalized.endswith(".json"):
-            index[normalized[:-5]] = obj
+        normalized = normalize_source_path(source_path)
+        if normalized:
+            index[normalized] = obj
+            index[f"{normalized}.json"] = obj
 
-    child_attrs = _CHILD_RELATIONS.get(type(obj), [])
-    for attr in child_attrs:
-        children = getattr(obj, attr, None)
-        if not children:
-            continue
+    for child_attr in _CHILD_RELATIONS.get(type(obj), []):
+        children = getattr(obj, child_attr, None) or []
         for child in children:
             _index_object_paths(index, child)
+
+
+# --------------------------------------------------------------------------------
+# CRUD operations for apply changeset function
+# --------------------------------------------------------------------------------
+
+def create_object(tm1_service: TM1Service, object_instance: T) -> Response:
+    if isinstance(object_instance, Dimension):
+        return create_dimension(tm1_service=tm1_service, dimension=object_instance)
+
+    elif isinstance(object_instance, Hierarchy):
+        return create_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
+
+    elif isinstance(object_instance, Subset):
+        return create_subset(tm1_service=tm1_service, subset=object_instance)
+
+    elif isinstance(object_instance, Cube):
+        return create_cube(tm1_service=tm1_service, cube=object_instance)
+
+    elif isinstance(object_instance, Process):
+        return create_process(tm1_service=tm1_service, process=object_instance)
+
+    elif isinstance(object_instance, Chore):
+        return create_chore(tm1_service=tm1_service, chore=object_instance)
+
+    else:
+        raise ValueError
+
+
+def delete_object(tm1_service: TM1Service, object_instance: T) -> Response:
+    if isinstance(object_instance, Cube):
+        return delete_cube(tm1_service=tm1_service, cube_name=object_instance.name)
+
+    elif isinstance(object_instance, Subset):
+        return delete_subset(tm1_service=tm1_service, subset=object_instance)
+
+    elif isinstance(object_instance, Hierarchy):
+        return delete_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
+
+    elif isinstance(object_instance, Dimension):
+        return delete_dimension(tm1_service=tm1_service, dimension_name=object_instance.name)
+
+    elif isinstance(object_instance, Chore):
+        return delete_chore(tm1_service=tm1_service, chore_name=object_instance.name)
+
+    elif isinstance(object_instance, Process):
+        return delete_process(tm1_service=tm1_service, process_name=object_instance.name)
+
+    else:
+        raise ValueError
+
+
+def update_object(tm1_service: TM1Service, object_instance: Dict[T, Any]) -> Response:
+    if isinstance(object_instance['new'], Dimension):
+        return update_dimension(tm1_service=tm1_service, dimension=object_instance)
+
+    elif isinstance(object_instance['new'], Hierarchy):
+        return update_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
+
+    elif isinstance(object_instance['new'], Subset):
+        return update_subset(tm1_service=tm1_service, subset=object_instance)
+
+    elif isinstance(object_instance['new'], Cube):
+        return update_cube(tm1_service=tm1_service, cube=object_instance)
+
+    elif isinstance(object_instance['new'], Process):
+        return update_process(tm1_service=tm1_service, process=object_instance)
+
+    elif isinstance(object_instance['new'], Chore):
+        return update_chore(tm1_service=tm1_service, chore=object_instance)
+
+    else:
+        raise ValueError
