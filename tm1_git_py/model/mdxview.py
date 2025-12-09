@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Any, Dict
 
 import TM1py
@@ -54,22 +55,28 @@ class MDXView:
 
 logger = logging.getLogger(__name__)
 
-def create_mdx_view(tm1_service: TM1Service, mdx_view: MDXView, cube_name: str) -> Response:
+def create_mdx_view(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
+    cube_name = re.search(r'/(\w*)(.views)', mdx_view.source_path).group(1)
     mdx_view_object = TM1py.MDXView(cube_name=cube_name, view_name=mdx_view.name, MDX=mdx_view.mdx)
     logger.info(f"Creating MDXView: {mdx_view.name} for Cube: {cube_name}.")
     return tm1_service.views.create(mdx_view_object)
 
 
-def update_mdx_view(tm1_service: TM1Service, mdx_view: MDXView, cube_name: str) -> Response:
-    if tm1_service.views.exists(cube_name=cube_name, view_name=mdx_view.name):
-        mdx_view_object = tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=mdx_view.name)
-        mdx_view_object.mdx = mdx_view.mdx
-        logger.info(f"Updating MDXView: {mdx_view.name} for Cube: {cube_name}.")
+def update_mdx_view(tm1_service: TM1Service, mdx_view: Dict[str, Any]) -> Response:
+    mdx_view_new = mdx_view.get('new')
+
+    cube_name = re.search(r'/(\w*)(.views)', mdx_view_new.source_path).group(1)
+
+    if tm1_service.views.exists(cube_name=cube_name, view_name=mdx_view_new.name):
+        mdx_view_object = tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=mdx_view_new.name)
+        mdx_view_object.mdx = mdx_view_new.mdx
+        logger.info(f"Updating MDXView: {mdx_view_new.name} for Cube: {cube_name}.")
         return tm1_service.views.update(mdx_view_object)
     else:
-        raise ValueError(f"Cannot update view '{mdx_view.name}', view does not exist")
+        raise ValueError(f"Cannot update view '{mdx_view_new.name}', view does not exist")
 
 
-def delete_mdx_view(tm1_service: TM1Service, mdx_view_name: str, cube_name: str) -> Response:
-    logger.info(f"Deleting View: {mdx_view_name} from Cube: {cube_name}.")
-    return tm1_service.views.delete(mdx_view_name)
+def delete_mdx_view(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
+    cube_name = re.search(r'/(\w*)(.views)', mdx_view.source_path).group(1)
+    logger.info(f"Deleting View: {mdx_view.name} from Cube: {cube_name}.")
+    return tm1_service.views.delete(mdx_view.name)

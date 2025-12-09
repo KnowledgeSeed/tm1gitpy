@@ -460,7 +460,7 @@ def make_process(
 def make_mdx_view(
     name: str = "View_A",
     mdx: str = "SELECT FROM [Cube_A]",
-    source_path: str = "/views/Cube_A/View_A.json",
+    source_path: str = "cubes/Cube_A.views/View_A.json",
 ) -> MDXView:
     return MDXView(name=name, mdx=mdx, source_path=source_path)
 

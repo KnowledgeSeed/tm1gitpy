@@ -6,9 +6,11 @@ from typing import List, Dict, Any, TypeVar, Union
 
 from requests import Response
 
+from .model import MDXView
 from .model.cube import Cube, create_cube, update_cube, delete_cube
 from .model.dimension import Dimension, create_dimension, update_dimension, delete_dimension
 from .model.hierarchy import Hierarchy, create_hierarchy, update_hierarchy, delete_hierarchy
+from .model.mdxview import create_mdx_view, delete_mdx_view, update_mdx_view
 from .model.subset import Subset, create_subset, update_subset, delete_subset
 from .model.process import Process, create_process, update_process, delete_process
 from .model.chore import Chore, create_chore, update_chore, delete_chore
@@ -28,8 +30,8 @@ _CHILD_RELATIONS: Dict[type, List[str]] = {
 }
 
 FLAG_PRECEDENCE = {"C": 0, "U": 1, "D": 2}
-OBJECT_PRECEDENCE = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'processes': 4, 'chores': 5}
-DELETE_OBJECT_PRECEDENCE = {'cubes': 0, 'subsets': 1, 'hierarchies': 2, 'dimensions': 3, 'chores': 4, 'processes': 5}
+OBJECT_PRECEDENCE = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'views': 4, 'processes': 5, 'chores': 6}
+DELETE_OBJECT_PRECEDENCE = {'views': 0, 'cubes': 1, 'subsets': 2, 'hierarchies': 3, 'dimensions': 4, 'chores': 5, 'processes': 6}
 
 
 def normalize_source_path(source_path: str) -> str:
@@ -58,6 +60,8 @@ def _sort_change_line_key(s: str):
         obj_name = 'subsets'
     elif 'hierarchies' in s:
         obj_name = 'hierarchies'
+    elif 'views' in s:
+        obj_name = "views"
 
     source_path = s.split(obj_name)[1]
 
@@ -80,7 +84,7 @@ def _source_path_sort_key(s: T | Dict[T, Any], delete_precedence = False):
       - removed
       - modified (by new object)
     """
-    if isinstance(s, (Cube, Dimension, Hierarchy, Subset, Chore, Process)):
+    if isinstance(s, (Cube, MDXView, Dimension, Hierarchy, Subset, Chore, Process)):
         s = s.source_path
     else:
         raise ValueError(f"Cannot sort object type for source path '{s}'")
@@ -350,6 +354,9 @@ def create_object(tm1_service: TM1Service, object_instance: T) -> Response:
     elif isinstance(object_instance, Cube):
         return create_cube(tm1_service=tm1_service, cube=object_instance)
 
+    elif isinstance(object_instance, MDXView):
+        return create_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
+
     elif isinstance(object_instance, Process):
         return create_process(tm1_service=tm1_service, process=object_instance)
 
@@ -361,7 +368,10 @@ def create_object(tm1_service: TM1Service, object_instance: T) -> Response:
 
 
 def delete_object(tm1_service: TM1Service, object_instance: T) -> Response:
-    if isinstance(object_instance, Cube):
+    if isinstance(object_instance, MDXView):
+        return delete_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
+
+    elif isinstance(object_instance, Cube):
         return delete_cube(tm1_service=tm1_service, cube_name=object_instance.name)
 
     elif isinstance(object_instance, Subset):
@@ -395,6 +405,9 @@ def update_object(tm1_service: TM1Service, object_instance: Dict[T, Any]) -> Res
 
     elif isinstance(object_instance['new'], Cube):
         return update_cube(tm1_service=tm1_service, cube=object_instance)
+
+    elif isinstance(object_instance['new'], MDXView):
+        return update_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
 
     elif isinstance(object_instance['new'], Process):
         return update_process(tm1_service=tm1_service, process=object_instance)
