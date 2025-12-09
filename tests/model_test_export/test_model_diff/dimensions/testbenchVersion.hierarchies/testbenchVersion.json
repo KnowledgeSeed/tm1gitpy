@@ -11,7 +11,7 @@
 			"type": "Numeric"
 		},
 		{
-			"name": "Budget",
+			"name": "Simulation",
 			"type": "Numeric"
 		}
 	],

@@ -3,10 +3,10 @@
       "Name": "testbenchSales",
       "Dimensions": [
         {
-          "@id": "Dimensions('testbenchVersion')"
+          "@id": "Dimensions('testbenchPeriod')"
         },
         {
-          "@id": "Dimensions('testbenchPeriod')"
+          "@id": "Dimensions('testbenchVersion')"
         },
         {
           "@id": "Dimensions('testbenchMeasureSales')"

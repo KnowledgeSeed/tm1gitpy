@@ -3,9 +3,9 @@
     "Name": "Mock Weekly Export",
     "StartTime": "2024-01-07T05:00:00+00:00",
     "DSTSensitive": false,
-    "Active": true,
+    "Active": false,
     "ExecutionMode": "SingleCommit",
-    "Frequency": "P07DT00H00M00S",
+    "Frequency": "P07DT01H00M00S",
     "Tasks": [
         {
             "Process@odata.bind": "Processes('Mock Process Export Dimension')",

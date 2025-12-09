@@ -1,0 +1,5 @@
+{
+	"@type": "Subset",
+	"Name": "All_Periods",
+	"Expression": "{[testbenchPeriod].[testbenchPeriod].[All Periods], [testbenchPeriod].[testbenchPeriod].[2024Q1]}"
+}

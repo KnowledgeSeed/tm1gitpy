@@ -1,7 +1,7 @@
 {
     "@type": "Process",
     "Name": "Mock Process Export Dimension",
-    "HasSecurityAccess": false,
+    "HasSecurityAccess": true,
     "Code@Code.link": "Mock Process Export Dimension.ti",
     "DataSource": {
         "Type": "None"

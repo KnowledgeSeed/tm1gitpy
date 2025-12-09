@@ -1,5 +1,18 @@
 import tm1_git_py
-from tm1_git_py.model import Process, TI, Cube, MDXView, Dimension, Element, Hierarchy, Edge, Subset, Model, Rule
+from tm1_git_py.model import (
+    Process,
+    TI,
+    Cube,
+    MDXView,
+    Dimension,
+    Element,
+    Hierarchy,
+    Edge,
+    Subset,
+    Model,
+    Rule,
+    Task,
+    Chore, )
 
 dim_data = ["""
         {
@@ -155,7 +168,6 @@ def build_mock_model(include_chore: bool = False, include_rules: bool = False, a
 
     chores = []
     if include_chore:
-        from tm1_git_py.model import Chore
         chore = Chore(
             name="MockChore",
             start_time="2024-01-01T00:00:00+00:00",
@@ -326,3 +338,168 @@ def _objects_equal_case_builders():
         "cube_shallow": _cube_case,
         "process_exact": _process_case
     }
+
+
+def make_element(name: str, el_type: str = "Numeric") -> Element:
+    return Element({"Name": name, "Type": el_type})
+
+
+def make_hierarchy(
+    dimension_name: str = "Dimension_A",
+    hierarchy_name: str = "Hierarchy_A",
+    elements=None,
+    edges=None,
+):
+    if elements is None:
+        element_names = ["E1", "E2"]
+        elements = [make_element(n) for n in element_names]
+
+    if edges is None:
+        edges = [Edge(parent="Total", name="E1", weight=1)]
+
+    source_path = Hierarchy.as_link(dimension_name_base=dimension_name, name=hierarchy_name)
+
+    return Hierarchy(
+        name=hierarchy_name,
+        elements=elements,
+        edges=edges,
+        subsets=[],
+        source_path=source_path,
+    )
+
+
+def make_dimension(name: str, hierarchy_names=None, source_path=None) -> Dimension:
+    """
+    Build a real Dimension object with real Hierarchy objects.
+    """
+    if source_path is None:
+        source_path = "/dimensions/dummy"
+    hierarchies = None
+    if hierarchy_names:
+        hier_source_path = source_path + ".hierarchies/dummy.json"
+        hierarchies = [Hierarchy(name=h_name, elements=[], edges=[], subsets=[], source_path=hier_source_path)
+                       for h_name in hierarchy_names]
+        default_hierarchy = hierarchies[0]
+    else:
+        default_hierarchy = make_hierarchy(dimension_name=name, hierarchy_name=name)
+
+    return Dimension(
+        name=name,
+        hierarchies=hierarchies,
+        defaultHierarchy=default_hierarchy,
+        source_path=source_path+".json",
+    )
+
+
+def make_subset(
+    name: str,
+    expression: str,
+    dimension_name: str = "Dim_A",
+    hierarchy_name: str = "Hier_A",
+) -> Subset:
+    source_path = Subset.as_link(dimension_name_base=dimension_name,
+                                 hierarchy_name_base=hierarchy_name,
+                                 name=name)
+    return Subset(name=name, expression=expression, source_path=source_path)
+
+
+def make_chore(
+    name: str = "Chore_A",
+    start_time: str = "2025-04-22T10:07:00+01:00",
+    dst_sensitive: bool = True,
+    active: bool = False,
+    execution_mode: str = "SingleCommit",
+    frequency: str = "P01DT00H00M00S",
+    task_names=None,
+):
+    if task_names is None:
+        task_names = ["Proc1", "Proc2"]
+
+    tasks = [Task(process_name=p, parameters=[]) for p in task_names]
+
+    return Chore(
+        name=name,
+        start_time=start_time,
+        dst_sensitive=dst_sensitive,
+        active=active,
+        execution_mode=execution_mode,
+        frequency=frequency,
+        tasks=tasks,
+        source_path=f"/chores/{name}.json",
+    )
+
+
+def make_process(
+    name: str = "Proc_A",
+    has_security_access: bool = True,
+    datasource_type: str = "None",
+    parameters=None,
+    variables=None,
+) -> Process:
+    if parameters is None:
+        parameters = [
+            {"name": "pYear", "prompt": "Year", "value": "2025", "type": "Numeric"},
+        ]
+    if variables is None:
+        variables = [
+            {"name": "vCounter", "type": "String"},
+        ]
+
+    return Process(
+        name=name,
+        hasSecurityAccess=has_security_access,
+        code_link=f"{name}.ti",
+        datasource=datasource_type,
+        parameters=parameters,
+        variables=variables,
+        ti=None,
+        source_path=f"/processes/{name}.json",
+    )
+
+
+def make_mdx_view(
+    name: str = "View_A",
+    mdx: str = "SELECT FROM [Cube_A]",
+    source_path: str = "/views/Cube_A/View_A.json",
+) -> MDXView:
+    return MDXView(name=name, mdx=mdx, source_path=source_path)
+
+
+def make_rule(area: str, full_statement: str, comment: str = "") -> Rule:
+    """
+    Build a real Rule object matching tm1_git_py.model.rule.Rule.
+    area:   the rule area string, e.g. "['n']"
+    full_statement: the TI rule body, e.g. "['n'] = N: 1;"
+    comment: optional comment line, e.g. "// comment"
+    """
+    return Rule(area=area, full_statement=full_statement, comment=comment)
+
+
+def make_cube(
+    name: str = "Cube_A",
+    dimension_names=None,
+    rules=None,
+    views: list[MDXView] = None
+):
+    if dimension_names is None:
+        dimension_names = ["Dim1", "Dim2"]
+    if rules is None:
+        rule = make_rule(
+            area="['n']",
+            full_statement="['n'] = N: 1;",
+            comment="// old",
+        )
+        rules = [rule]
+
+    dimensions = []
+    for dim_name in dimension_names:
+        dim = make_dimension(dim_name, [])
+        dimensions.append(dim)
+
+    return Cube(
+        name=name,
+        dimensions=dimensions,
+        rules=rules,
+        views=views,
+        source_path=f"/cubes/{name}.json",
+    )

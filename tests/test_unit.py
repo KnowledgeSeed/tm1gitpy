@@ -1,29 +1,39 @@
+import types
 from pathlib import Path
 from typing import TypeVar
 
 import pytest
 
 import tm1_git_py.comparator
-from tm1_git_py import serialize_model
-from tm1_git_py.changeset import Changeset
-from tm1_git_py.deserializer import *
-from tm1_git_py.model import Cube, Dimension, Process, Chore, Hierarchy, MDXView, Subset, Element, TI, Model
 from config import (
     _build_mock_changeset_data,
     _objects_equal_case_builders,
     build_mock_model,
     dim_data,
     chore_data,
-    process_data
+    process_data,
+    make_dimension, make_subset, make_chore, make_process, make_mdx_view, make_cube, make_rule, make_hierarchy,
+    make_element
 )
+from tm1_git_py import serialize_model
+from tm1_git_py.changeset import Changeset
+from tm1_git_py.deserializer import *
+from tm1_git_py.model import *
+from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview
 
 T = TypeVar('T', Cube, Dimension, Process, Chore)
 
 
 TEST_ROOT = Path(__file__).resolve().parent
 test_model_dir_base = TEST_ROOT / "model_test_export" / "test_model_base"
-test_model_dir_broken = TEST_ROOT / "model_test_export" / "test_model_broken"
 test_model_dir_diff = TEST_ROOT / "model_test_export" / "test_model_diff"
+
+
+@pytest.fixture(params=list(_objects_equal_case_builders().keys()), ids=list(_objects_equal_case_builders().keys()))
+def objects_equal_data(request):
+    builders = _objects_equal_case_builders()
+    return builders[request.param]()
+
 
 
 class TestDeserializer:
@@ -112,6 +122,7 @@ class TestDeserializer:
         assert expected_key in errors, (
             f"Error key '{expected_key}' missing; collected keys: {list(errors.keys())}"
         )
+
 
 
 class TestSerializer:
@@ -281,6 +292,7 @@ class TestSerializer:
             assert path.exists(), f"Serialized file missing: {path}"
 
 
+
 class TestComparator:
 
     mock_changeset_data = _build_mock_changeset_data()
@@ -313,9 +325,8 @@ class TestComparator:
 
         comparator = tm1_git_py.Comparator()
         changeset = comparator.compare(model1, model2, mode='add_only')
-
-        assert len(changeset.added) == 2
-        assert len(changeset.modified) == 3
+        assert len(changeset.added) == 3
+        assert len(changeset.modified) == 9
         assert len(changeset.removed) == 0
 
 
@@ -326,8 +337,8 @@ class TestComparator:
         comparator = tm1_git_py.Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
 
-        assert len(changeset.added) == 2
-        assert len(changeset.modified) == 3
+        assert len(changeset.added) == 3
+        assert len(changeset.modified) == 9
         assert len(changeset.removed) == 2
 
 
@@ -336,15 +347,18 @@ class TestComparator:
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
+        expected_hierarchies = ["testbenchMeasureSales", "testbenchVersion", "testbenchPeriod", "testbenchSales"]
+
         comparator = tm1_git_py.Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         changes = str(changeset)
         added = [added for added in changeset.added if type(added) is Subset]
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Hierarchy]
 
-        assert changes.count('/dimensions') == 2
+        assert changes.count('/dimensions') == 7
         assert (isinstance(added[0], Subset) and added[0].name == "}Temp_Subset_Discount")
-        assert (isinstance(modified[0], Hierarchy) and modified[0].name == "testbenchMeasureSales")
+        for hier in modified:
+            assert (isinstance(hier, Hierarchy) and hier.name in expected_hierarchies )
 
 
     def test_comparator_cubes_change_propagation(self):
@@ -374,22 +388,28 @@ class TestComparator:
         changeset = comparator.compare(model1, model2, mode='full')
         changes = str(changeset)
         removed = [removed for removed in changeset.removed if type(removed) is Process]
+        modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Process]
 
-        assert changes.count('/processes') == 1
+        assert changes.count('/processes') == 2
         assert (isinstance(removed[0], Process) and removed[0].name == "Mock Process Load Product Data")
+        assert (isinstance(modified[0], Process) and modified[0].name == "Mock Process Export Dimension")
 
 
     def test_comparator_chores_change_propagation(self):
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
+        expected_chores = ["Mock Nightly Maintenance", "Mock Weekly Export"]
+
         comparator = tm1_git_py.Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         changes = str(changeset)
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Chore]
 
-        assert changes.count('/chores') == 1
-        assert (isinstance(modified[0], Chore) and modified[0].name == "Mock Nightly Maintenance")
+        assert changes.count('/chores') == 2
+        for chore_new in modified:
+            assert (isinstance(chore_new, Chore) and chore_new.name in expected_chores )
+
 
 
     def test_sort_changes(self):
@@ -406,8 +426,7 @@ class TestComparator:
             'new': fixture['hierarchy_new'],
             'changes': "Hierarchy updated"
         }]
-
-        changes = changeset._ensure_changes()
+        changeset.sort()
 
         expected_order = [
             "C  /dimensions/MockDim",
@@ -417,7 +436,7 @@ class TestComparator:
             "D  /cubes/MockCube"
         ]
 
-        assert changes == expected_order
+        assert changeset.lines == expected_order
         assert [obj.name for obj in changeset.added] == [
             "MockDim",
             "NewSubset",
@@ -425,7 +444,1323 @@ class TestComparator:
         ]
 
 
-@pytest.fixture(params=list(_objects_equal_case_builders().keys()), ids=list(_objects_equal_case_builders().keys()))
-def objects_equal_data(request):
-    builders = _objects_equal_case_builders()
-    return builders[request.param]()
+
+class TestChangeset:
+
+    def test_apply_uses_sorted_order_for_create_and_delete(self, mocker):
+        changeset = Changeset()
+
+        # Create one object of each type, then put them into ADDED in a scrambled order
+        dim = make_dimension("Dim_A")
+        hier = make_hierarchy("Dim_A", "H1")
+        sub = make_subset("Dim_A", "H1", "Sub1")
+        cube = make_cube("Cube_A")
+        proc = make_process("Proc_A")
+        chore = make_chore("Chore_A")
+
+        # Unscrupulously scrambled
+        changeset.added = [chore, cube, sub, proc, hier, dim]
+
+        # Same for REMOVED (different instances just to distinguish in debugging)
+        dim_del = make_dimension("Dim_Del")
+        hier_del = make_hierarchy("Dim_Del", "H_Del")
+        sub_del = make_subset("Dim_Del", "H_Del", "Sub_Del")
+        cube_del = make_cube("Cube_Del")
+        proc_del = make_process("Proc_Del")
+        chore_del = make_chore("Chore_Del")
+
+        changeset.removed = [dim_del, hier_del, sub_del, cube_del, proc_del, chore_del]
+
+        # No modified in this test
+        changeset.modified = []
+
+        # Patch create/update/delete so we can inspect call order
+        mock_create = mocker.patch("tm1_git_py.changeset.create_object")
+        mock_update = mocker.patch("tm1_git_py.changeset.update_object")
+        mock_delete = mocker.patch("tm1_git_py.changeset.delete_object")
+
+        # Give create/delete something with a .url so apply() doesn't fail
+        def create_side_effect(**kwargs):
+            obj = kwargs["object_instance"]
+            return types.SimpleNamespace(url=f"CREATE:{obj.type}:{obj.name}")
+
+        def delete_side_effect(**kwargs):
+            obj = kwargs["object_instance"]
+            return types.SimpleNamespace(url=f"DELETE:{obj.type}:{obj.name}")
+
+        mock_create.side_effect = create_side_effect
+        mock_delete.side_effect = delete_side_effect
+
+        tm1_conn = mocker.Mock()
+
+        changeset.apply(tm1_conn)
+
+        # --- Assert create order ---
+        created_types = [
+            type(call.kwargs["object_instance"])
+            for call in mock_create.call_args_list
+        ]
+
+        assert created_types == [Dimension, Hierarchy, Subset, Cube, Process, Chore]
+
+        # No updates in this test
+        mock_update.assert_not_called()
+
+        # --- Assert delete order ---
+        deleted_types = [
+            type(call.kwargs["object_instance"])
+            for call in mock_delete.call_args_list
+        ]
+
+        # For deletes, precedence is:
+        # cubes -> subsets -> hierarchies -> dimensions -> chore -> process
+        assert deleted_types == [Cube, Subset, Hierarchy, Dimension, Chore, Process]
+
+
+    def test_apply_sorts_updates_in_expected_precedence(self, mocker):
+        cs = Changeset()
+
+        dim_old = make_dimension("Dim_Old")
+        dim_new = make_dimension("Dim_New")
+        cube_old = make_cube("Cube_Old")
+        cube_new = make_cube("Cube_New")
+        proc_old = make_process("Proc_Old")
+        proc_new = make_process("Proc_New")
+
+        cs.modified = [
+            {"old": cube_old, "new": cube_new, "changes": "cube changed"},
+            {"old": proc_old, "new": proc_new, "changes": "proc changed"},
+            {"old": dim_old, "new": dim_new, "changes": "dim changed"},
+        ]
+        cs.added = []
+        cs.removed = []
+        cs.sort()
+
+        mock_create = mocker.patch("tm1_git_py.changeset.create_object")
+        mock_delete = mocker.patch("tm1_git_py.changeset.delete_object")
+        mock_update = mocker.patch("tm1_git_py.changeset.update_object")
+
+        tm1_service = mocker.Mock()
+
+        cs.apply(tm1_service)
+
+        mock_create.assert_not_called()
+        mock_delete.assert_not_called()
+
+        updated_new_objs = [
+            call.kwargs["object_instance"]["new"]
+            for call in mock_update.call_args_list
+        ]
+        updated_types = [type(o) for o in updated_new_objs]
+
+        # Same precedence as creates: Dimension → Cube → Process for this subset
+        assert updated_types == [Dimension, Cube, Process]
+
+
+
+class TestSubsetCRUD:
+
+    def test_create_subset_calls_tm1_and_returns_response(self, mocker):
+        tm1_service = mocker.Mock()
+        subset_mock = make_subset(
+            name="Subset_A",
+            expression="{[Dim_A].[Hier_A].Members}",
+            dimension_name="Dim_A",
+            hierarchy_name="Hier_A",
+        )
+
+        tm1py_subset_cls = mocker.patch("tm1_git_py.model.subset.TM1py.Subset")
+        tm1py_subset_instance = tm1py_subset_cls.return_value
+        tm1_service.subsets.create.return_value = "create-result"
+
+        result = subset.create_subset(tm1_service, subset_mock)
+
+        tm1py_subset_cls.assert_called_once_with(
+            subset_name="Subset_A",
+            dimension_name="Dim_A",
+            hierarchy_name="Hier_A",
+            expression="{[Dim_A].[Hier_A].Members}",
+        )
+        tm1_service.subsets.create.assert_called_once_with(tm1py_subset_instance)
+        assert result == "create-result"
+
+    def test_delete_subset_calls_tm1_and_returns_response(self, mocker):
+        tm1_service = mocker.Mock()
+        subset_mock = make_subset(
+            name="Subset_Delete",
+            expression="{[Dim_Del].[Hier_Del].Members}",
+            dimension_name="Dim_Del",
+            hierarchy_name="Hier_Del",
+        )
+
+        tm1_service.subsets.delete.return_value = "delete-result"
+
+        result = subset.delete_subset(tm1_service, subset_mock)
+
+        tm1_service.subsets.delete.assert_called_once_with(
+            subset_name="Subset_Delete",
+            dimension_name="Dim_Del",
+            hierarchy_name="Hier_Del",
+        )
+        assert result == "delete-result"
+
+
+    def test_update_subset_updates_expression_and_calls_tm1(self, mocker):
+        tm1_service = mocker.Mock()
+
+        subset_new = make_subset(
+            name="Subset_A",
+            expression="{[Dim_A].[Hier_A].NewMembers}",
+            dimension_name="Dim_A",
+            hierarchy_name="Hier_A",
+        )
+        subset_old = make_subset(
+            name="Subset_A",
+            expression="{[Dim_A].[Hier_A].OldMembers}",
+            dimension_name="Dim_A",
+            hierarchy_name="Hier_A",
+        )
+
+        payload = {"new": subset_new, "old": subset_old}
+        tm1_service.subsets.exists.return_value = True
+
+        tm1_subset_obj = mocker.Mock()
+        tm1_subset_obj.expression = "{[Dim_A].[Hier_A].OldMembers}"
+        tm1_service.subsets.get.return_value = tm1_subset_obj
+
+        tm1_service.subsets.update.return_value = "update-result"
+
+        result = subset.update_subset(tm1_service, payload)
+
+        tm1_service.subsets.exists.assert_called_once_with(
+            subset_name="Subset_A",
+            dimension_name="Dim_A",
+            hierarchy_name="Hier_A",
+        )
+
+        tm1_service.subsets.get.assert_called_once_with(
+            subset_name="Subset_A",
+            dimension_name="Dim_A",
+            hierarchy_name="Hier_A",
+        )
+
+        assert tm1_subset_obj.expression == "{[Dim_A].[Hier_A].NewMembers}"
+        tm1_service.subsets.update.assert_called_once_with(tm1_subset_obj)
+        assert result == "update-result"
+
+
+    def test_update_subset_raises_if_subset_does_not_exist(self, mocker):
+        tm1_service = mocker.Mock()
+
+        subset_new = make_subset(
+            name="MissingSubsetset",
+            expression="{[Dim_X].[Hier_X].Members}",
+            dimension_name="Dim_X",
+            hierarchy_name="Hier_X",
+        )
+
+        payload = {"new": subset_new}
+        tm1_service.subsets.exists.return_value = False
+
+        with pytest.raises(ValueError) as excinfo:
+            subset.update_subset(tm1_service, payload)
+
+        assert "Cannot update Subset: 'MissingSubsetset'" in str(excinfo.value)
+        tm1_service.subsets.get.assert_not_called()
+        tm1_service.subsets.update.assert_not_called()
+
+
+
+class TestHierarchyCRUD:
+
+    def test_create_hierarchy_creates_edges_and_missing_elements(self, mocker):
+        tm1_service = mocker.Mock()
+
+        elements = [make_element("E1"), make_element("E2")]
+        hierarchy_mock = make_hierarchy(
+            dimension_name="Dimension_A",
+            hierarchy_name="Hierarchy_A",
+            elements=elements,
+            edges=[
+                Edge(parent="Total", name="E1", weight=1),
+                Edge(parent="Total", name="E2", weight=2),
+            ],
+        )
+
+        tm1py_hierarchy_cls = mocker.patch("tm1_git_py.model.hierarchy.TM1py.Hierarchy")
+        tm1py_hierarchy_obj = tm1py_hierarchy_cls.return_value
+
+        # Fake response with status_code 201 so element-creation branch is executed
+        response = mocker.Mock()
+        response.status_code = 201
+        tm1_service.hierarchies.create.return_value = response
+
+        # First element does not exist, second does
+        tm1_service.elements.exists.side_effect = [False, True]
+        create_element_mock = mocker.patch("tm1_git_py.model.hierarchy.create_element")
+
+        result = hierarchy.create_hierarchy(tm1_service, hierarchy_mock)
+
+        # Assert: TM1py.Hierarchy constructed with correct name + dimension
+        tm1py_hierarchy_cls.assert_called_once_with(
+            name="Hierarchy_A",
+            dimension_name="Dimension_A",
+        )
+
+        # Edges added to the hierarchy object
+        assert tm1py_hierarchy_obj.add_edge.call_count == 2
+        tm1py_hierarchy_obj.add_edge.assert_any_call("Total", "E1", 1)
+        tm1py_hierarchy_obj.add_edge.assert_any_call("Total", "E2", 2)
+
+        # TM1 service called to create hierarchy
+        tm1_service.hierarchies.create.assert_called_once_with(tm1py_hierarchy_obj)
+        assert result is response
+
+        # Element existence checks
+        tm1_service.elements.exists.assert_any_call("Dimension_A", "Hierarchy_A", "E1")
+        tm1_service.elements.exists.assert_any_call("Dimension_A", "Hierarchy_A", "E2")
+
+        # create_element called only for the non-existing element E1
+        create_element_mock.assert_called_once()
+        _, kwargs = create_element_mock.call_args
+        assert kwargs["dimension_name"] == "Dimension_A"
+        assert kwargs["hierarchy_name"] == "Hierarchy_A"
+        assert kwargs["element"].name == "E1"
+
+
+    def test_create_hierarchy_does_not_create_elements_when_not_201(self, mocker):
+        tm1_service = mocker.Mock()
+
+        hierarchy_mock = make_hierarchy()
+        tm1py_hierarchy_cls = mocker.patch("tm1_git_py.model.hierarchy.TM1py.Hierarchy")
+
+        response = mocker.Mock()
+        response.status_code = 400
+        tm1_service.hierarchies.create.return_value = response
+        create_element_mock = mocker.patch("tm1_git_py.model.hierarchy.create_element")
+
+        result = hierarchy.create_hierarchy(tm1_service, hierarchy_mock)
+
+        assert result is response
+
+        # Still creates the TM1py hierarchy and calls TM1 create
+        tm1py_hierarchy_cls.assert_called_once()
+        tm1_service.hierarchies.create.assert_called_once()
+
+        # But no element creation is attempted
+        create_element_mock.assert_not_called()
+        tm1_service.elements.exists.assert_not_called()
+
+
+    def test_delete_hierarchy_calls_tm1_with_correct_dimension_and_name(self, mocker):
+        tm1_service = mocker.Mock()
+
+        hierarchy_mock = make_hierarchy(
+            dimension_name="Dimension_X",
+            hierarchy_name="Hierarchy_Delete",
+        )
+
+        tm1_service.hierarchies.delete.return_value = "delete-result"
+
+        result = hierarchy.delete_hierarchy(tm1_service, hierarchy_mock)
+
+        tm1_service.hierarchies.delete.assert_called_once_with(
+            dimension_name="Dimension_X",
+            hierarchy_name="Hierarchy_Delete",
+        )
+        assert result == "delete-result"
+
+
+    def test_update_hierarchy_updates_edges_when_only_edges_change(self, mocker):
+        tm1_service = mocker.Mock()
+
+        elements = [make_element("E1"), make_element("E2"), make_element("E3")]
+
+        hierarchy_old = make_hierarchy(
+            dimension_name="Dimension_A",
+            hierarchy_name="Hierarchy_A",
+            elements=elements,
+            edges=[
+                Edge(parent="Total", name="E1", weight=1),
+                Edge(parent="Total", name="E2", weight=1),
+            ],
+        )
+
+        hierarchy_new = make_hierarchy(
+            dimension_name="Dimension_A",
+            hierarchy_name="Hierarchy_A",
+            elements=elements,
+            edges=[
+                Edge(parent="Total", name="E1", weight=1),
+                Edge(parent="Total", name="E3", weight=1),
+            ],
+        )
+
+        payload = {"new": hierarchy_new, "old": hierarchy_old}
+
+        # TM1: hierarchy exists and returns a TM1 hierarchy object
+        tm1_service.hierarchies.exists.return_value = True
+        hierarchy_object = mocker.Mock()
+        tm1_service.hierarchies.get.return_value = hierarchy_object
+        tm1_service.hierarchies.update.return_value = "update-result"
+
+        # Act
+        result = hierarchy.update_hierarchy(tm1_service, payload)
+
+        # Dimension name comes from hierarchy_new.source_path
+        tm1_service.hierarchies.exists.assert_called_once_with(
+            dimension_name="Dimension_A",
+            hierarchy_name="Hierarchy_A",
+        )
+        tm1_service.hierarchies.get.assert_called_once_with(
+            dimension_name="Dimension_A",
+            hierarchy_name="Hierarchy_A",
+        )
+
+        # Edges:
+        # - (Total, E2, 1) should be removed
+        # - (Total, E3, 1) should be added
+        hierarchy_object.remove_edge.assert_called_once_with("Total", "E2")
+        hierarchy_object.add_edge.assert_called_once_with("Total", "E3", 1)
+
+        # No element updates should have happened (elements are equal)
+        hierarchy_object.remove_element.assert_not_called()
+        hierarchy_object.add_element.assert_not_called()
+        tm1_service.elements.exists.assert_not_called()
+        tm1_service.elements.get.assert_not_called()
+
+        # Final update call and return value
+        tm1_service.hierarchies.update.assert_called_once_with(hierarchy_object)
+        assert result == "update-result"
+
+
+    def test_update_hierarchy_removes_elements_when_elements_removed_only(self, mocker):
+        tm1_service = mocker.Mock()
+
+        dim_name = "Dimension_A"
+        hier_name = "Hierarchy_A"
+
+        element_old = make_element("E1")
+        elements_old = [element_old]
+        elements_new = []
+
+        hierarchy_old = make_hierarchy(dim_name, hier_name, elements_old)
+        hierarchy_new = make_hierarchy(dim_name, hier_name, elements_new)
+
+        payload = {"old": hierarchy_old, "new": hierarchy_new}
+
+        tm1_service.hierarchies.exists.return_value = True
+        hierarchy_object = mocker.Mock()
+        tm1_service.hierarchies.get.return_value = hierarchy_object
+        tm1_service.hierarchies.update.return_value = "update-result"
+
+        delete_element_mock = mocker.patch("tm1_git_py.model.hierarchy.delete_element")
+        create_element_mock = mocker.patch("tm1_git_py.model.hierarchy.create_element")
+        update_element_mock = mocker.patch("tm1_git_py.model.hierarchy.update_element")
+
+
+        result = hierarchy.update_hierarchy(tm1_service, payload)
+
+        tm1_service.hierarchies.exists.assert_called_once_with(
+            dimension_name=dim_name,
+            hierarchy_name=hier_name,
+        )
+        tm1_service.hierarchies.get.assert_called_once_with(
+            dimension_name=dim_name,
+            hierarchy_name=hier_name,
+        )
+
+        hierarchy_object.remove_element.assert_called_once_with(element_name="E1")
+        delete_element_mock.assert_called_once_with(
+            tm1_service=tm1_service,
+            hierarchy_name=hier_name,
+            dimension_name=dim_name,
+            element_name="E1",
+        )
+        create_element_mock.assert_not_called()
+        update_element_mock.assert_not_called()
+        tm1_service.elements.get.assert_not_called()
+
+        tm1_service.hierarchies.update.assert_called_once_with(hierarchy_object)
+        assert result == "update-result"
+
+
+    def test_update_hierarchy_creates_elements_when_only_new_elements_added(self, mocker):
+        tm1_service = mocker.Mock()
+
+        dim_name = "Dimension_B"
+        hier_name = "Hierarchy_B"
+
+        elements_old = []
+        element_new = make_element("E1", "Numeric")
+        elements_new = [element_new]
+
+        hierarchy_old = make_hierarchy(dim_name, hier_name, elements_old)
+        hierarchy_new = make_hierarchy(dim_name, hier_name, elements_new)
+
+        payload = {"old": hierarchy_old, "new": hierarchy_new}
+
+        tm1_service.hierarchies.exists.return_value = True
+        hierarchy_object = mocker.Mock()
+        hierarchy_object.elements.values.return_value = []
+        tm1_service.hierarchies.get.return_value = hierarchy_object
+        tm1_service.hierarchies.update.return_value = "update-result"
+
+        create_element_mock = mocker.patch("tm1_git_py.model.hierarchy.create_element")
+        update_element_mock = mocker.patch("tm1_git_py.model.hierarchy.update_element")
+        delete_element_mock = mocker.patch("tm1_git_py.model.hierarchy.delete_element")
+
+        tm1_element_obj = mocker.Mock(name="tm1_element_E1")
+        tm1_service.elements.get.return_value = tm1_element_obj
+
+
+        result = hierarchy.update_hierarchy(tm1_service, payload)
+
+        create_element_mock.assert_called_once_with(
+            tm1_service=tm1_service,
+            hierarchy_name=hier_name,
+            dimension_name=dim_name,
+            element=element_new,
+        )
+
+        tm1_service.elements.get.assert_called_once_with(
+            dimension_name=dim_name,
+            hierarchy_name=hier_name,
+            element_name="E1",
+        )
+        hierarchy_object.add_element.assert_called_once_with(
+            element_name="E1",
+            element_type="Numeric",
+        )
+        update_element_mock.assert_not_called()
+        delete_element_mock.assert_not_called()
+
+        tm1_service.hierarchies.update.assert_called_once_with(hierarchy_object)
+        assert result == "update-result"
+
+
+    def test_update_hierarchy_updates_existing_elements_and_adds_missing_to_hierarchy(self, mocker):
+        tm1_service = mocker.Mock()
+
+        dim_name = "Dimension_C"
+        hier_name = "Hierarchy_C"
+
+        e1_old = make_element("E1", "Numeric")
+        elements_old = [e1_old]
+
+        e1_new = make_element("E1", "Numeric")
+        e2_new = make_element("E2", "String")
+        elements_new = [e1_new, e2_new]
+
+        hierarchy_old = make_hierarchy(dim_name, hier_name, elements_old)
+        hierarchy_new = make_hierarchy(dim_name, hier_name, elements_new)
+
+        payload = {"old": hierarchy_old, "new": hierarchy_new}
+
+        tm1_service.hierarchies.exists.return_value = True
+        hierarchy_object = mocker.Mock()
+        hierarchy_object.elements.values.return_value = []
+        tm1_service.hierarchies.get.return_value = hierarchy_object
+        tm1_service.hierarchies.update.return_value = "update-result"
+
+        update_element_mock = mocker.patch("tm1_git_py.model.hierarchy.update_element")
+        create_element_mock = mocker.patch("tm1_git_py.model.hierarchy.create_element")
+        delete_element_mock = mocker.patch("tm1_git_py.model.hierarchy.delete_element")
+
+        tm1_element_e2 = mocker.Mock(name="tm1_element_E2")
+        tm1_service.elements.get.return_value = tm1_element_e2
+
+        result = hierarchy.update_hierarchy(tm1_service, payload)
+
+        # E1 is in both old and new -> goes through update_element + hierarchy_object.update_element
+        update_element_mock.assert_called_once_with(
+            tm1_service=tm1_service,
+            hierarchy_name=hier_name,
+            dimension_name=dim_name,
+            element=e1_new,
+        )
+        hierarchy_object.update_element.assert_called_once_with(
+            element_name="E1",
+            element_type="Numeric",
+        )
+
+        # E2 only in new -> create_element + add_element
+        create_element_mock.assert_called_once_with(
+            tm1_service=tm1_service,
+            hierarchy_name=hier_name,
+            dimension_name=dim_name,
+            element=e2_new,
+        )
+
+        tm1_service.elements.get.assert_called_once_with(
+            dimension_name=dim_name,
+            hierarchy_name=hier_name,
+            element_name="E2",
+        )
+        hierarchy_object.add_element.assert_called_once_with(
+            element_name="E2",
+            element_type="String",
+        )
+        delete_element_mock.assert_not_called()
+        hierarchy_object.remove_element.assert_not_called()
+
+        tm1_service.hierarchies.update.assert_called_once_with(hierarchy_object)
+        assert result == "update-result"
+
+
+
+class TestDimensionCRUD:
+
+    def test_create_dimension_calls_tm1_and_returns_response(self, mocker):
+        tm1_service = mocker.Mock()
+        dimension_input = mocker.Mock()
+        dimension_input.name = "TestDim"
+
+        tm1py_dimension_cls = mocker.patch("tm1_git_py.model.dimension.TM1py.Dimension")
+        tm1py_dimension_instance = tm1py_dimension_cls.return_value
+        tm1_service.dimensions.create.return_value = "create-result"
+
+        result = dimension.create_dimension(tm1_service, dimension_input)
+
+        tm1py_dimension_cls.assert_called_once_with("TestDim")
+        tm1_service.dimensions.create.assert_called_once_with(tm1py_dimension_instance)
+        assert result == "create-result"
+
+
+    def test_delete_dimension_calls_delete_and_returns_response(self, mocker):
+        tm1_service = mocker.Mock()
+        tm1_service.dimensions.delete.return_value = "delete-result"
+
+        result = dimension.delete_dimension(tm1_service, "TestDim")
+
+        tm1_service.dimensions.delete.assert_called_once_with("TestDim")
+        assert result == "delete-result"
+
+
+    def test_update_dimension_raises_if_dimension_does_not_exist(self, mocker):
+        tm1_service = mocker.Mock()
+        new_dim = make_dimension("Dim_A", ["H1"])
+        old_dim = make_dimension("Dim_A", ["H1"])
+
+        payload = {"new": new_dim, "old": old_dim}
+        tm1_service.dimensions.exists.return_value = False
+
+        with pytest.raises(ValueError) as excinfo:
+            dimension.update_dimension(tm1_service, payload)
+
+        assert "Cannot update Dimension: 'Dim_A'" in str(excinfo.value)
+        tm1_service.dimensions.get.assert_not_called()
+        tm1_service.dimensions.update.assert_not_called()
+
+
+    def test_update_dimension_adds_and_removes_hierarchies(self, mocker):
+        tm1_service = mocker.Mock()
+        dim_name = "Dim_A"
+        old_dim = make_dimension(dim_name, ["H1", "H2"])
+        new_dim = make_dimension(dim_name, ["H1", "H3"])
+
+        payload = {"new": new_dim, "old": old_dim}
+        tm1_service.dimensions.exists.return_value = True
+
+        dimension_object = mocker.Mock()
+        tm1_service.dimensions.get.return_value = dimension_object
+
+        hierarchy_H3_tm1 = mocker.Mock(name="Hierarchy_H3_TM1")
+        tm1_service.hierarchies.get.return_value = hierarchy_H3_tm1
+
+        tm1_service.dimensions.update.return_value = "update-result"
+
+        result = dimension.update_dimension(tm1_service, payload)
+
+        tm1_service.dimensions.exists.assert_called_once_with(dimension_name=dim_name)
+        tm1_service.dimensions.get.assert_called_once_with(dimension_name=dim_name)
+
+        dimension_object.remove_hierarchy.assert_called_once_with(hierarchy_name="H2")
+
+        tm1_service.hierarchies.get.assert_called_once_with(
+            dimension_name=dim_name,
+            hierarchy_name="H3",
+        )
+        dimension_object.add_hierarchy.assert_called_once_with(hierarchy_H3_tm1)
+
+        tm1_service.dimensions.update.assert_called_once_with(dimension_object)
+        assert result == "update-result"
+
+
+    def test_update_dimension_raises_if_hierarchy_to_add_missing_in_tm1(self, mocker):
+        tm1_service = mocker.Mock()
+
+        old_dim = make_dimension("Dim_A", ["H1"])
+        new_dim = make_dimension("Dim_A", ["H1", "H2"])
+
+        payload = {"new": new_dim, "old": old_dim}
+
+        tm1_service.dimensions.exists.return_value = True
+        dimension_object = mocker.Mock()
+        tm1_service.dimensions.get.return_value = dimension_object
+
+        tm1_service.hierarchies.get.side_effect = Exception("Hierarchy not found")
+
+        with pytest.raises(ValueError) as excinfo:
+            dimension.update_dimension(tm1_service, payload)
+
+        assert "Cannot update Dimension 'Dim_A' with Hierarchy: H2" in str(excinfo.value)
+        dimension_object.add_hierarchy.assert_not_called()
+
+
+
+class TestMDXViewCRUD:
+
+    def test_create_mdx_view_builds_tm1py_mdxview_and_calls_create(self, mocker):
+        tm1_service = mocker.Mock()
+        mdx_view = make_mdx_view(
+            name="View_A",
+            mdx="SELECT FROM [Cube_A]",
+        )
+
+        cube_name = "Cube_A"
+        tm1py_mdxview_cls = mocker.patch("tm1_git_py.model.mdxview.TM1py.MDXView")
+        tm1py_mdxview_instance = tm1py_mdxview_cls.return_value
+        tm1_service.views.create.return_value = "create-result"
+
+        result = mdxview.create_mdx_view(tm1_service, mdx_view, cube_name)
+
+        tm1py_mdxview_cls.assert_called_once_with(
+            cube_name=cube_name,
+            view_name="View_A",
+            MDX="SELECT FROM [Cube_A]",
+        )
+        tm1_service.views.create.assert_called_once_with(tm1py_mdxview_instance)
+        assert result == "create-result"
+
+
+    def test_delete_mdx_view_calls_tm1_and_returns_response(self, mocker):
+        tm1_service = mocker.Mock()
+        tm1_service.views.delete.return_value = "delete-result"
+        mdx_view_name = "View_To_Delete"
+        cube_name = "Cube_X"
+
+        result = mdxview.delete_mdx_view(tm1_service, mdx_view_name, cube_name)
+
+        tm1_service.views.delete.assert_called_once_with(mdx_view_name)
+        assert result == "delete-result"
+
+
+    def test_update_mdx_view_updates_mdx_and_calls_update(self, mocker):
+        tm1_service = mocker.Mock()
+        cube_name = "Cube_A"
+        mdx_view_new = make_mdx_view(
+            name="View_A",
+            mdx="SELECT {[Dim].[Elem]} ON 0 FROM [Cube_A]",
+        )
+        tm1_service.views.exists.return_value = True
+
+        tm1_mdx_view_obj = mocker.Mock()
+        tm1_mdx_view_obj.mdx = "OLD MDX"
+        tm1_service.views.get_mdx_view.return_value = tm1_mdx_view_obj
+        tm1_service.views.update.return_value = "update-result"
+
+        result = mdxview.update_mdx_view(tm1_service, mdx_view_new, cube_name)
+
+        # Assert: existence check
+        tm1_service.views.exists.assert_called_once_with(
+            cube_name=cube_name,
+            view_name="View_A",
+        )
+
+        # Assert: we got the existing MDX view from TM1
+        tm1_service.views.get_mdx_view.assert_called_once_with(
+            cube_name=cube_name,
+            view_name="View_A",
+        )
+
+        # The MDX on the TM1 object should be updated to the new MDX
+        assert tm1_mdx_view_obj.mdx == "SELECT {[Dim].[Elem]} ON 0 FROM [Cube_A]"
+
+        # And update() should be called with that object
+        tm1_service.views.update.assert_called_once_with(tm1_mdx_view_obj)
+
+        # Function returns whatever TM1 update() returned
+        assert result == "update-result"
+
+
+    def test_update_mdx_view_raises_if_view_does_not_exist(self, mocker):
+        tm1_service = mocker.Mock()
+        cube_name = "Cube_X"
+
+        mdx_view_new = make_mdx_view(
+            name="Missing_View",
+            mdx="SELECT FROM [Cube_X]",
+        )
+        tm1_service.views.exists.return_value = False
+
+        with pytest.raises(ValueError) as excinfo:
+            mdxview.update_mdx_view(tm1_service, mdx_view_new, cube_name)
+
+        assert "Cannot update view 'Missing_View'" in str(excinfo.value)
+        tm1_service.views.get_mdx_view.assert_not_called()
+        tm1_service.views.update.assert_not_called()
+
+
+
+class TestCubeCRUD:
+
+    def test_create_cube_builds_tm1py_cube_and_calls_create(self, mocker):
+        tm1_service = mocker.Mock()
+        cube_mock = make_cube(
+            name="Cube_A",
+            dimension_names=["Version", "Period", "Channel"],
+        )
+
+        tm1py_cube_cls = mocker.patch("tm1_git_py.model.cube.TM1py.Cube")
+        tm1py_cube_instance = tm1py_cube_cls.return_value
+        tm1_service.cubes.create.return_value = "create-result"
+
+        result = cube.create_cube(tm1_service, cube_mock)
+
+        expected_dims = ["Version", "Period", "Channel"]
+        expected_rule_text = cube_mock.get_rule_text()
+
+        tm1py_cube_cls.assert_called_once_with(
+            cube_mock.name,
+            expected_dims,
+            expected_rule_text,
+        )
+        tm1_service.cubes.create.assert_called_once_with(tm1py_cube_instance)
+        assert result == "create-result"
+
+
+    def test_delete_cube_calls_tm1_and_returns_response(self, mocker):
+        tm1_service = mocker.Mock()
+        tm1_service.cubes.delete.return_value = "delete-result"
+        cube_name = "Cube_To_Delete"
+
+        result = cube.delete_cube(tm1_service, cube_name)
+
+        tm1_service.cubes.delete.assert_called_once_with(cube_name)
+        assert result == "delete-result"
+
+
+    def test_update_cube_updates_views_when_rules_same(self, mocker):
+        tm1_service = mocker.Mock()
+
+        # --- CUBE DATA (old vs new) ---
+        dim_names = ["Version", "Period"]
+
+        view_common_old = MDXView(
+            name="ViewCommon",
+            mdx="SELECT FROM [Cube_A]",
+            source_path="/views/Cube_A/ViewCommon.json",
+        )
+        view_common_new = MDXView(
+            name="ViewCommon",
+            mdx="SELECT FROM [Cube_A]",
+            source_path="/views/Cube_A/ViewCommon_new.json",
+        )
+        view_add = MDXView(
+            name="ViewAdd",
+            mdx="SELECT {[Dim].[Elem]} ON 0 FROM [Cube_A]",
+            source_path="/views/Cube_A/ViewAdd.json",
+        )
+        view_remove = MDXView(
+            name="ViewRemove",
+            mdx="SELECT FROM [Cube_A]",
+            source_path="/views/Cube_A/ViewRemove.json",
+        )
+
+        views_old = [view_common_old, view_remove]
+        views_new = [view_common_new, view_add]
+
+        cube_old = make_cube(
+            name="Cube_A",
+            dimension_names=dim_names,
+            views=views_old,
+        )
+        cube_new = make_cube(
+            name="Cube_A",
+            dimension_names=dim_names,
+            views=views_new,
+        )
+
+        payload = {"old": cube_old, "new": cube_new}
+
+        # --- TM1 mocks ---
+        tm1_service.cubes.exists.return_value = True
+        cube_obj = mocker.Mock()
+        tm1_service.cubes.get.return_value = cube_obj
+        tm1_service.cubes.update.return_value = "update-result"
+
+        # Patch mdxview helpers inside cube module
+        create_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.create_mdx_view")
+        update_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.update_mdx_view")
+        delete_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.delete_mdx_view")
+
+        # --- ACT ---
+        result = cube.update_cube(tm1_service, payload)
+
+        # --- ASSERT: existence + get ---
+        tm1_service.cubes.exists.assert_called_once_with(cube_name="Cube_A")
+        tm1_service.cubes.get.assert_called_once_with("Cube_A")
+
+        # No dimension order change
+        tm1_service.cubes.update_storage_dimension_order.assert_not_called()
+
+        # --- ASSERT: views logic ---
+        # create_mdx_view called for ViewAdd
+        create_mdx_view.assert_called_once()
+        _, create_kwargs = create_mdx_view.call_args
+        assert create_kwargs["cube_name"] == "Cube_A"
+        assert create_kwargs["mdx_view"].name == "ViewAdd"
+
+        # update_mdx_view called for the common view
+        update_mdx_view.assert_called_once()
+        _, update_kwargs = update_mdx_view.call_args
+        assert update_kwargs["cube_name"] == "Cube_A"
+        assert update_kwargs["mdx_view"].name == "ViewCommon"
+
+        # delete_mdx_view called for ViewRemove
+        delete_mdx_view.assert_called_once()
+        _, delete_kwargs = delete_mdx_view.call_args
+        assert delete_kwargs["cube_name"] == "Cube_A"
+        assert delete_kwargs["mdx_view_name"] == "ViewRemove"
+
+
+    def test_update_cube_updates_rules_when_views_same(self, mocker):
+        tm1_service = mocker.Mock()
+
+        dim_names = ["Version", "Period"]
+
+        view = MDXView(
+            name="ViewSame",
+            mdx="SELECT FROM [Cube_B]",
+            source_path="/views/Cube_B/ViewSame.json",
+        )
+        views = [view]
+
+        rules_old = [
+            make_rule(
+                area="['n']",
+                full_statement="['n'] = N: 1;",
+                comment="// old",
+            )
+        ]
+        rules_new = [
+            make_rule(
+                area="['n']",
+                full_statement="['n'] = N: 2;",
+                comment="// new",
+            )
+        ]
+
+        cube_old = make_cube("Cube_B", dim_names, rules_old, views)
+        cube_new = make_cube("Cube_B", dim_names, rules_new, views)
+
+        payload = {"old": cube_old, "new": cube_new}
+
+        tm1_service.cubes.exists.return_value = True
+
+        class RulesObj:
+            def __init__(self, body: str):
+                self.body = body
+                self._text = body
+
+        cube_obj = mocker.Mock()
+        cube_obj.rules = RulesObj(body="some different rules")
+        tm1_service.cubes.get.return_value = cube_obj
+
+        tm1_service.cubes.update.return_value = "update-result"
+
+        # Patch mdxview helpers – they should NOT be called in this test
+        create_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.create_mdx_view")
+        update_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.update_mdx_view")
+        delete_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.delete_mdx_view")
+
+        # ACT
+        result = cube.update_cube(tm1_service, payload)
+
+        # ASSERT: no view operations
+        create_mdx_view.assert_not_called()
+        update_mdx_view.assert_not_called()
+        delete_mdx_view.assert_not_called()
+
+        # Rules updated
+        new_rule_text = cube_new.get_rule_text()
+        assert cube_obj.rules._text == new_rule_text
+
+        tm1_service.cubes.update.assert_called_once_with(cube_obj)
+        assert result == "update-result"
+
+
+    def test_update_cube_reorders_dimensions_when_order_changes_only(self, mocker):
+        tm1_service = mocker.Mock()
+
+        cube_old = make_cube("Cube_Order", ["A", "B", "C"])
+        cube_new = make_cube("Cube_Order", ["B", "C", "A"])
+
+        payload = {"old": cube_old, "new": cube_new}
+
+        tm1_service.cubes.exists.return_value = True
+
+        class RulesObj:
+            def __init__(self, body: str):
+                self.body = body
+                self._text = body
+
+        cube_obj = mocker.Mock()
+        cube_obj.rules = RulesObj(body="")
+        tm1_service.cubes.get.return_value = cube_obj
+
+        update_cube_views_mock = mocker.patch(
+            "tm1_git_py.model.cube._update_cube_views"
+        )
+        tm1_service.cubes.update.return_value = "update-result"
+
+        result = cube.update_cube(tm1_service, payload)
+
+        # --- Assertions on dimension reordering logic ---
+        # Existence + get
+        tm1_service.cubes.exists.assert_called_once_with(cube_name="Cube_Order")
+        tm1_service.cubes.get.assert_called_once_with("Cube_Order")
+
+        # Because order changed but set is the same, we must reorder storage dims
+        tm1_service.cubes.update_storage_dimension_order.assert_called_once_with(
+            cube_name="Cube_Order",
+            dimension_names=["B", "C", "A"],
+        )
+
+        # _update_cube_views should still be called once with new/old cubes
+        update_cube_views_mock.assert_called_once()
+        _, kwargs = update_cube_views_mock.call_args
+        assert kwargs["cube_new"] is cube_new
+        assert kwargs["cube_old"] is cube_old
+
+        # Rules should not change (both empty), so no extra logic beyond update()
+        tm1_service.cubes.update.assert_called_once_with(cube_obj)
+        assert result == "update-result"
+
+
+
+class TestProcessCRUD:
+
+    def test_create_process_builds_tm1py_process_and_calls_create(self, mocker):
+        tm1_service = mocker.Mock()
+
+        process_mock = make_process(
+            name="Proc_A",
+            has_security_access=True,
+            datasource_type="None",
+        )
+
+        tm1py_process_cls = mocker.patch("tm1_git_py.model.process.TM1py.Process")
+        tm1py_process_instance = tm1py_process_cls.return_value
+        tm1_service.processes.create.return_value = "create-result"
+
+        result = process.create_process(tm1_service, process_mock)
+
+        tm1py_process_cls.assert_called_once_with(
+            name="Proc_A",
+            has_security_access=True,
+            datasource_type="None",
+            parameters=process_mock.parameters,
+            variables=process_mock.variables,
+        )
+
+        tm1_service.processes.create.assert_called_once_with(tm1py_process_instance)
+        assert result == "create-result"
+
+
+    def test_delete_process_calls_tm1_and_returns_response(self, mocker):
+        tm1_service = mocker.Mock()
+        tm1_service.processes.delete.return_value = "delete-result"
+
+        result = process.delete_process(tm1_service, "Proc_To_Delete")
+
+        tm1_service.processes.delete.assert_called_once_with("Proc_To_Delete")
+        assert result == "delete-result"
+
+
+    def test_update_process_updates_core_fields_without_param_var_changes(self, mocker):
+        tm1_service = mocker.Mock()
+
+        process_old = make_process(
+            name="Proc_A",
+            has_security_access=False,
+            datasource_type="None"
+        )
+        process_new = make_process(
+            name="Proc_A",
+            has_security_access=True,
+            datasource_type="ODBC"
+        )
+
+        payload = {"new": process_new, "old": process_old}
+
+        tm1_service.processes.exists.return_value = True
+
+        tm1_process_obj = mocker.Mock()
+        tm1_service.processes.get.return_value = tm1_process_obj
+        tm1_service.processes.update.return_value = "update-result"
+
+        # Act
+        result = process.update_process(tm1_service, payload)
+
+        # Existence + get
+        tm1_service.processes.exists.assert_called_once_with(name_process="Proc_A")
+        tm1_service.processes.get.assert_called_once_with(name_process="Proc_A")
+
+        # Core fields updated
+        assert tm1_process_obj.datasource_type == "ODBC"
+        assert tm1_process_obj.has_security_access is True
+
+        # No parameter/variable modifications because lists are identical
+        tm1_process_obj.add_parameter.assert_not_called()
+        tm1_process_obj.remove_parameter.assert_not_called()
+        tm1_process_obj.add_variable.assert_not_called()
+        tm1_process_obj.remove_variable.assert_not_called()
+
+        # Update call + propagated result
+        tm1_service.processes.update.assert_called_once_with(tm1_process_obj)
+        assert result == "update-result"
+
+
+    def test_update_process_adds_and_removes_parameters_and_variables(self, mocker):
+        tm1_service = mocker.Mock()
+
+        params_old = [
+            {"name": "p1", "prompt": "P1", "value": "1", "type": "Numeric"},
+            {"name": "p2", "prompt": "P2", "value": "2", "type": "String"},
+        ]
+        vars_old = [
+            {"name": "v1", "type": "String"},
+            {"name": "v2", "type": "Numeric"},
+        ]
+
+        params_new = [
+            {"name": "p1", "prompt": "P1", "value": "1", "type": "Numeric"},
+            {"name": "p3", "prompt": "P3", "value": "3", "type": "String"},
+        ]
+        vars_new = [
+            {"name": "v1", "type": "String"},
+            {"name": "v3", "type": "String"},
+        ]
+
+        process_old = make_process(
+            name="Proc_B",
+            has_security_access=False,
+            datasource_type="None",
+            parameters=params_old,
+            variables=vars_old,
+        )
+        process_new = make_process(
+            name="Proc_B",
+            has_security_access=False,
+            datasource_type="None",
+            parameters=params_new,
+            variables=vars_new,
+        )
+
+        payload = {"new": process_new, "old": process_old}
+
+        tm1_service.processes.exists.return_value = True
+        tm1_process_obj = mocker.Mock()
+        tm1_service.processes.get.return_value = tm1_process_obj
+
+        update_result = mocker.sentinel.update_result
+        tm1_service.processes.update.return_value = update_result
+
+        # Act
+        result = process.update_process(tm1_service, payload)
+
+        # Check add/remove for parameters
+        tm1_process_obj.add_parameter.assert_called_once_with(
+            name="p3",
+            prompt="P3",
+            value="3",
+            parameter_type="String",
+        )
+        tm1_process_obj.remove_parameter.assert_called_once_with(name="p2")
+
+        # Check add/remove for variables
+        tm1_process_obj.add_variable.assert_called_once_with(
+            name="v3",
+            variable_type="String",
+        )
+        tm1_process_obj.remove_variable.assert_called_once_with(name="v2")
+
+        # Ensure update was still called with the process object
+        tm1_service.processes.update.assert_called_once_with(tm1_process_obj)
+        assert result is update_result
+
+
+
+class TestChoreCRUD:
+
+    def test_create_chore_builds_tm1py_chore_and_calls_create(self, mocker):
+        tm1_service = mocker.Mock()
+
+        chore_mock = make_chore(
+            name="Chore_A",
+            start_time="2025-04-22T10:07:00+01:00",
+            dst_sensitive=True,
+            active=False,
+            execution_mode="SingleCommit",
+            frequency="P01DT00H00M00S",
+            task_names=["Proc1", "Proc2"],
+        )
+
+        create_chore_task_mock = mocker.patch(
+            "tm1_git_py.model.chore.task.create_chore_task"
+        )
+        chore_task_instances = [
+            mocker.Mock(name="ChoreTask0"),
+            mocker.Mock(name="ChoreTask1"),
+        ]
+        create_chore_task_mock.side_effect = chore_task_instances
+
+        start_time_from_string = mocker.patch(
+            "tm1_git_py.model.chore.ChoreStartTime.from_string",
+            return_value="parsed-start-time",
+        )
+        frequency_from_string = mocker.patch(
+            "tm1_git_py.model.chore.ChoreFrequency.from_string",
+            return_value="parsed-frequency",
+        )
+
+        tm1py_chore_cls = mocker.patch("tm1_git_py.model.chore.TM1py.Chore")
+        tm1py_chore_instance = tm1py_chore_cls.return_value
+        tm1_service.chores.create.return_value = "create-result"
+
+        result = chore.create_chore(tm1_service, chore_mock)
+
+        assert create_chore_task_mock.call_count == 2
+        create_chore_task_mock.assert_any_call(task=chore_mock.tasks[0], step=0)
+        create_chore_task_mock.assert_any_call(task=chore_mock.tasks[1], step=1)
+
+        start_time_from_string.assert_called_once_with(chore_mock.start_time)
+        frequency_from_string.assert_called_once_with(chore_mock.frequency)
+
+        tm1py_chore_cls.assert_called_once_with(
+            name="Chore_A",
+            start_time="parsed-start-time",
+            dst_sensitivity=True,
+            active=False,
+            execution_mode="SingleCommit",
+            frequency="parsed-frequency",
+            tasks=chore_task_instances,
+        )
+
+        tm1_service.chores.create.assert_called_once_with(tm1py_chore_instance)
+        assert result == "create-result"
+
+
+    def test_delete_chore_calls_tm1_and_returns_response(self, mocker):
+        tm1_service = mocker.Mock()
+        tm1_service.chores.delete.return_value = "delete-result"
+
+        result = chore.delete_chore(tm1_service, "Chore_To_Delete")
+
+        tm1_service.chores.delete.assert_called_once_with("Chore_To_Delete")
+        assert result == "delete-result"
+
+
+    def test_update_chore_updates_fields_and_tasks_when_exists(self, mocker):
+        tm1_service = mocker.Mock()
+
+        chore_new = make_chore(
+            name="Chore_A",
+            start_time="2025-04-23T10:00:00+01:00",
+            dst_sensitive=False,
+            active=True,
+            execution_mode="MultipleCommit",
+            frequency="P02DT00H00M00S",
+            task_names=["Proc1_new", "Proc2_new"],
+        )
+        payload = {"new": chore_new}
+
+        tm1_service.chores.exists.return_value = True
+
+        tm1_chore_obj = mocker.Mock()
+        tm1_chore_obj.active = True
+
+        tm1_service.chores.get.return_value = tm1_chore_obj
+        tm1_service.chores.update.return_value = "update-result"
+        create_chore_task_mock = mocker.patch(
+            "tm1_git_py.model.chore.task.create_chore_task"
+        )
+        chore_task_instances = [
+            mocker.Mock(name="ChoreTask0_new"),
+            mocker.Mock(name="ChoreTask1_new"),
+        ]
+        create_chore_task_mock.side_effect = chore_task_instances
+
+        start_time_from_string = mocker.patch(
+            "tm1_git_py.model.chore.ChoreStartTime.from_string",
+            return_value="parsed-start-time",
+        )
+        frequency_from_string = mocker.patch(
+            "tm1_git_py.model.chore.ChoreFrequency.from_string",
+            return_value="parsed-frequency",
+        )
+
+        result = chore.update_chore(tm1_service, payload)
+
+        tm1_service.chores.exists.assert_called_once_with(chore_name="Chore_A")
+        tm1_service.chores.get.assert_called_once_with(chore_name="Chore_A")
+
+        assert create_chore_task_mock.call_count == 2
+        create_chore_task_mock.assert_any_call(task=chore_new.tasks[0], step=0)
+        create_chore_task_mock.assert_any_call(task=chore_new.tasks[1], step=1)
+
+        start_time_from_string.assert_called_once_with(chore_new.start_time)
+        frequency_from_string.assert_called_once_with(chore_new.frequency)
+        assert tm1_chore_obj.start_time == "parsed-start-time"
+        assert tm1_chore_obj.dst_sensitivity == chore_new.dst_sensitive
+        assert tm1_chore_obj.execution_mode == chore_new.execution_mode
+        assert tm1_chore_obj.frequency == "parsed-frequency"
+        assert tm1_chore_obj.tasks == chore_task_instances
+
+        tm1_chore_obj.activate.assert_not_called()
+        tm1_chore_obj.deactivate.assert_not_called()
+
+        tm1_service.chores.update.assert_called_once_with(tm1_chore_obj)
+        assert result == "update-result"
+
+
+    def test_update_chore_activates_when_active_flag_changes_from_false_to_true(self, mocker):
+        tm1_service = mocker.Mock()
+
+        chore_new = make_chore(
+            name="Chore_B",
+            active=True,
+            task_names=["ProcX"],
+        )
+        payload = {"new": chore_new}
+
+        tm1_service.chores.exists.return_value = True
+        tm1_chore_obj = mocker.Mock()
+        tm1_chore_obj.active = False
+        tm1_service.chores.get.return_value = tm1_chore_obj
+
+        mocker.patch("tm1_git_py.model.chore.task.create_chore_task", return_value=mocker.Mock())
+        mocker.patch("tm1_git_py.model.chore.ChoreStartTime.from_string", return_value="parsed-start-time")
+        mocker.patch("tm1_git_py.model.chore.ChoreFrequency.from_string", return_value="parsed-frequency")
+
+        chore.update_chore(tm1_service, payload)
+
+        tm1_chore_obj.activate.assert_called_once()
+        tm1_chore_obj.deactivate.assert_not_called()
+
+
+    def test_update_chore_raises_if_chore_does_not_exist(self, mocker):
+        tm1_service = mocker.Mock()
+
+        chore_new = make_chore(name="Missing_Chore")
+        payload = {"new": chore_new}
+        tm1_service.chores.exists.return_value = False
+
+        with pytest.raises(ValueError) as excinfo:
+            chore.update_chore(tm1_service, payload)
+
+        assert "Cannot update Chore: 'Missing_Chore'" in str(excinfo.value)
+        tm1_service.chores.get.assert_not_called()
+        tm1_service.chores.update.assert_not_called()
