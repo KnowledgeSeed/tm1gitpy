@@ -1,4 +1,6 @@
 import json
+import logging
+from sqlite3.dbapi2 import paramstyle
 from typing import Any, List, Dict, TYPE_CHECKING
 
 import TM1py
@@ -119,6 +121,8 @@ class Process:
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
 def create_process(tm1_service: TM1Service, process: Process) -> Response:
     process_object = TM1py.Process(
         name=process.name,
@@ -127,20 +131,71 @@ def create_process(tm1_service: TM1Service, process: Process) -> Response:
         parameters=process.parameters,
         variables=process.variables
     )
+    logger.info(f"Creating Process: {process.name}.")
     return tm1_service.processes.create(process_object)
 
 
 def update_process(tm1_service: TM1Service, process: Dict[str, Any]) -> Response:
     process_new = process.get('new')
+    process_old = process.get('old')
 
-    process_object = tm1_service.processes.get(name_process=process_new.name)
-    process_object.variables = process_new.variables
-    process_object.parameters = process_new.parameters
-    process_object.datasource_type = process_new.datasource
-    process_object.has_security_access = process_new.hasSecurityAccess
+    if tm1_service.processes.exists(name_process=process_new.name):
+        process_object = tm1_service.processes.get(name_process=process_new.name)
+        process_object.datasource_type = process_new.datasource
+        process_object.has_security_access = process_new.hasSecurityAccess
 
-    return tm1_service.processes.update(process_object)
+        _update_process_parameters(process_old=process_old, process_new=process_new, process_object=process_object)
+        _update_process_variables(process_old=process_old, process_new=process_new, process_object=process_object)
+
+        logger.info(f"Updating Process: {process_new.name}.")
+
+        return tm1_service.processes.update(process_object)
+    else:
+        raise ValueError(f"Cannot update Process: '{process_new.name}', Process does not exist")
 
 
-def delete_process(tm1_service: TM1Service, process: str) -> Response:
-    return tm1_service.processes.delete(process)
+def delete_process(tm1_service: TM1Service, process_name: str) -> Response:
+    logger.info(f"Deleting Process: {process_name}.")
+    return tm1_service.processes.delete(process_name)
+
+
+def _update_process_variables(process_old: Process, process_new: Process, process_object: TM1py.Process):
+    if process_new.variables != process_old.variables:
+        vars_to_add, vars_to_remove = _diff_lists(process_old.variables, process_new.variables)
+        for var in vars_to_add:
+            process_object.add_variable(
+                name=var.get('name'),
+                variable_type=var.get('type')
+            )
+        logger.info(f"Added Variables: {vars_to_add} to Process: {process_new.name}.")
+
+        for var in vars_to_remove:
+            process_object.remove_variable(name=var.get('name'))
+        logger.info(f"Removed Variables: {vars_to_remove} from Process: {process_new.name}.")
+
+
+def _update_process_parameters(process_old: Process, process_new: Process, process_object: TM1py.Process):
+    if process_new.parameters != process_old.parameters:
+        params_to_add, params_to_remove = _diff_lists(process_old.parameters, process_new.parameters)
+        for param in params_to_add:
+            process_object.add_parameter(
+                name=param.get('name'),
+                prompt=param.get('prompt'),
+                value=param.get('value'),
+                parameter_type=param.get('type')
+            )
+        logger.debug(f"Added Parameters: {params_to_add} to Process: {process_new.name}.")
+
+        for param in params_to_remove:
+            process_object.remove_parameter(name=param.get('name'))
+        logger.debug(f"Removed Parameters: {params_to_remove} from Process: {process_new.name}.")
+
+
+def _diff_lists(old_list, new_list):
+    old_tuples = {tuple(d.items()): d for d in old_list}
+    new_tuples = {tuple(d.items()): d for d in new_list}
+
+    dicts_to_add = [new_tuples[t] for t in (new_tuples.keys() - old_tuples.keys())]
+    dicts_to_remove = [old_tuples[t] for t in (old_tuples.keys() - new_tuples.keys())]
+
+    return dicts_to_add, dicts_to_remove

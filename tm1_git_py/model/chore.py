@@ -1,4 +1,5 @@
 import json
+import logging
 
 import TM1py
 from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency, ChoreTask
@@ -270,37 +271,55 @@ class Chore:
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
 def create_chore(tm1_service: TM1Service, chore: Chore) -> Response:
-    chore_tasks = []
-    chore_tasks += [task.create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore.tasks)]
+    chore_tasks = [task.create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore.tasks)]
+    frequency = chore.frequency
+    start_time = chore.start_time
     chore_object = TM1py.Chore(
         name=chore.name,
-        start_time=ChoreStartTime.from_string(chore.start_time),
+        start_time=ChoreStartTime.from_string(start_time),
         dst_sensitivity=chore.dst_sensitive,
         active=chore.active,
         execution_mode=chore.execution_mode,
-        frequency=ChoreFrequency.from_string(chore.frequency),
+        frequency=ChoreFrequency.from_string(frequency),
         tasks=chore_tasks
     )
+    task_names = [proc.process_name for proc in chore.tasks]
+    logger.info(f"Creating Chore: {chore.name} with Tasks: {task_names}.")
+
     return tm1_service.chores.create(chore_object)
 
 
 def update_chore(tm1_service: TM1Service, chore: Dict[str, Any]) -> Response:
     chore_new = chore.get('new')
 
-    chore_tasks = []
-    chore_tasks += [task.create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore_new.tasks)]
+    if tm1_service.chores.exists(chore_name=chore_new.name):
+        chore_tasks = [task.create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore_new.tasks)]
 
-    chore_object = tm1_service.chores.get(chore_name=chore_new.name)
-    chore_object.start_time = ChoreStartTime.from_string(chore_new.start_time)
-    chore_object.dst_sensitivity = chore_new.dst_sensitive
-    chore_object.active = chore_new.active
-    chore_object.execution_mode = chore_new.execution_mode
-    chore_object.frequency = ChoreFrequency.from_string(chore_new.frequency),
-    chore_object.tasks = chore_tasks
+        frequency = chore_new.frequency
+        start_time = chore_new.start_time
 
-    return tm1_service.chores.update(chore_object)
+        chore_object = tm1_service.chores.get(chore_name=chore_new.name)
+        chore_object.start_time = ChoreStartTime.from_string(start_time)
+        chore_object.dst_sensitivity = chore_new.dst_sensitive
+        chore_object.execution_mode = chore_new.execution_mode
+        chore_object.frequency = ChoreFrequency.from_string(frequency)
+        chore_object.tasks = chore_tasks
+
+        if chore_object.active != chore_new.active:
+            if chore_new.active: chore_object.activate()
+            if not chore_new.active: chore_object.deactivate()
+
+        task_names = [proc.process_name for proc in chore_new.tasks]
+        logger.info(f"Updating Chore: {chore_new.name} with Tasks: {task_names}.")
+
+        return tm1_service.chores.update(chore_object)
+    else:
+        raise ValueError(f"Cannot update Chore: '{chore_new.name}', Chore does not exist")
 
 
-def delete_chore(tm1_service: TM1Service, chore: str) -> Response:
-    return tm1_service.chores.delete(chore)
+def delete_chore(tm1_service: TM1Service, chore_name: str) -> Response:
+    logger.info(f"Deleting Chore: {chore_name}.")
+    return tm1_service.chores.delete(chore_name)

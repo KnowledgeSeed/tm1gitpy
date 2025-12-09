@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, Dict
 from TM1py import TM1Service
 from requests import Response
@@ -44,10 +45,14 @@ class Edge:
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
 def create_edge(tm1_service: TM1Service, hierarchy: str, dimension: str, edge: Edge) -> Response:
     edge_name = {(edge.parent, edge.name), edge.weight}
+    logger.debug(f"Creating Edge: {edge.name} in Hierarchy: {hierarchy}.")
     return tm1_service.elements.add_edges(hierarchy, dimension, edge_name)
 
 
 def delete_edge(tm1_service: TM1Service, hierarchy: str, dimension: str, edge: Edge) -> Response:
+    logger.debug(f"Removing Edge: {edge.name} from Hierarchy: {hierarchy}.")
     return tm1_service.elements.remove_edge(hierarchy, dimension, edge.parent, edge.name)

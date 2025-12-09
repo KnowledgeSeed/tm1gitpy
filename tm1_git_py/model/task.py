@@ -1,12 +1,12 @@
 import json
+import logging
 from typing import List, Dict, Any, Optional
 
 import TM1py
 from TM1py import ChoreTask
-from TM1py.Services import TM1Service
-from requests import Response
 
 from .process import Process
+
 
 class Task:
     def __init__(self, process_name: str, parameters: List[Dict[str, Any]]):
@@ -46,5 +46,11 @@ class Task:
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
 def create_chore_task(task: Task, step: int) -> ChoreTask:
-    return TM1py.ChoreTask(process_name=task.process_name, parameters=task.parameters, step=step)
+    try:
+        logger.info(f"Converting Task: {task.process_name} to ChoreTask object.")
+        return TM1py.ChoreTask(process_name=task.process_name, parameters=task.parameters, step=step)
+    except Exception:
+        raise  ValueError(f"Convertion of Task: {task.process_name} to ChoreTask unsuccessful.")

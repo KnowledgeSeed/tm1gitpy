@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, Dict
 
 import TM1py
@@ -51,8 +52,11 @@ class Element:
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
 def create_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element: Element) -> Response:
     element_object = TM1py.Element(name=element.name, element_type=element.type)
+    logger.debug(f"Creating Element: {element.name} in Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.create(hierarchy_name, dimension_name, element_object)
 
 
@@ -60,10 +64,12 @@ def update_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name:
     if tm1_service.elements.exists(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name):
         element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name)
         element_object.element_type = element.type
+        logger.debug(f"Updating Element: {element.name} in Hierarchy: {hierarchy_name}.")
         return tm1_service.elements.update(element_object)
     else:
-        raise ValueError(f"Cannot update element '{element.name}', element does not exist")
+        raise ValueError(f"Cannot update Element: '{element.name}', Element does not exist")
 
 
 def delete_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element_name: str) -> Response:
+    logger.debug(f"Deleting Element: {element_name} of Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.delete(hierarchy_name, dimension_name, element_name)

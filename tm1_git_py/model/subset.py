@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from typing import Any, Dict
 
@@ -53,6 +54,8 @@ class Subset:
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
 def create_subset(tm1_service: TM1Service, subset: Subset) -> Response:
     dimension_name = re.search(r'/(\w*)(.hierarchies)', subset.source_path).group(1)
     hierarchy_name = re.search(r'/(\w*)(.subsets)', subset.source_path).group(1)
@@ -61,6 +64,8 @@ def create_subset(tm1_service: TM1Service, subset: Subset) -> Response:
         subset_name=subset.name, dimension_name=dimension_name,
         hierarchy_name=hierarchy_name, expression=subset.expression
     )
+    logger.info(f"Creating Subset: {subset.name} in Hierarchy: {hierarchy_name}.")
+
     return tm1_service.subsets.create(subset_object)
 
 
@@ -72,12 +77,15 @@ def update_subset(tm1_service: TM1Service, subset: Dict[str, Any]) -> Response:
     if tm1_service.subsets.exists(subset_name=subset_new.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name):
         subset_object = tm1_service.subsets.get(subset_name=subset_new.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name)
         subset_object.expression = subset_new.expression
+        logger.info(f"Updating Subset: {subset_new.name} in Hierarchy: {hierarchy_name}.")
+
         return tm1_service.subsets.update(subset_object)
     else:
-        raise ValueError(f"Cannot update subset '{subset_new.name}', subset does not exist")
+        raise ValueError(f"Cannot update Subset: '{subset_new.name}', Subset does not exist")
 
 
 def delete_subset(tm1_service: TM1Service, subset: Subset) -> Response:
     dimension_name = re.search(r'/(\w*)(.hierarchies)', subset.source_path).group(1)
     hierarchy_name = re.search(r'/(\w*)(.subsets)', subset.source_path).group(1)
+    logger.info(f"Deleting Subset: {subset.name} from Hierarchy: {hierarchy_name}.")
     return tm1_service.subsets.delete(subset_name=subset.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name)
