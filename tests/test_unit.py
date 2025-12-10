@@ -1267,90 +1267,6 @@ class TestCubeCRUD:
         assert result == "delete-result"
 
 
-    def test_update_cube_updates_views_when_rules_same(self, mocker):
-        tm1_service = mocker.Mock()
-
-        # --- CUBE DATA (old vs new) ---
-        dim_names = ["Version", "Period"]
-
-        view_common_old = MDXView(
-            name="ViewCommon",
-            mdx="SELECT FROM [Cube_A]",
-            source_path="/views/Cube_A/ViewCommon.json",
-        )
-        view_common_new = MDXView(
-            name="ViewCommon",
-            mdx="SELECT FROM [Cube_A]",
-            source_path="/views/Cube_A/ViewCommon_new.json",
-        )
-        view_add = MDXView(
-            name="ViewAdd",
-            mdx="SELECT {[Dim].[Elem]} ON 0 FROM [Cube_A]",
-            source_path="/views/Cube_A/ViewAdd.json",
-        )
-        view_remove = MDXView(
-            name="ViewRemove",
-            mdx="SELECT FROM [Cube_A]",
-            source_path="/views/Cube_A/ViewRemove.json",
-        )
-
-        views_old = [view_common_old, view_remove]
-        views_new = [view_common_new, view_add]
-
-        cube_old = make_cube(
-            name="Cube_A",
-            dimension_names=dim_names,
-            views=views_old,
-        )
-        cube_new = make_cube(
-            name="Cube_A",
-            dimension_names=dim_names,
-            views=views_new,
-        )
-
-        payload = {"old": cube_old, "new": cube_new}
-
-        # --- TM1 mocks ---
-        tm1_service.cubes.exists.return_value = True
-        cube_obj = mocker.Mock()
-        tm1_service.cubes.get.return_value = cube_obj
-        tm1_service.cubes.update.return_value = "update-result"
-
-        # Patch mdxview helpers inside cube module
-        create_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.create_mdx_view")
-        update_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.update_mdx_view")
-        delete_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.delete_mdx_view")
-
-        # --- ACT ---
-        result = cube.update_cube(tm1_service, payload)
-
-        # --- ASSERT: existence + get ---
-        tm1_service.cubes.exists.assert_called_once_with(cube_name="Cube_A")
-        tm1_service.cubes.get.assert_called_once_with("Cube_A")
-
-        # No dimension order change
-        tm1_service.cubes.update_storage_dimension_order.assert_not_called()
-
-        # --- ASSERT: views logic ---
-        # create_mdx_view called for ViewAdd
-        create_mdx_view.assert_called_once()
-        _, create_kwargs = create_mdx_view.call_args
-        assert create_kwargs["cube_name"] == "Cube_A"
-        assert create_kwargs["mdx_view"].name == "ViewAdd"
-
-        # update_mdx_view called for the common view
-        update_mdx_view.assert_called_once()
-        _, update_kwargs = update_mdx_view.call_args
-        assert update_kwargs["cube_name"] == "Cube_A"
-        assert update_kwargs["mdx_view"].name == "ViewCommon"
-
-        # delete_mdx_view called for ViewRemove
-        delete_mdx_view.assert_called_once()
-        _, delete_kwargs = delete_mdx_view.call_args
-        assert delete_kwargs["cube_name"] == "Cube_A"
-        assert delete_kwargs["mdx_view_name"] == "ViewRemove"
-
-
     def test_update_cube_updates_rules_when_views_same(self, mocker):
         tm1_service = mocker.Mock()
 
@@ -1396,18 +1312,8 @@ class TestCubeCRUD:
 
         tm1_service.cubes.update.return_value = "update-result"
 
-        # Patch mdxview helpers – they should NOT be called in this test
-        create_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.create_mdx_view")
-        update_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.update_mdx_view")
-        delete_mdx_view = mocker.patch("tm1_git_py.model.cube.mdxview.delete_mdx_view")
-
         # ACT
         result = cube.update_cube(tm1_service, payload)
-
-        # ASSERT: no view operations
-        create_mdx_view.assert_not_called()
-        update_mdx_view.assert_not_called()
-        delete_mdx_view.assert_not_called()
 
         # Rules updated
         new_rule_text = cube_new.get_rule_text()
@@ -1436,9 +1342,6 @@ class TestCubeCRUD:
         cube_obj.rules = RulesObj(body="")
         tm1_service.cubes.get.return_value = cube_obj
 
-        update_cube_views_mock = mocker.patch(
-            "tm1_git_py.model.cube._update_cube_views"
-        )
         tm1_service.cubes.update.return_value = "update-result"
 
         result = cube.update_cube(tm1_service, payload)
@@ -1453,12 +1356,6 @@ class TestCubeCRUD:
             cube_name="Cube_Order",
             dimension_names=["B", "C", "A"],
         )
-
-        # _update_cube_views should still be called once with new/old cubes
-        update_cube_views_mock.assert_called_once()
-        _, kwargs = update_cube_views_mock.call_args
-        assert kwargs["cube_new"] is cube_new
-        assert kwargs["cube_old"] is cube_old
 
         # Rules should not change (both empty), so no extra logic beyond update()
         tm1_service.cubes.update.assert_called_once_with(cube_obj)

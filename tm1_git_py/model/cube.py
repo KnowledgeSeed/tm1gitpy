@@ -125,7 +125,7 @@ def create_cube(tm1_service: TM1Service, cube: Cube) -> Response:
 def update_cube(tm1_service: TM1Service, cube: Dict[str, Any]) -> Response:
     cube_new = cube.get('new')
     cube_old = cube.get('old')
-    if tm1_service.cubes.exists(cube_name=cube_new.name):
+    if tm1_service.cubes.exists(cube_name=cube_new.name) and cube_new.name == cube_old.name:
         dimensions_new = [d.name for d in cube_new.dimensions]
         dimensions_old = [d.name for d in cube_old.dimensions]
         cube_object = tm1_service.cubes.get(cube_new.name)
@@ -138,15 +138,21 @@ def update_cube(tm1_service: TM1Service, cube: Dict[str, Any]) -> Response:
                 logger.info(f"Updated Dimension order for Cube: {cube_new.name}.")
             else:
                 # TODO: data_copy_intercube to temp
-                old_dims = [d.name for d in cube_old.dimensions]
-                added_dims = set(d.name for d in cube_new.dimensions) - set(old_dims)
-                if added_dims:
+                added_dims = list(set(dimensions_new) - set(dimensions_old))
+                if len(added_dims) == 1:
                     pass
+                    """
+                    _add_dimension_to_cube(
+                        tm1_service=tm1_service,
+                        cube_old=cube_old,
+                        cube_new=cube_new,
+                        new_dimension_name=added_dims[0].name,
+                        measure_dimension_name=""
+                    )
+                    """
                 logger.warning(f"Dimensions for Cube: {cube_new.name} changed. Cube will be recreated to match new Dimension set.")
                 #delete_cube(tm1_service=tm1_service, cube_name=cube_new.name)
                 #return create_cube(tm1_service=tm1_service, cube=cube_new)
-
-        _update_cube_views(tm1_service=tm1_service, cube_new=cube_new, cube_old=cube_old)
 
         new_rule_text = cube_new.get_rule_text()
         if cube_object.rules.body != new_rule_text:
@@ -163,21 +169,189 @@ def delete_cube(tm1_service: TM1Service, cube_name: str) -> Response:
     return tm1_service.cubes.delete(cube_name)
 
 
-def _update_cube_views(tm1_service: TM1Service, cube_new: Cube, cube_old: Cube):
-    views_new = cube_new.views
-    views_old = cube_old.views
+def _build_full_cube_mdx(
+        cube_name: str,
+        dimension_names: List[str],
+        measure_dimension_name: str
+) -> str:
+    """
+    Build a simple MDX that reads all data from a cube, assuming there is a
+    single 'measure' dimension (measure_dimension_name) and all other
+    dimensions should be fully cross-joined on rows.
 
-    if views_new != views_old:
+    This is intentionally simple and generic. For large cubes you may want
+    to restrict subsets instead of TM1SUBSETALL everywhere.
+    """
+    non_measure_dims = [dim for dim in dimension_names if dim != measure_dimension_name]
 
-        views_to_update = list(set(views_old) & set(views_new))
-        views_to_add = list(set(views_new) - set(views_old))
-        views_to_remove = list(set(views_old) - set(views_new))
+    if not non_measure_dims:
+        raise ValueError("At least one non-measure dimension is required to build MDX.")
 
-        for view in views_to_add:
-            mdxview.create_mdx_view(tm1_service=tm1_service, cube_name=cube_new.name, mdx_view=view)
-        for view in views_to_update:
-            mdxview.update_mdx_view(tm1_service=tm1_service, cube_name=cube_new.name, mdx_view=view)
-        for view in views_to_remove:
-            mdxview.delete_mdx_view(tm1_service=tm1_service, cube_name=cube_new.name, mdx_view_name=view.name)
+    rows_mdx = " * ".join(f"TM1SUBSETALL([{dim}])" for dim in non_measure_dims)
 
-        logger.info(f"Updated Views for Cube: {cube_new.name}.")
+    mdx = f"""
+        SELECT
+            {{ TM1SUBSETALL([{measure_dimension_name}]) }} ON COLUMNS,
+            {{ {rows_mdx} }} ON ROWS
+        FROM [{cube_name}]
+        """
+    return mdx.strip()
+
+
+def _get_first_leaf_element_name(tm1_service: TM1Service, dimension_name: str) -> str:
+    """
+    Return the name of the first leaf element in the default hierarchy
+    (hierarchy with the same name as the dimension).
+    """
+    hierarchy = tm1_service.hierarchies.get(
+        dimension_name=dimension_name,
+        hierarchy_name=dimension_name
+    )
+
+    leaf_names = [
+        elem.name
+        for elem in hierarchy.elements.values()
+        if elem.element_type != "Consolidated"
+    ]
+
+    if not leaf_names:
+        raise ValueError(
+            f"Dimension '{dimension_name}' has no leaf elements; "
+            f"cannot determine default target element for redimensionalisation."
+        )
+
+    leaf_names.sort()
+    first_leaf = leaf_names[0]
+    logger.info(
+        f"Using first leaf element '{first_leaf}' as default for Dimension '{dimension_name}'."
+    )
+    return first_leaf
+
+
+def _add_dimension_to_cube(
+        tm1_service: TM1Service,
+        cube_old: Cube,
+        cube_new: Cube,
+        new_dimension_name: str,
+        measure_dimension_name: str,
+        logging_level: str = "INFO"
+) -> None:
+    """
+    Recreate a cube with an additional dimension using tm1-bedrock-py's
+    data_copy_intercube. When copying from the old (n-dim) cube into the
+    temporary (n+1-dim) cube, the new dimension is always populated with
+    the FIRST LEAF element of that dimension.
+
+    Assumptions:
+    - cube_old.name == cube_new.name (same logical cube, changed structure).
+    - Exactly one new dimension is added.
+    - The new dimension exists in TM1 (with at least one leaf) before this runs.
+    - measure_dimension_name is the name of the 'measure' dimension.
+    """
+
+    cube_name = cube_old.name
+    if cube_new.name != cube_old.name:
+        raise ValueError(
+            f"Cube name mismatch: cube_old.name={cube_old.name}, cube_new.name={cube_new.name}. "
+            f"This helper expects a structural change of the same cube."
+        )
+
+    dims_old = [d.name for d in cube_old.dimensions]
+    dims_new = [d.name for d in cube_new.dimensions]
+
+    added_dims = list(set(dims_new) - set(dims_old))
+    if len(added_dims) != 1:
+        raise ValueError(
+            f"Expected exactly one new dimension to be added, got {added_dims!r} "
+            f"(old={dims_old}, new={dims_new})"
+        )
+
+    logger.info(
+        f"Adding Dimension '{new_dimension_name}' to Cube '{cube_name}' via data_copy_intercube."
+    )
+
+    # 1) Determine the default element for the new dimension: FIRST LEAF
+    default_new_element = _get_first_leaf_element_name(
+        tm1_service=tm1_service,
+        dimension_name=new_dimension_name
+    )
+
+    mapping_steps_first_leaf = [
+        {
+            "method": "replace",
+            "mapping": {
+                new_dimension_name: {
+                    "*": default_new_element
+                }
+            }
+        }
+    ]
+
+    # 2) Create a temp cube with the new dimensionality and copy data old -> temp, forcing the new dim to first leaf.
+    temp_cube_name = f"{cube_name}__tmp_add_{new_dimension_name}"
+
+    if tm1_service.cubes.exists(temp_cube_name):
+        logger.warning(f"Temporary Cube '{temp_cube_name}' already exists. Deleting it.")
+        tm1_service.cubes.delete(temp_cube_name)
+
+    temp_cube_object = TM1py.Cube(
+        name=temp_cube_name,
+        dimensions=dims_new,
+        rules=""
+    )
+    logger.info(
+        f"Creating temporary Cube '{temp_cube_name}' with Dimensions: {dims_new}."
+    )
+    tm1_service.cubes.create(temp_cube_object)
+
+    source_mdx_old = _build_full_cube_mdx(
+        cube_name=cube_name,
+        dimension_names=dims_old,
+        measure_dimension_name=measure_dimension_name
+    )
+
+    logger.info(
+        f"Copying data from old Cube '{cube_name}' to temporary Cube '{temp_cube_name}' "
+        f"using data_copy_intercube (new dim -> first leaf '{default_new_element}')."
+    )
+    data_copy_intercube(
+        tm1_service=tm1_service,
+        data_mdx=source_mdx_old,
+        target_cube_name=temp_cube_name,
+        mapping_steps=mapping_steps_first_leaf,
+        clear_target=True,
+        logging_level=logging_level
+    )
+
+    # 3) Delete the original cube and recreate it with the new dimensionality
+    logger.warning(f"Deleting original Cube '{cube_name}' before recreation.")
+    delete_cube(tm1_service=tm1_service, cube_name=cube_name)
+
+    logger.info(
+        f"Recreating Cube '{cube_name}' with new Dimensions: {dims_new} and rules "
+        f"from your model definition."
+    )
+    create_cube(tm1_service=tm1_service, cube=cube_new)
+
+    # 4) Copy data from temp cube into the final re-created cube
+    source_mdx_temp = _build_full_cube_mdx(
+        cube_name=temp_cube_name,
+        dimension_names=dims_new,
+        measure_dimension_name=measure_dimension_name
+    )
+
+    logger.info(
+        f"Copying data from temporary Cube '{temp_cube_name}' back to final Cube '{cube_name}'."
+    )
+    data_copy_intercube(
+        tm1_service=tm1_service,
+        data_mdx=source_mdx_temp,
+        target_cube_name=cube_name,
+        mapping_steps=None,
+        clear_target=True,
+        logging_level=logging_level
+    )
+
+    # 5) Clean up temporary cube
+    logger.info(f"Deleting temporary Cube '{temp_cube_name}'.")
+    tm1_service.cubes.delete(temp_cube_name)
