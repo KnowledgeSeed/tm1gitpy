@@ -83,9 +83,12 @@ class Dimension:
 
 logger = logging.getLogger(__name__)
 
-def create_dimension(tm1_service: TM1Service, dimension: Dimension) -> Response:
-    dimension_object = TM1py.Dimension(dimension.name)
-    logger.info(f"Creating Dimension: {dimension.name}.")
+def create_dimension(tm1_service: TM1Service, dimension: Dimension | str) -> Response:
+    dim_name = dimension
+    if isinstance(dimension, Dimension):
+        dim_name = dimension.name
+    dimension_object = TM1py.Dimension(dim_name)
+    logger.info(f"Creating Dimension: {dim_name}.")
 
     return tm1_service.dimensions.create(dimension_object)
 

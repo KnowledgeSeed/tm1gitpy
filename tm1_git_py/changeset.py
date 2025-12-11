@@ -194,7 +194,7 @@ class Changeset:
         return lines
 
 
-    def apply(self, tm1_service: TM1Service) -> List[Any]:
+    def apply(self, tm1_service: TM1Service, **kwargs) -> List[Any]:
         changes = []
 
         if self.has_changes():
@@ -203,7 +203,7 @@ class Changeset:
                 changes += [create_object(tm1_service=tm1_service, object_instance=a).url for a in self.added]
 
             if self.modified:
-                changes += [update_object(tm1_service=tm1_service, object_instance=m) for m in self.modified]
+                changes += [update_object(tm1_service=tm1_service, object_instance=m, **kwargs) for m in self.modified]
 
             if self.removed:
                 changes += [delete_object(tm1_service=tm1_service, object_instance=d).url for d in self.removed]
@@ -393,7 +393,7 @@ def delete_object(tm1_service: TM1Service, object_instance: T) -> Response:
         raise ValueError
 
 
-def update_object(tm1_service: TM1Service, object_instance: Dict[T, Any]) -> Response:
+def update_object(tm1_service: TM1Service, object_instance: Dict[T, Any], **kwargs) -> Response:
     if isinstance(object_instance['new'], Dimension):
         return update_dimension(tm1_service=tm1_service, dimension=object_instance)
 
@@ -404,7 +404,7 @@ def update_object(tm1_service: TM1Service, object_instance: Dict[T, Any]) -> Res
         return update_subset(tm1_service=tm1_service, subset=object_instance)
 
     elif isinstance(object_instance['new'], Cube):
-        return update_cube(tm1_service=tm1_service, cube=object_instance)
+        return update_cube(tm1_service=tm1_service, cube=object_instance, **kwargs)
 
     elif isinstance(object_instance['new'], MDXView):
         return update_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
