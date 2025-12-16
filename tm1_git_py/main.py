@@ -8,10 +8,11 @@ from exporter import export
 from config import TM1ServersConfig
 from serializer import serialize_model
 from deserializer import deserialize_model
-from comparator import Comparator
+from model import Model
+from filter import filter
 
 
-def tm1_connection(server_name: str) -> TM1Service:
+def _tm1_connection(server_name: str) -> TM1Service:
     """Creates a TM1 connection before tests and closes it after all tests."""
     
     config = TM1ServersConfig()
@@ -25,39 +26,83 @@ def tm1_connection(server_name: str) -> TM1Service:
     )
     return tm1
 
+def _prepare_model_folder(model_folder: str, overwrite: bool = False):
+     # Check if export folder exists
+    model_path = Path(model_folder)
+    if model_path.exists() and model_path.is_dir():
+        if not overwrite:
+            print(f"Error: Model folder '{model_folder}' already exists. Use --overwrite flag to clear and overwrite.", file=sys.stderr)
+            sys.exit(1)
+        else:
+            # Clear the model folder
+            print(f"Clearing existing model folder: {model_folder}")
+            shutil.rmtree(model_folder)
+
+def _filter(model, filter_file) -> Model:
+    # Apply filter if specified
+    if filter_file:
+        filter_path = Path(filter_file)
+        if not filter_path.exists():
+            print(f"Error: Filter file '{filter_file}' not found.", file=sys.stderr)
+            sys.exit(1)
+        
+        print(f"Applying filter from: {filter_file}")
+        try:
+            with open(filter_path, 'r', encoding='utf-8') as f:
+                filter_rules = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+            
+            print(f"Loaded {len(filter_rules)} filter rules")
+            filtered_model = filter(model, filter_rules)
+            print("Filter applied successfully")
+            return filtered_model
+        except Exception as e:
+            print(f"Error applying filter: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        return model
+
 
 parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 Model Version Control Tool")
-parser.add_argument('command', type=str, choices=['export', 'import', 'compare'], help="Command to execute")
+parser.add_argument('command', type=str, choices=['export', 'filter', 'compare'], help="Command to execute")
 parser.add_argument('-s', '--server', type=str, help="TM1 server to use from tm1servers.yaml")
-parser.add_argument('-e', '--export_folder', type=str, default='export', help="Folder to export the model to or import from (default: 'export')")
+parser.add_argument('-m', '--model_folder', type=str, default='export', help="Folder to reference model for export and filter")
+parser.add_argument('-fo', '--filter_output', type=str, default='export2', help="Folder to output filtered model")
 parser.add_argument('-o', '--overwrite', action='store_true', help="Overwrite existing export folder (clears folder if exists)")
+parser.add_argument('-f', '--filter', type=str, help="filter.txt file location for export")
 args = parser.parse_args()
 
-tm1_service = tm1_connection(args.server)
-export_folder = args.export_folder or 'export'
+if args.command == 'export':
+    tm1_service = _tm1_connection(args.server)
+    model_folder = args.model_folder or 'export'
 
-# Check if export folder exists
-export_path = Path(export_folder)
-if export_path.exists() and export_path.is_dir():
-    if not args.overwrite:
-        print(f"Error: Export folder '{export_folder}' already exists. Use --overwrite flag to clear and overwrite.", file=sys.stderr)
-        sys.exit(1)
+    _prepare_model_folder(model_folder, args.overwrite)
+
+    print(f"Exporting model to folder: {model_folder}")
+    exported_model, export_errors = export(tm1_service)
+
+    # Print any export errors
+    if export_errors and any(export_errors.values()):
+        print("Export errors encountered:")
+        for error_type, errors in export_errors.items():
+            if errors:
+                print(f"  {error_type}: {errors}")
     else:
-        # Clear the export folder
-        print(f"Clearing existing export folder: {export_folder}")
-        shutil.rmtree(export_folder)
+        print("Export completed successfully with no errors")
 
-print(f"Exporting model to folder: {export_folder}")
-exported_model, export_errors = export(tm1_service)
+    exported_model = _filter(exported_model, args.filter)
+    
+    serialize_model(exported_model, model_folder)
+    print(f"Model serialized to: {model_folder}")
 
-# Print any export errors
-if export_errors and any(export_errors.values()):
-    print("Export errors encountered:")
-    for error_type, errors in export_errors.items():
-        if errors:
-            print(f"  {error_type}: {errors}")
-else:
-    print("Export completed successfully with no errors")
+elif args.command == 'filter':
+    model_folder = args.model_folder or 'export'
+    filter_output = args.filter_output or 'export'
+    print(f"Loading model from folder: {model_folder}")
 
-serialize_model(exported_model, export_folder)
-print(f"Model serialized to: {export_folder}")
+    _prepare_model_folder(filter_output, args.overwrite)
+    model, errors = deserialize_model(model_folder)
+
+    filtered_model = _filter(model, args.filter)
+
+    serialize_model(filtered_model, filter_output)
+    print(f"Model serialized to: {filter_output}")

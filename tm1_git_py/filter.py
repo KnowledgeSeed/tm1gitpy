@@ -1,11 +1,6 @@
 import fnmatch
 from typing import List
-from .model.model import Model
-from .model.cube import Cube
-from .model.dimension import Dimension
-from .model.process import Process
-from .model.chore import Chore
-from .model.task import Task
+from model.model import Model
 
 
 def _perform_dependency_check(model: Model):
