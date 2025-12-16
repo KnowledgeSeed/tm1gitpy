@@ -1,17 +1,15 @@
+from collections.abc import Callable, Iterable, Mapping
 import logging
-from typing import List, Dict, Any, Optional, Callable, Tuple, Iterable, Mapping
-
-from .changeset import Changeset
-from .model import Hierarchy, Subset, MDXView
-from .model.chore import Chore
-from .model.cube import Cube
-from .model.dimension import Dimension
-from .model.model import Model
-from .model.process import Process
-
+from typing import List, Dict, Any, Optional, Tuple
+from changeset import Changeset
+from model import Hierarchy, Subset, MDXView
+from model import Chore
+from model import Cube
+from model import Dimension
+from model import Model
+from model import Process
 
 logger = logging.getLogger(__name__)
-
 
 def _dimensions_equal_shallow(old_dimension: Dimension, new_dimension: Dimension) -> bool:
     try:
@@ -85,8 +83,6 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
     except AttributeError as exc:
         logger.error("Cube comparison failed due to missing attributes: %s", exc)
         return False
-
-
 class Comparator:
     _CHILD_RELATIONS: Mapping[type, List[Tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],

@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Dict
+from typing import Any
 from TM1py import TM1Service
 from requests import Response
 

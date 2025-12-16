@@ -1,24 +1,20 @@
 import json
 import os
-from typing import Dict, List
-from TM1py import TM1Service
-from TM1py.Utils import format_url
-
-from .model.chore import Chore
-from .model.cube import Cube
-from .model.dimension import Dimension
-from .model.element import Element
-from .model.hierarchy import Hierarchy
-from .model.mdxview import MDXView
-from .model.model import Model
-from .model.subset import Subset
-from .model.process import Process
-import TM1py
 import re
+from typing import Dict, List
 
-from .model.ti import TI
-from .model.task import Task
-from .model.rule import Rule
+from model.chore import Chore
+from model.cube import Cube
+from model.dimension import Dimension
+from model.element import Element
+from model.hierarchy import Hierarchy
+from model.mdxview import MDXView
+from model.model import Model
+from model.subset import Subset
+from model.process import Process
+from model.ti import TI
+from model.task import Task
+from model.rule import Rule
 
 
 def deserialize_model(dir) -> Model:
@@ -35,8 +31,10 @@ def deserialize_model(dir) -> Model:
 
     _cubes, _cube_errors = deserialize_cubes(cubes_dir, _dimensions)
 
-    _model = Model(cubes=_cubes.values(), dimensions=_dimensions.values(), processes=_processes.values(),
-                   chores=_chores.values())
+    _model = Model(cubes=list(_cubes.values()), 
+                   dimensions=list(_dimensions.values()), 
+                   processes=list(_processes.values()),
+                   chores=list(_chores.values()))
     _errors = _dim_errors | _cube_errors | _process_errors | _chore_errors
     return _model, _errors
 

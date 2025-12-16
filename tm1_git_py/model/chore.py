@@ -5,9 +5,8 @@ import TM1py
 from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency, ChoreTask
 from requests import Response
 from typing import Any, Dict, List
-
-from . import task
 from .task import Task
+from model import task
 
 # {
 # 	"@type": "Chore",

@@ -24,16 +24,16 @@ class TI:
         if not isinstance(other, TI):
             return NotImplemented
 
-        if self.prolog_procedure != other.prolog_procedure.replace('\r', '').strip():
+        if TI.normalize_text(self.prolog_procedure) != TI.normalize_text(other.prolog_procedure):
             return False
 
-        if self.metadata_procedure != other.metadata_procedure.replace('\r', '').strip():
+        if TI.normalize_text(self.metadata_procedure) != TI.normalize_text(other.metadata_procedure):
             return False
 
-        if self.data_procedure != other.data_procedure.replace('\r', '').strip():
+        if TI.normalize_text(self.data_procedure) != TI.normalize_text(other.data_procedure):
             return False
 
-        if self.epilog_procedure != other.epilog_procedure.replace('\r', '').strip():
+        if TI.normalize_text(self.epilog_procedure) != TI.normalize_text(other.epilog_procedure):
             return False
 
         return True
@@ -48,6 +48,10 @@ class TI:
             'data_procedure': self.data_procedure,
             'epilog_procedure': self.epilog_procedure,
         }
+    
+    @classmethod
+    def normalize_text(cls, text: str) -> str:
+        return text.replace('\r\n', os.linesep).replace('\r', os.linesep).replace('\n', os.linesep).strip() 
 
     @classmethod
     def from_string(cls, ti):

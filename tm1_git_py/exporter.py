@@ -5,21 +5,21 @@ from typing import Dict, List
 from TM1py import TM1Service
 from TM1py.Utils import format_url
 
-from .model.chore import Chore
-from .model.cube import Cube
-from .model.dimension import Dimension
-from .model.edge import Edge
-from .model.element import Element
-from .model.hierarchy import Hierarchy
-from .model.mdxview import MDXView
-from .model.model import Model
-from .model.subset import Subset
-from .model.process import Process
+from model.chore import Chore
+from model.cube import Cube
+from model.dimension import Dimension
+from model.edge import Edge
+from model.element import Element
+from model.hierarchy import Hierarchy
+from model.mdxview import MDXView
+from model.model import Model
+from model.subset import Subset
+from model.process import Process
 import TM1py
 
-from .model.ti import TI
-from .model.task import Task
-from .model.rule import Rule
+from model.ti import TI
+from model.task import Task
+from model.rule import Rule
 
 
 def tm1_connection() -> TM1Service:
@@ -45,13 +45,12 @@ def export(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
 
     _chores, _chore_errors = chores_to_model(tm1_conn)
 
-    _model = Model(cubes=_cubes.values(),
-                   dimensions=_dimensions.values(),
-                   processes=_processes.values(),
-                   chores=_chores.values(),
+    _model = Model(cubes=list(_cubes.values()),
+                   dimensions=list(_dimensions.values()),
+                   processes=list(_processes.values()),
+                   chores=list(_chores.values()),
                    #server_configs=server_configs_to_model(tm1_conn)
                    )
-
     _errors = {}
     _errors['dim'] = _dim_errors
     _errors['cube'] = _cube_errors

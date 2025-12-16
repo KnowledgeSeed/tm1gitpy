@@ -1,16 +1,11 @@
 import json
 import logging
 from typing import List, Any, Dict
-
 import TM1py
+from TM1py.Utils import format_url
 from TM1py import TM1Service, Dimension
 from requests import Response
-
-from .element import Element
-from .hierarchy import Hierarchy, create_hierarchy, update_hierarchy
-from .subset import Subset
-from TM1py.Utils import format_url
-
+from .hierarchy import Hierarchy
 
 # {
 # 	"@type":"Dimension",
