@@ -6,6 +6,7 @@ from typing import List, Dict, Any, TypeVar, Union
 
 from requests import Response
 
+from .filter import normalize_for_path
 from .model import MDXView
 from .model.cube import Cube, create_cube, update_cube, delete_cube
 from .model.dimension import Dimension, create_dimension, update_dimension, delete_dimension
@@ -181,8 +182,43 @@ class Changeset:
 
         for mod in self.modified:
             new_obj = mod["new"]
+            old_obj = mod["old"]
             path = normalize_source_path(getattr(new_obj, "source_path", ""))
-            if path:
+            if not path:
+                continue
+
+            detailed_change_added = False
+
+            if isinstance(new_obj, Chore):
+                old_tasks = set(old_obj.tasks)
+                new_tasks = set(new_obj.tasks)
+
+                if old_tasks != new_tasks:
+                    lines.append(f"U  /{path}")
+                    for task in (new_tasks - old_tasks):
+                        idx = new_obj.tasks.index(task)
+                        lines.append(f"C  /{path}|{task.process_name}|{idx}")
+                    for task in (old_tasks - new_tasks):
+                        idx = old_obj.tasks.index(task)
+                        lines.append(f"D  /{path}|{task.process_name}|{idx}")
+                    detailed_change_added = True
+
+            elif isinstance(new_obj, Cube):
+                old_rules = set(getattr(old_obj, "rules", []))
+                new_rules = set(getattr(new_obj, "rules", []))
+
+                added_rules = new_rules - old_rules
+                removed_rules = old_rules - new_rules
+
+                if added_rules or removed_rules:
+                    lines.append(f"U  /{path}")
+                    for rule in added_rules:
+                        lines.append(f"C  /{path}|{normalize_for_path(rule.area)}")
+                    for rule in removed_rules:
+                        lines.append(f"D  /{path}|{normalize_for_path(rule.area)}")
+                    detailed_change_added = True
+
+            if not detailed_change_added:
                 lines.append(f"U  /{path}")
 
         for obj in self.removed:
