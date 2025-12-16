@@ -1,0 +1,46 @@
+{
+	"@type": "Hierarchy",
+	"Name": "testbenchMeasureSales",
+	"Elements": [
+		{
+			"name": "Quantity",
+			"type": "Numeric"
+		},
+		{
+			"name": "Revenue",
+			"type": "Numeric"
+		},
+		{
+			"name": "Discount",
+			"type": "Numeric"
+		},
+		{
+			"name": "Cost of Sold Goods",
+			"type": "Numeric"
+		},
+		{
+			"name": "Allocated Cost",
+			"type": "Numeric"
+		},
+		{
+			"name": "Transportation and Packaging Cost",
+			"type": "Numeric"
+		},
+		{
+			"name": "Margin",
+			"type": "Numeric"
+		},
+		{
+			"name": "Price",
+			"type": "Numeric"
+		},
+		{
+			"name": "Discount Perc.",
+			"type": "Numeric"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": [
+		"testbenchMeasureSales.subsets/}Temp_Subset_9205541958485113016.json"
+	]
+}

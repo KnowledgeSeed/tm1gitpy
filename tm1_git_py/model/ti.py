@@ -1,3 +1,5 @@
+import os
+
 
 class TI:
     def __init__(self, prolog_procedure, metadata_procedure, data_procedure, epilog_procedure):
@@ -21,7 +23,20 @@ class TI:
     def __eq__(self, other):
         if not isinstance(other, TI):
             return NotImplemented
-        return self.to_dict() == other.to_dict()
+
+        if self.prolog_procedure != other.prolog_procedure.replace('\r', '').strip():
+            return False
+
+        if self.metadata_procedure != other.metadata_procedure.replace('\r', '').strip():
+            return False
+
+        if self.data_procedure != other.data_procedure.replace('\r', '').strip():
+            return False
+
+        if self.epilog_procedure != other.epilog_procedure.replace('\r', '').strip():
+            return False
+
+        return True
 
     def __hash__(self):
         return hash(tuple(sorted(self.to_dict().items())))
@@ -44,8 +59,21 @@ class TI:
             cls.get_string_between(ti, '#region Epilog', '#endregion').strip())
 
     def ti_as_string(self):
-        ti = "#region Prolog\r\n{}\r\n#endregion\r\n".format(self.prolog_procedure) \
-            + "#region Metadata\r\n{}\r\n#endregion\r\n".format(self.metadata_procedure) \
-            + "#region Data\r\n{}\r\n#endregion\r\n".format(self.data_procedure) \
-            + "#region Epilog\r\n{}\r\n#endregion\r\n".format(self.epilog_procedure)
-        return ti
+        line_sep = os.linesep
+        if line_sep is None:
+            line_sep = "\r\n"
+        sections = [
+            "#region Prolog",
+            self.prolog_procedure,
+            "#endregion",
+            "#region Metadata",
+            self.metadata_procedure,
+            "#endregion",
+            "#region Data",
+            self.data_procedure,
+            "#endregion",
+            "#region Epilog",
+            self.epilog_procedure,
+            "#endregion"
+        ]
+        return line_sep.join(sections) + line_sep

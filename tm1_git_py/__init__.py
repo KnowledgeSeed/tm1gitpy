@@ -5,7 +5,7 @@ from .comparator import Comparator
 from .deserializer import deserialize_model
 from .filter import filter
 from .serializer import serialize_model
-from .tm1_to_model import tm1_to_model
+from .exporter import export
 
 __all__ = [
     "Changeset",
@@ -13,5 +13,5 @@ __all__ = [
     "deserialize_model",
     "filter",
     "serialize_model",
-    "tm1_to_model",
+    "export",
 ]

@@ -1,0 +1,38 @@
+{
+    "@type": "Process",
+    "Name": "Mock Process Cleanup Subsets",
+    "HasSecurityAccess": true,
+    "Code@Code.link": "Mock Process Cleanup Subsets.ti",
+    "DataSource": {
+        "Type": "None"
+    },
+    "Parameters": [
+        {
+            "Name": "pDimension",
+            "Prompt": "Dimension to scan",
+            "Value": "testbenchCustomer",
+            "Type": "String"
+        },
+        {
+            "Name": "pKeepSubset",
+            "Prompt": "Subset to keep",
+            "Value": "Default",
+            "Type": "String"
+        },
+        {
+            "Name": "pLogOnly",
+            "Prompt": "0 = delete, 1 = log only",
+            "Value": 1,
+            "Type": "Numeric"
+        }
+    ],
+    "Variables": [
+        {
+            "Name": "vSubsetName",
+            "Type": "String",
+            "Position": 1,
+            "StartByte": 0,
+            "EndByte": 0
+        }
+    ]
+}

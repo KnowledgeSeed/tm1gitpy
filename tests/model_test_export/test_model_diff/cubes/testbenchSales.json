@@ -1,0 +1,21 @@
+{
+	"@type": "Cube",
+      "Name": "testbenchSales",
+      "Dimensions": [
+        {
+          "@id": "Dimensions('testbenchPeriod')"
+        },
+        {
+          "@id": "Dimensions('testbenchVersion')"
+        },
+        {
+          "@id": "Dimensions('testbenchMeasureSales')"
+        }
+      ],
+	"Rules@Code.link": "testbenchSales.rules",
+	"Views@Code.links": [
+        "testbenchSales.views/tm1_bedrock_py_8evqfqlc3g39tpmk.json",
+        "testbenchSales.views/tm1_bedrock_py_gp0vkg064lilmmga.json",
+		"testbenchSales.views/Default.json"
+    ]
+}

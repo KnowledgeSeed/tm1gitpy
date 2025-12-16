@@ -1,0 +1,781 @@
+{
+	"@type": "Hierarchy",
+	"Name": "testbenchPeriod",
+	"Elements": [
+		{
+			"name": "202401",
+			"type": "Numeric"
+		},
+		{
+			"name": "202402",
+			"type": "Numeric"
+		},
+		{
+			"name": "202403",
+			"type": "Numeric"
+		},
+		{
+			"name": "202404",
+			"type": "Numeric"
+		},
+		{
+			"name": "202405",
+			"type": "Numeric"
+		},
+		{
+			"name": "202406",
+			"type": "Numeric"
+		},
+		{
+			"name": "202407",
+			"type": "Numeric"
+		},
+		{
+			"name": "202408",
+			"type": "Numeric"
+		},
+		{
+			"name": "202409",
+			"type": "Numeric"
+		},
+		{
+			"name": "202410",
+			"type": "Numeric"
+		},
+		{
+			"name": "202411",
+			"type": "Numeric"
+		},
+		{
+			"name": "202412",
+			"type": "Numeric"
+		},
+		{
+			"name": "202501",
+			"type": "Numeric"
+		},
+		{
+			"name": "202502",
+			"type": "Numeric"
+		},
+		{
+			"name": "202503",
+			"type": "Numeric"
+		},
+		{
+			"name": "202504",
+			"type": "Numeric"
+		},
+		{
+			"name": "202505",
+			"type": "Numeric"
+		},
+		{
+			"name": "202506",
+			"type": "Numeric"
+		},
+		{
+			"name": "202507",
+			"type": "Numeric"
+		},
+		{
+			"name": "202508",
+			"type": "Numeric"
+		},
+		{
+			"name": "202509",
+			"type": "Numeric"
+		},
+		{
+			"name": "202510",
+			"type": "Numeric"
+		},
+		{
+			"name": "202511",
+			"type": "Numeric"
+		},
+		{
+			"name": "202512",
+			"type": "Numeric"
+		},
+		{
+			"name": "202601",
+			"type": "Numeric"
+		},
+		{
+			"name": "202602",
+			"type": "Numeric"
+		},
+		{
+			"name": "202603",
+			"type": "Numeric"
+		},
+		{
+			"name": "202604",
+			"type": "Numeric"
+		},
+		{
+			"name": "202605",
+			"type": "Numeric"
+		},
+		{
+			"name": "202606",
+			"type": "Numeric"
+		},
+		{
+			"name": "202607",
+			"type": "Numeric"
+		},
+		{
+			"name": "202608",
+			"type": "Numeric"
+		},
+		{
+			"name": "202609",
+			"type": "Numeric"
+		},
+		{
+			"name": "202610",
+			"type": "Numeric"
+		},
+		{
+			"name": "202611",
+			"type": "Numeric"
+		},
+		{
+			"name": "202612",
+			"type": "Numeric"
+		},
+		{
+			"name": "202701",
+			"type": "Numeric"
+		},
+		{
+			"name": "202702",
+			"type": "Numeric"
+		},
+		{
+			"name": "202703",
+			"type": "Numeric"
+		},
+		{
+			"name": "202704",
+			"type": "Numeric"
+		},
+		{
+			"name": "202705",
+			"type": "Numeric"
+		},
+		{
+			"name": "202706",
+			"type": "Numeric"
+		},
+		{
+			"name": "202707",
+			"type": "Numeric"
+		},
+		{
+			"name": "202708",
+			"type": "Numeric"
+		},
+		{
+			"name": "202709",
+			"type": "Numeric"
+		},
+		{
+			"name": "202710",
+			"type": "Numeric"
+		},
+		{
+			"name": "202711",
+			"type": "Numeric"
+		},
+		{
+			"name": "202712",
+			"type": "Numeric"
+		},
+		{
+			"name": "202801",
+			"type": "Numeric"
+		},
+		{
+			"name": "202802",
+			"type": "Numeric"
+		},
+		{
+			"name": "202803",
+			"type": "Numeric"
+		},
+		{
+			"name": "202804",
+			"type": "Numeric"
+		},
+		{
+			"name": "202805",
+			"type": "Numeric"
+		},
+		{
+			"name": "202806",
+			"type": "Numeric"
+		},
+		{
+			"name": "202807",
+			"type": "Numeric"
+		},
+		{
+			"name": "202808",
+			"type": "Numeric"
+		},
+		{
+			"name": "202809",
+			"type": "Numeric"
+		},
+		{
+			"name": "202810",
+			"type": "Numeric"
+		},
+		{
+			"name": "202811",
+			"type": "Numeric"
+		},
+		{
+			"name": "202812",
+			"type": "Numeric"
+		},
+		{
+			"name": "2024Q1",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2024",
+			"type": "Consolidated"
+		},
+		{
+			"name": "All Periods",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2024Q2",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2024Q3",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2024Q4",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2025Q1",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2025",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2025Q2",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2025Q3",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2025Q4",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2026Q1",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2026",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2026Q2",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2026Q3",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2026Q4",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2027Q1",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2027",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2027Q2",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2027Q3",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2027Q4",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2028Q1",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2028",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2028Q2",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2028Q3",
+			"type": "Consolidated"
+		},
+		{
+			"name": "2028Q4",
+			"type": "Consolidated"
+		}
+	],
+	"Edges": [
+		{
+			"parent": "2024Q1",
+			"name": "202401",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q1",
+			"name": "202402",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q1",
+			"name": "202403",
+			"weight": 1
+		},
+		{
+			"parent": "2024",
+			"name": "2024Q1",
+			"weight": 1
+		},
+		{
+			"parent": "2024",
+			"name": "2024Q2",
+			"weight": 1
+		},
+		{
+			"parent": "2024",
+			"name": "2024Q3",
+			"weight": 1
+		},
+		{
+			"parent": "2024",
+			"name": "2024Q4",
+			"weight": 1
+		},
+		{
+			"parent": "All Periods",
+			"name": "2024",
+			"weight": 0
+		},
+		{
+			"parent": "All Periods",
+			"name": "2025",
+			"weight": 0
+		},
+		{
+			"parent": "All Periods",
+			"name": "2026",
+			"weight": 0
+		},
+		{
+			"parent": "All Periods",
+			"name": "2027",
+			"weight": 0
+		},
+		{
+			"parent": "All Periods",
+			"name": "2028",
+			"weight": 0
+		},
+		{
+			"parent": "2024Q2",
+			"name": "202404",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q2",
+			"name": "202405",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q2",
+			"name": "202406",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q3",
+			"name": "202407",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q3",
+			"name": "202408",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q3",
+			"name": "202409",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q4",
+			"name": "202410",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q4",
+			"name": "202411",
+			"weight": 1
+		},
+		{
+			"parent": "2024Q4",
+			"name": "202412",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q1",
+			"name": "202501",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q1",
+			"name": "202502",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q1",
+			"name": "202503",
+			"weight": 1
+		},
+		{
+			"parent": "2025",
+			"name": "2025Q1",
+			"weight": 1
+		},
+		{
+			"parent": "2025",
+			"name": "2025Q2",
+			"weight": 1
+		},
+		{
+			"parent": "2025",
+			"name": "2025Q3",
+			"weight": 1
+		},
+		{
+			"parent": "2025",
+			"name": "2025Q4",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q2",
+			"name": "202504",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q2",
+			"name": "202505",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q2",
+			"name": "202506",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q3",
+			"name": "202507",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q3",
+			"name": "202508",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q3",
+			"name": "202509",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q4",
+			"name": "202510",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q4",
+			"name": "202511",
+			"weight": 1
+		},
+		{
+			"parent": "2025Q4",
+			"name": "202512",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q1",
+			"name": "202601",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q1",
+			"name": "202602",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q1",
+			"name": "202603",
+			"weight": 1
+		},
+		{
+			"parent": "2026",
+			"name": "2026Q1",
+			"weight": 1
+		},
+		{
+			"parent": "2026",
+			"name": "2026Q2",
+			"weight": 1
+		},
+		{
+			"parent": "2026",
+			"name": "2026Q3",
+			"weight": 1
+		},
+		{
+			"parent": "2026",
+			"name": "2026Q4",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q2",
+			"name": "202604",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q2",
+			"name": "202605",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q2",
+			"name": "202606",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q3",
+			"name": "202607",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q3",
+			"name": "202608",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q3",
+			"name": "202609",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q4",
+			"name": "202610",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q4",
+			"name": "202611",
+			"weight": 1
+		},
+		{
+			"parent": "2026Q4",
+			"name": "202612",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q1",
+			"name": "202701",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q1",
+			"name": "202702",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q1",
+			"name": "202703",
+			"weight": 1
+		},
+		{
+			"parent": "2027",
+			"name": "2027Q1",
+			"weight": 1
+		},
+		{
+			"parent": "2027",
+			"name": "2027Q2",
+			"weight": 1
+		},
+		{
+			"parent": "2027",
+			"name": "2027Q3",
+			"weight": 1
+		},
+		{
+			"parent": "2027",
+			"name": "2027Q4",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q2",
+			"name": "202704",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q2",
+			"name": "202705",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q2",
+			"name": "202706",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q3",
+			"name": "202707",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q3",
+			"name": "202708",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q3",
+			"name": "202709",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q4",
+			"name": "202710",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q4",
+			"name": "202711",
+			"weight": 1
+		},
+		{
+			"parent": "2027Q4",
+			"name": "202712",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q1",
+			"name": "202801",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q1",
+			"name": "202802",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q1",
+			"name": "202803",
+			"weight": 1
+		},
+		{
+			"parent": "2028",
+			"name": "2028Q1",
+			"weight": 1
+		},
+		{
+			"parent": "2028",
+			"name": "2028Q2",
+			"weight": 1
+		},
+		{
+			"parent": "2028",
+			"name": "2028Q3",
+			"weight": 1
+		},
+		{
+			"parent": "2028",
+			"name": "2028Q4",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q2",
+			"name": "202804",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q2",
+			"name": "202805",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q2",
+			"name": "202806",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q3",
+			"name": "202807",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q3",
+			"name": "202808",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q3",
+			"name": "202809",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q4",
+			"name": "202810",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q4",
+			"name": "202811",
+			"weight": 1
+		},
+		{
+			"parent": "2028Q4",
+			"name": "202812",
+			"weight": 1
+		}
+	],
+	"Subsets@Code.links": [
+		"testbenchPeriod.subsets/}Temp_Subset_-1006923781426936228.json",
+		"testbenchPeriod.subsets/}Temp_Subset_-7558019108653722874.json"
+	]
+}

@@ -1,0 +1,23 @@
+#region Prolog
+sDimension = pDimension;
+sKeepSubset = pKeepSubset;
+nLogOnly = pLogOnly;
+
+LogOutput('INFO', 'Mock subset cleanup | Dimension=' | sDimension | ' | Keep=' | sKeepSubset | ' | Mode=' | NumberToString(nLogOnly));
+#endregion
+#region Metadata
+#Normally we would loop through SubsetGetSize results, instead we simulate one subset namevSubsetName = 'Temporary_Subset';
+#endregion
+#region Data
+#No data source; mimic delete/log behaviour
+IF(vSubsetName @<> sKeepSubset);
+  IF(nLogOnly = 0);
+    LogOutput('INFO', 'Deleting subset ' | vSubsetName | ' from ' | sDimension);
+  ELSE;
+    LogOutput('INFO', 'Would delete subset ' | vSubsetName | ' from ' | sDimension);
+  ENDIF;
+ENDIF;
+#endregion
+#region Epilog
+LogOutput('INFO', 'Mock subset cleanup complete');
+#endregion

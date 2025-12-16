@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import List, Any, Dict
 
 import TM1py
@@ -52,7 +53,7 @@ class Dimension:
 
         if set(self.hierarchies) != set(other.hierarchies):
             return False
-            
+
         return True
 
     def __hash__(self) -> int:
@@ -80,39 +81,62 @@ class Dimension:
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-def create_dimension(tm1_service: TM1Service, dimension: Dimension) -> Response:
+logger = logging.getLogger(__name__)
 
-    dimension_object = TM1py.Dimension(dimension.name)
-    response = tm1_service.dimensions.create(dimension_object)
+def create_dimension(tm1_service: TM1Service, dimension: Dimension | str) -> Response:
+    dim_name = dimension
+    if isinstance(dimension, Dimension):
+        dim_name = dimension.name
+    dimension_object = TM1py.Dimension(dim_name)
+    logger.info(f"Creating Dimension: {dim_name}.")
 
-    return response
+    return tm1_service.dimensions.create(dimension_object)
 
 
 def update_dimension(tm1_service: TM1Service, dimension: Dict[str, Any]) -> Response:
     dimension_new = dimension.get('new')
     dimension_old = dimension.get('old')
 
-    hierarchies_new = dimension_new.hierarchies
-    hierarchies_old = dimension_old.hierarchies
-
     if tm1_service.dimensions.exists(dimension_name=dimension_new.name):
         dimension_object = tm1_service.dimensions.get(dimension_name=dimension_new.name)
-
-        if hierarchies_new != hierarchies_old:
-            hierarchies_to_remove = list(set(hierarchies_old) - set(hierarchies_new))
-            hierarchies_to_add = list(set(hierarchies_new) - set(hierarchies_old))
-
-            for hierarchy in hierarchies_to_remove:
-                dimension_object.remove_hierarchy(hierarchy_name=hierarchy.name)
-            for hierarchy in hierarchies_to_add:
-                hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_new.name, hierarchy_name=hierarchy.name)
-                dimension_object.add_hierarchy(hierarchy_object)
-
+        _update_dimension_hierarchies(tm1_service=tm1_service, dimension_new=dimension_new, dimension_old=dimension_old,
+                                      dimension_object=dimension_object)
         return tm1_service.dimensions.update(dimension_object)
     else:
-        return create_dimension(tm1_service=tm1_service, dimension=dimension_new)
-
+        raise ValueError(f"Cannot update Dimension: '{dimension_new.name}', Dimension does not exist")
 
 
 def delete_dimension(tm1_service: TM1Service, dimension_name: str) -> Response:
+    logger.info(f"Deleting Dimension: {dimension_name}.")
     return tm1_service.dimensions.delete(dimension_name)
+
+
+def _update_dimension_hierarchies(
+        tm1_service: TM1Service,
+        dimension_new: Dimension,
+        dimension_old: Dimension,
+        dimension_object: TM1py.Dimension
+):
+    hierarchies_new = dimension_new.hierarchies
+    hierarchies_old = dimension_old.hierarchies
+
+    if hierarchies_new != hierarchies_old:
+        hierarchies_to_remove = list(set(hierarchies_old) - set(hierarchies_new))
+        hierarchies_to_add = list(set(hierarchies_new) - set(hierarchies_old))
+
+        hierarchies_to_remove_names = [element.name for element in hierarchies_to_remove]
+        hierarchies_to_add_names = [element.name for element in hierarchies_to_add]
+
+        for hierarchy in hierarchies_to_remove:
+            dimension_object.remove_hierarchy(hierarchy_name=hierarchy.name)
+        logger.info(f"Removed Hierarchies: {hierarchies_to_remove_names} from Dimension: {dimension_new.name}.")
+
+        for hierarchy in hierarchies_to_add:
+            try:
+                hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_new.name,
+                                                               hierarchy_name=hierarchy.name)
+                dimension_object.add_hierarchy(hierarchy_object)
+            except Exception:
+                raise ValueError(f"Cannot update Dimension '{dimension_new.name}' "
+                                 f"with Hierarchy: {hierarchy.name}, Hierarchy does not exist")
+        logger.info(f"Added Hierarchies: {hierarchies_to_add_names} to Dimension: {dimension_new.name}.")
