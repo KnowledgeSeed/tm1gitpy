@@ -1,91 +1,63 @@
-import json
+import argparse
 import os
-from typing import Dict, List
+import shutil
+import sys
+from pathlib import Path
 from TM1py import TM1Service
-from TM1py.Utils import format_url
+from exporter import export
+from config import TM1ServersConfig
+from serializer import serialize_model
+from deserializer import deserialize_model
+from comparator import Comparator
 
-from .deserializer import deserialize_model
-from .model.chore import Chore
-from .model.cube import Cube
-from .model.dimension import Dimension
-from .model.element import Element
-from .serializer import serialize_model
-from .model.hierarchy import Hierarchy
-from .model.mdxview import MDXView
-from .model.model import Model
-from .model.subset import Subset
-from .model.process import Process
-import TM1py
-from .comparator import Comparator
-from .changeset import Changeset
 
-from .model.ti import TI
-from .tm1_to_model import tm1_to_model
-from .filter import filter
-
-def tm1_connection() -> TM1Service:
+def tm1_connection(server_name: str) -> TM1Service:
     """Creates a TM1 connection before tests and closes it after all tests."""
-    # load_dotenv()
+    
+    config = TM1ServersConfig()
+    config.load()
+    server_config = config.get(server_name)
+    
     tm1 = TM1Service(
-        address=os.environ.get("TM1_ADDRESS"),
-        port=os.environ.get("TM1_PORT"),
-        user=os.environ.get("TM1_USER"),
-        password="",
-        ssl=os.environ.get("TM1_SSL")
+        base_url=server_config.base_url,
+        user=server_config.user,
+        password=server_config.password or ""
     )
-    #basic_logger.debug("Successfully connected to TM1.")
     return tm1
 
 
-#_model, _errors = tm1_to_model(tm1_conn=tm1_connection())
-#serialize_model(_model, dir='export')
+parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 Model Version Control Tool")
+parser.add_argument('command', type=str, choices=['export', 'import', 'compare'], help="Command to execute")
+parser.add_argument('-s', '--server', type=str, help="TM1 server to use from tm1servers.yaml")
+parser.add_argument('-e', '--export_folder', type=str, default='export', help="Folder to export the model to or import from (default: 'export')")
+parser.add_argument('-o', '--overwrite', action='store_true', help="Overwrite existing export folder (clears folder if exists)")
+args = parser.parse_args()
 
-# export_dir(_model=_model, export_dir=os.environ.get("EXPORT_DIR"))
+tm1_service = tm1_connection(args.server)
+export_folder = args.export_folder or 'export'
 
-#_model, _errors = deserialize_model(dir='export')
-#serialize_model(_model, dir='export2')
+# Check if export folder exists
+export_path = Path(export_folder)
+if export_path.exists() and export_path.is_dir():
+    if not args.overwrite:
+        print(f"Error: Export folder '{export_folder}' already exists. Use --overwrite flag to clear and overwrite.", file=sys.stderr)
+        sys.exit(1)
+    else:
+        # Clear the export folder
+        print(f"Clearing existing export folder: {export_folder}")
+        shutil.rmtree(export_folder)
 
-# def compare_tm1():
-#     model_from_export, export_errors = deserialize_model(dir='export')
-#     if any(export_errors.values()):
-#         print(export_errors)
+print(f"Exporting model to folder: {export_folder}")
+exported_model, export_errors = export(tm1_service)
 
-#     model_from_export2, export_errors = deserialize_model(dir='export2')
-#     if any(export_errors.values()):
-#         print(export_errors)
-#     comparator = Comparator()
+# Print any export errors
+if export_errors and any(export_errors.values()):
+    print("Export errors encountered:")
+    for error_type, errors in export_errors.items():
+        if errors:
+            print(f"  {error_type}: {errors}")
+else:
+    print("Export completed successfully with no errors")
 
-#     print("\n--- full ---")
-#     changeset_full = comparator.compare(model_from_export, model_from_export2, mode='full')
-#     print(changeset_full)
-#     return changeset_full
-
-#changeset = compare_tm1()
-#changeset.apply(tm1_service=tm1_connection())
-
-# def run_filter_and_export():
-#     source_directory = 'export'
-#     print(f"1. Modell betöltése innen'{source_directory}'")
-#     original_model, errors = deserialize_model(dir=source_directory)
-#     if errors:
-#         print("modell betöltés hiba", errors)
-
-#     rules_path = 'filter.txt'
-#     filter_rules = []
-#     try:
-#         with open(rules_path, 'r', encoding='utf-8') as f:
-#             filter_rules = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
-#         print(f"\n2. '{rules_path}' létezik:")
-#     except FileNotFoundError:
-#         print(f"\n2. nincs: '{rules_path}'")
-
-#     print("\n3. Filtering")
-#     filtered_model = filter(original_model, filter_rules)
-
-#     export_directory = 'export3'
-#     print(f"\n4. A filtered modell mentése '{export_directory}'")
-#     serialize_model(filtered_model, dir=export_directory)
-# run_filter_and_export()
-
-print("")
-
+serialize_model(exported_model, export_folder)
+print(f"Model serialized to: {export_folder}")
