@@ -72,6 +72,7 @@ class Process:
             return False
 
         other.datasource = other.datasource or None
+        self.datasource = self.datasource or None
         if self.datasource != other.datasource:
             return False
 

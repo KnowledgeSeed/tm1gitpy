@@ -1,3 +1,4 @@
+import os.path
 import types
 from pathlib import Path
 from typing import TypeVar
@@ -484,18 +485,21 @@ class TestChangeset:
         # Give create/delete something with a .url so apply() doesn't fail
         def create_side_effect(**kwargs):
             obj = kwargs["object_instance"]
-            return types.SimpleNamespace(url=f"CREATE:{obj.type}:{obj.name}")
+            return types.SimpleNamespace(url=f"CREATE:{obj.type}:{obj.name}", status_code=200, ok=True)
 
         def delete_side_effect(**kwargs):
             obj = kwargs["object_instance"]
-            return types.SimpleNamespace(url=f"DELETE:{obj.type}:{obj.name}")
+            return types.SimpleNamespace(url=f"DELETE:{obj.type}:{obj.name}", status_code=200, ok=True)
 
         mock_create.side_effect = create_side_effect
         mock_delete.side_effect = delete_side_effect
 
-        tm1_conn = mocker.Mock()
+        tm1_service = mocker.Mock()
 
-        changeset.apply(tm1_conn)
+        status_dir = 'tests'
+        exec_id = 'test_create_and_delete'
+        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id)
+        assert success
 
         # --- Assert create order ---
         created_types = [
@@ -517,6 +521,9 @@ class TestChangeset:
         # For deletes, precedence is:
         # cubes -> subsets -> hierarchies -> dimensions -> chore -> process
         assert deleted_types == [MDXView, Cube, Subset, Hierarchy, Dimension, Chore, Process]
+
+        assert os.path.isfile(status_dir + '/' + exec_id + '.json')
+        os.remove(status_dir + '/' + exec_id + '.json')
 
 
     def test_apply_sorts_updates_in_expected_precedence(self, mocker):
@@ -553,9 +560,23 @@ class TestChangeset:
         mock_delete = mocker.patch("tm1_git_py.changeset.delete_object")
         mock_update = mocker.patch("tm1_git_py.changeset.update_object")
 
+        def update_side_effect(**kwargs):
+            obj = kwargs["object_instance"]
+            target = obj
+            if isinstance(obj, dict) and "new" in obj:
+                target = obj["new"]
+            name = getattr(target, "name", "unknown")
+            obj_type = getattr(target, "type", target.__class__.__name__)
+            return types.SimpleNamespace(url=f"UPDATE:{obj_type}:{name}", status_code=200, ok=True)
+
+        mock_update.side_effect = update_side_effect
+
         tm1_service = mocker.Mock()
 
-        cs.apply(tm1_service)
+        status_dir = 'tests'
+        exec_id = 'test_update'
+        success, _ = cs.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id)
+        assert success
 
         mock_create.assert_not_called()
         mock_delete.assert_not_called()
@@ -568,6 +589,9 @@ class TestChangeset:
 
         # Same precedence as creates: Dimension → Hierarchy → Cube → MDXView → Process → Chore for this subset
         assert updated_types == [Dimension, Hierarchy, Cube, MDXView, Process, Chore]
+
+        assert os.path.isfile(status_dir + '/' + exec_id + '.json')
+        os.remove(status_dir + '/' + exec_id + '.json')
 
 
     def test_changeset_apply_propagates_kwargs_to_delete_dimensions_from_cube(self, mocker):
@@ -608,7 +632,7 @@ class TestChangeset:
                 "element": "Actual",
             }
         }
-        result = changeset.apply(
+        success, result = changeset.apply(
             tm1_service,
             strategies=strategies,
             default_strategy="keep_element",
@@ -618,7 +642,7 @@ class TestChangeset:
         # Ensure apply() actually triggered a cube update
         tm1_service.cubes.update.assert_called_once_with(cube_object)
         assert len(result) == 1
-        assert getattr(result[0], "url", None) == "https://dummy/cubes/Sales"
+        assert result[0] == "https://dummy/cubes/Sales"
 
         # kwargs propagated all the way down
         delete_dims_mock.assert_called_once()

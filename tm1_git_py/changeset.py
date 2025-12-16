@@ -6,6 +6,7 @@ from typing import List, Dict, Any, TypeVar, Union
 
 from requests import Response
 
+from .changeset_status import ChangeSetStatusStore
 from .model import MDXView
 from .model.cube import Cube, create_cube, update_cube, delete_cube
 from .model.dimension import Dimension, create_dimension, update_dimension, delete_dimension
@@ -127,6 +128,7 @@ class Changeset:
         self.removed: List[T] = []
 
         self.changes: List[str] = []
+        self.last_execution_id: str = '0'
 
     @property
     def all_removed(self) -> List[str]:
@@ -194,21 +196,94 @@ class Changeset:
         return lines
 
 
-    def apply(self, tm1_service: TM1Service, **kwargs) -> List[Any]:
+    def apply(
+        self,
+        tm1_service: TM1Service,
+        *,
+        status_dir: str | Path | None = None,
+        execution_id: str | None = None,
+        changeset_name: str | None = None,
+        fail_fast: bool = True,
+        **kwargs
+    ) -> tuple[bool, list[str]]:
+
         changes = []
+        if not self.has_changes():
+            logger.info("No changes to apply.")
+            return True, changes
 
-        if self.has_changes():
-            self.sort()
-            if self.added:
-                changes += [create_object(tm1_service=tm1_service, object_instance=a).url for a in self.added]
+        self.sort()
 
-            if self.modified:
-                changes += [update_object(tm1_service=tm1_service, object_instance=m, **kwargs) for m in self.modified]
+        operations: List[tuple[str, Any]] = []
+        operations += [("CREATE", obj) for obj in self.added]
+        operations += [("UPDATE", obj) for obj in self.modified]
+        operations += [("DELETE", obj) for obj in self.removed]
 
-            if self.removed:
-                changes += [delete_object(tm1_service=tm1_service, object_instance=d).url for d in self.removed]
+        store: ChangeSetStatusStore | None = None
+        if status_dir is not None:
+            store = ChangeSetStatusStore(status_dir=status_dir, execution_id=execution_id,
+                                         changeset_name=changeset_name)
+            store.start(total_operations=len(operations))
+            self.last_execution_id = store.execution_id
+            logger.info("changeset execution_id=%s status_file=%s", store.execution_id, store.path)
 
-        return changes
+        def _obj_meta(o: Any) -> tuple[str, str | None, str | None]:
+            if isinstance(o, dict) and "new" in o:
+                o = o["new"]
+            return o.__class__.__name__, getattr(o, "name", None), getattr(o, "source_path", None)
+
+        ok_all = True
+
+        for i, (action, obj) in enumerate(operations, start=1):
+            obj_type, obj_name, obj_path = _obj_meta(obj)
+
+            if store is not None:
+                store.begin_operation(i, action, obj_type, obj_name, obj_path)
+
+            try:
+                if action == "CREATE":
+                    resp = create_object(tm1_service=tm1_service, object_instance=obj)
+                elif action == "UPDATE":
+                    resp = update_object(tm1_service=tm1_service, object_instance=obj, **kwargs)
+                elif action == "DELETE":
+                    resp = delete_object(tm1_service=tm1_service, object_instance=obj)
+                else:
+                    raise ValueError(f"Unknown action: {action}")
+
+                changes.append(resp.url)
+
+                logger.info("%s %s%s -> %s %s",
+                            action,
+                            f"{obj_type}:" if obj_name else obj_type,
+                            obj_name or "",
+                            resp.status_code,
+                            getattr(resp, "url", ""))
+
+                if store is not None:
+                    store.end_operation_with_response(resp)
+
+                if not resp.ok:
+                    ok_all = False
+                    if fail_fast:
+                        if store is not None:
+                            store.fail()
+                        return False, changes
+
+            except Exception as exc:
+                logger.exception("Exception during %s %s%s: %s",
+                                 action,
+                                 f"{obj_type}:" if obj_name else obj_type,
+                                 obj_name or "",
+                                 exc)
+                if store is not None:
+                    store.end_operation_with_exception(exc)
+                    store.fail()
+                return False, changes
+
+        if store is not None:
+            store.succeed() if ok_all else store.fail()
+
+        return ok_all, changes
 
     def sort(self):
         if self.has_changes():
