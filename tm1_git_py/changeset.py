@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Any, TypeVar, Union
+from typing import List, Dict, Any, TypeVar, Union, Optional
 
 from requests import Response
 
@@ -78,7 +78,7 @@ def _sort_change_line_key(s: str):
     return key
 
 
-def _source_path_sort_key(s: T | Dict[T, Any], delete_precedence = False):
+def _source_path_sort_key(s: Union[T, Dict[T, Any]], delete_precedence = False):
     """
     Sorting key for model objects based on their .source_path, used to sort:
       - added
@@ -144,10 +144,10 @@ class Changeset:
             return "No changes"
         return "Changeset:\n" + "\n".join(changes)
 
-    def add_created(self, obj: Any, *, message: str | None = None) -> None:
+    def add_created(self, obj: Any, *, message: Optional[str] = None) -> None:
         self.added.append(obj)
 
-    def add_deleted(self, obj: Any, *, message: str | None = None) -> None:
+    def add_deleted(self, obj: Any, *, message: Optional[str] = None) -> None:
         self.removed.append(obj)
 
     def add_modified(
@@ -155,7 +155,7 @@ class Changeset:
             old: Any,
             new: Any,
             *,
-            changes: str | None = None,
+            changes: Optional[str] = None,
     ) -> None:
         self.modified.append(
             {
@@ -200,9 +200,9 @@ class Changeset:
         self,
         tm1_service: TM1Service,
         *,
-        status_dir: str | Path | None = None,
-        execution_id: str | None = None,
-        changeset_name: str | None = None,
+        status_dir: Optional[Union[str, Path]] = None,
+        execution_id: Optional[str] = None,
+        changeset_name: Optional[str] = None,
         fail_fast: bool = True,
         **kwargs
     ) -> tuple[bool, list[str]]:
@@ -219,7 +219,7 @@ class Changeset:
         operations += [("UPDATE", obj) for obj in self.modified]
         operations += [("DELETE", obj) for obj in self.removed]
 
-        store: ChangeSetStatusStore | None = None
+        store: Optional[ChangeSetStatusStore] = None
         if status_dir is not None:
             store = ChangeSetStatusStore(status_dir=status_dir, execution_id=execution_id,
                                          changeset_name=changeset_name)
@@ -227,7 +227,7 @@ class Changeset:
             self.last_execution_id = store.execution_id
             logger.info("changeset execution_id=%s status_file=%s", store.execution_id, store.path)
 
-        def _obj_meta(o: Any) -> tuple[str, str | None, str | None]:
+        def _obj_meta(o: Any) -> tuple[str, Optional[str], Optional[str]]:
             if isinstance(o, dict) and "new" in o:
                 o = o["new"]
             return o.__class__.__name__, getattr(o, "name", None), getattr(o, "source_path", None)

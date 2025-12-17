@@ -4,7 +4,7 @@ import time
 import uuid
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from requests import Response
 
@@ -54,7 +54,7 @@ class ChangeSetStatusStore:
         <status_dir>/<execution_id>.json
     """
 
-    def __init__(self, status_dir: str | Path, execution_id: str | None = None, changeset_name: str | None = None):
+    def __init__(self, status_dir: Union[str, Path], execution_id: Optional[str] = None, changeset_name: Optional[str] = None):
         self.status_dir = Path(status_dir).expanduser().resolve()
         self.status_dir.mkdir(parents=True, exist_ok=True)
 
@@ -87,8 +87,8 @@ class ChangeSetStatusStore:
             index: int,
             action: str,
             object_type: str,
-            object_name: str | None,
-            source_path: str | None,
+            object_name: Optional[str],
+            source_path: Optional[str],
             before_state: Optional[dict] = None
     ) -> None:
         assert self.status.operations is not None

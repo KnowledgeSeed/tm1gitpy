@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Optional
 
 import TM1py
 from TM1_bedrock_py.bedrock import data_copy_intercube
@@ -339,7 +339,7 @@ def _add_dimensions_to_cube(
 def _build_cube_mdx_with_dim_sets(
         cube_name: str,
         dimension_names: List[str],
-        per_dim_set_mdx: Dict[str, str] | None = None
+        per_dim_set_mdx: Optional[Dict[str, str]] = None
 ) -> str:
     """
     Build a generic MDX that cross-joins all dimensions on a single axis.
@@ -378,7 +378,7 @@ def _delete_dimensions_from_cube(
         cube_new: Cube,
         dims_old: list[str],
         dims_new: list[str],
-        strategies: Dict[str, Dict[str, Any]] | None = None,
+        strategies: Optional[Dict[str, Dict[str, Any]]] = None,
         default_strategy: str = "sum_all",
         logging_level: str = "INFO"
 ) -> None:

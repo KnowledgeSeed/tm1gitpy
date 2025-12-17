@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Union
 
 import TM1py
 from TM1py import TM1Service, Dimension
@@ -81,7 +81,7 @@ class Dimension:
 
 logger = logging.getLogger(__name__)
 
-def create_dimension(tm1_service: TM1Service, dimension: Dimension | str) -> Response:
+def create_dimension(tm1_service: TM1Service, dimension: Union[Dimension, str]) -> Response:
     dim_name = dimension
     if isinstance(dimension, Dimension):
         dim_name = dimension.name
