@@ -66,18 +66,18 @@ parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 Model Version Con
 parser.add_argument('command', type=str, choices=['export', 'filter', 'compare'], help="Command to execute")
 parser.add_argument('-s', '--server', type=str, help="TM1 server to use from tm1servers.yaml")
 parser.add_argument('-m', '--model_folder', type=str, default='export', help="Folder to reference model for export and filter")
-parser.add_argument('-fo', '--filter_output', type=str, default='export2', help="Folder to output filtered model")
+parser.add_argument('-mo', '--model_output_folder', type=str, default='export', help="Folder to output filtered model")
 parser.add_argument('-o', '--overwrite', action='store_true', help="Overwrite existing export folder (clears folder if exists)")
 parser.add_argument('-f', '--filter', type=str, help="filter.txt file location for export")
 args = parser.parse_args()
 
 if args.command == 'export':
     tm1_service = _tm1_connection(args.server)
-    model_folder = args.model_folder or 'export'
+    model_output_folder = args.model_output_folder or 'export'
 
-    _prepare_model_folder(model_folder, args.overwrite)
+    _prepare_model_folder(model_output_folder, args.overwrite)
 
-    print(f"Exporting model to folder: {model_folder}")
+    print(f"Exporting model to folder: {model_output_folder}")
     exported_model, export_errors = export(tm1_service)
 
     # Print any export errors
@@ -91,18 +91,18 @@ if args.command == 'export':
 
     exported_model = _filter(exported_model, args.filter)
     
-    serialize_model(exported_model, model_folder)
-    print(f"Model serialized to: {model_folder}")
+    serialize_model(exported_model, model_output_folder)
+    print(f"Model serialized to: {model_output_folder}")
 
 elif args.command == 'filter':
     model_folder = args.model_folder or 'export'
-    filter_output = args.filter_output or 'export'
+    model_output_folder = args.model_output_folder or 'export'
     print(f"Loading model from folder: {model_folder}")
 
-    _prepare_model_folder(filter_output, args.overwrite)
+    _prepare_model_folder(model_output_folder, args.overwrite)
     model, errors = deserialize_model(model_folder)
 
     filtered_model = _filter(model, args.filter)
 
-    serialize_model(filtered_model, filter_output)
-    print(f"Model serialized to: {filter_output}")
+    serialize_model(filtered_model, model_output_folder)
+    print(f"Model serialized to: {model_output_folder}")
