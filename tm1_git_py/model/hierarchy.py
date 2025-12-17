@@ -2,16 +2,14 @@ import json
 import logging
 import re
 from typing import List, Any, Dict
-
 import TM1py
-from networkx.classes import edges
-
-from .edge import Edge
-from .element import Element, create_element, update_element, delete_element
-from .subset import Subset, create_subset, update_subset, delete_subset
 from TM1py.Utils import format_url
 from TM1py import TM1Service, Hierarchy
 from requests import Response
+from .edge import Edge
+from .element import Element, create_element, update_element, delete_element
+from .subset import Subset
+
 
 # {
 # 	"@type": "Hierarchy",

@@ -4,18 +4,18 @@ from typing import Dict, List
 from TM1py import TM1Service
 from TM1py.Utils import format_url
 
-from .model.chore import Chore
-from .model.cube import Cube
-from .model.dimension import Dimension
-from .model.element import Element
-from .model.hierarchy import Hierarchy
-from .model.mdxview import MDXView
-from .model.model import Model
-from .model.subset import Subset
-from .model.process import Process
+from model import Chore
+from model import Cube
+from model import Dimension
+from model import Element
+from model import Hierarchy
+from model import MDXView
+from model import Model
+from model import Subset
+from model import Process
 import TM1py
 
-from .model.ti import TI
+from model import TI
 
 
 def serialize_model(model: Model, dir):
