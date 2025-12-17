@@ -26,7 +26,7 @@ setup(
     install_requires=[
         "TM1py>=2.1,<3.0",
         "requests>=2.25",
-        "tm1_bedrock_py>=0.4.1",
+        "tm1_bedrock_py==1.1.1",
     ],
     python_requires=">=3.8",
 )

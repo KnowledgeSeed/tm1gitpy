@@ -1,11 +1,10 @@
-import json
+from itertools import chain
 from typing import List, Any, Dict
 
-from .chore import Chore
-from .cube import Cube
-from .dimension import Dimension
-from .process import Process
-from itertools import chain
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.process import Process
 
 
 class Model:

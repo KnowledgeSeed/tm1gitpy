@@ -4,12 +4,10 @@ from typing import List, Any, Dict
 
 import TM1py
 from TM1py import TM1Service, Dimension
+from TM1py.Utils import format_url
 from requests import Response
 
-from .element import Element
-from .hierarchy import Hierarchy, create_hierarchy, update_hierarchy
-from .subset import Subset
-from TM1py.Utils import format_url
+from tm1_git_py.model.hierarchy import Hierarchy
 
 
 # {

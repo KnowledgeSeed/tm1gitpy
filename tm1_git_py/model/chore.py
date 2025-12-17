@@ -2,12 +2,12 @@ import json
 import logging
 
 import TM1py
-from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency, ChoreTask
+from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency
 from requests import Response
 from typing import Any, Dict, List
 
-from . import task
-from .task import Task
+from tm1_git_py.model import task
+from tm1_git_py.model.task import Task
 
 # {
 # 	"@type": "Chore",

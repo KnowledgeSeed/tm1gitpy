@@ -3,18 +3,15 @@ import logging
 from typing import List, Any, Dict
 
 import TM1py
-from TM1py import TM1Service, Cube
-from requests import Response
 from TM1_bedrock_py.bedrock import data_copy_intercube
-
-from . import mdxview, element
-from .dimension import Dimension, create_dimension
-from .element import Element
-from .hierarchy import Hierarchy
-from .mdxview import MDXView
-from .subset import Subset
+from TM1py import TM1Service, Cube
 from TM1py.Utils import format_url
-from .rule import Rule
+from requests import Response
+
+from tm1_git_py.model import element
+from tm1_git_py.model.dimension import Dimension, create_dimension
+from tm1_git_py.model.mdxview import MDXView
+from tm1_git_py.model.rule import Rule
 
 
 # {
@@ -574,4 +571,3 @@ def _delete_dimensions_from_cube(
     # 4) Clean up temporary cube
     logger.info(f"Deleting temporary Cube '{temp_cube_name}'.")
     tm1_service.cubes.delete(temp_cube_name)
-

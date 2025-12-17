@@ -16,6 +16,7 @@ class ChangeSetOperationLog:
     object_type: str
     object_name: Optional[str] = None
     source_path: Optional[str] = None
+    before_state: Optional[dict] = None
     ok: Optional[bool] = None
     status_code: Optional[int] = None
     url: Optional[str] = None
@@ -81,7 +82,15 @@ class ChangeSetStatusStore:
         self._write()
         return self.execution_id
 
-    def begin_operation(self, index: int, action: str, object_type: str, object_name: str | None, source_path: str | None) -> None:
+    def begin_operation(
+            self,
+            index: int,
+            action: str,
+            object_type: str,
+            object_name: str | None,
+            source_path: str | None,
+            before_state: Optional[dict] = None
+    ) -> None:
         assert self.status.operations is not None
         self.status.operations.append(ChangeSetOperationLog(
             index=index,
@@ -89,6 +98,7 @@ class ChangeSetStatusStore:
             object_type=object_type,
             object_name=object_name,
             source_path=source_path,
+            before_state=before_state,
             started_at=time.time(),
         ))
         self.status.current_operation = index

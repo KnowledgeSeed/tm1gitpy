@@ -1,13 +1,13 @@
 import logging
 from typing import List, Dict, Any, Optional, Callable, Tuple, Iterable, Mapping
 
-from .changeset import Changeset
-from .model import Hierarchy, Subset, MDXView
-from .model.chore import Chore
-from .model.cube import Cube
-from .model.dimension import Dimension
-from .model.model import Model
-from .model.process import Process
+from tm1_git_py.changeset import Changeset
+from tm1_git_py.model import Hierarchy, Subset, MDXView
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.model import Model
+from tm1_git_py.model.process import Process
 
 
 logger = logging.getLogger(__name__)

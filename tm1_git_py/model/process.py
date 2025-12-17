@@ -1,7 +1,6 @@
 import json
 import logging
-from sqlite3.dbapi2 import paramstyle
-from typing import Any, List, Dict, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 
 import TM1py
 from TM1py import TM1Service, Process
@@ -9,7 +8,7 @@ from requests import Response
 
 # Importáljuk a TI osztályt a típus-ellenőrzéshez (type hinting)
 if TYPE_CHECKING:
-    from .ti import TI
+    pass
 # {
 #   "@type":"Process",
 # 	"Name":"airflow_test_success",

@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 import TM1py
 from TM1py import ChoreTask
 
-from .process import Process
+from tm1_git_py.model.process import Process
 
 
 class Task:

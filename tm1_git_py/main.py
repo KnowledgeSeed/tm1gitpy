@@ -4,24 +4,24 @@ from typing import Dict, List
 from TM1py import TM1Service
 from TM1py.Utils import format_url
 
-from .deserializer import deserialize_model
-from .model.chore import Chore
-from .model.cube import Cube
-from .model.dimension import Dimension
-from .model.element import Element
-from .serializer import serialize_model
-from .model.hierarchy import Hierarchy
-from .model.mdxview import MDXView
-from .model.model import Model
-from .model.subset import Subset
-from .model.process import Process
+from tm1_git_py.deserializer import deserialize_model
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.element import Element
+from tm1_git_py.serializer import serialize_model
+from tm1_git_py.model.hierarchy import Hierarchy
+from tm1_git_py.model.mdxview import MDXView
+from tm1_git_py.model.model import Model
+from tm1_git_py.model.subset import Subset
+from tm1_git_py.model.process import Process
 import TM1py
-from .comparator import Comparator
-from .changeset import Changeset
+from tm1_git_py.comparator import Comparator
+from tm1_git_py.changeset import Changeset
 
-from .model.ti import TI
-from .tm1_to_model import tm1_to_model
-from .filter import filter
+from tm1_git_py.model.ti import TI
+from tm1_git_py.exporter import export
+from tm1_git_py.filter import filter
 
 def tm1_connection() -> TM1Service:
     """Creates a TM1 connection before tests and closes it after all tests."""
@@ -88,4 +88,3 @@ def tm1_connection() -> TM1Service:
 # run_filter_and_export()
 
 print("")
-
