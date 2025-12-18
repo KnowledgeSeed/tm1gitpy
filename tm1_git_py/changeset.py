@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Any, TypeVar, Union, Optional
+from typing import List, Dict, Any, TypeVar, Union, Optional, Tuple
 
 from requests import Response
 
@@ -135,7 +135,7 @@ class Changeset:
         return self.removed
 
     @property
-    def lines(self) -> list[str]:
+    def lines(self) -> List[str]:
         return self._build_changes()
 
     def __repr__(self):
@@ -169,12 +169,12 @@ class Changeset:
         return any([self.added, self.modified, self.removed])
 
 
-    def _build_changes(self) -> list[str]:
+    def _build_changes(self) -> List[str]:
         """
         Build the normalized, sorted 'C/U/D  path' lines from the current
         added/modified/removed lists. No side effects.
         """
-        lines: list[str] = []
+        lines: List[str] = []
 
         for obj in self.added:
             path = normalize_source_path(getattr(obj, "source_path", ""))
@@ -205,7 +205,7 @@ class Changeset:
         changeset_name: Optional[str] = None,
         fail_fast: bool = True,
         **kwargs
-    ) -> tuple[bool, list[str]]:
+    ) -> Tuple[bool, List[str]]:
 
         changes = []
         if not self.has_changes():
@@ -214,7 +214,7 @@ class Changeset:
 
         self.sort()
 
-        operations: List[tuple[str, Any]] = []
+        operations: List[Tuple[str, Any]] = []
         operations += [("CREATE", obj) for obj in self.added]
         operations += [("UPDATE", obj) for obj in self.modified]
         operations += [("DELETE", obj) for obj in self.removed]
@@ -227,7 +227,7 @@ class Changeset:
             self.last_execution_id = store.execution_id
             logger.info("changeset execution_id=%s status_file=%s", store.execution_id, store.path)
 
-        def _obj_meta(o: Any) -> tuple[str, Optional[str], Optional[str]]:
+        def _obj_meta(o: Any) -> Tuple[str, Optional[str], Optional[str]]:
             if isinstance(o, dict) and "new" in o:
                 o = o["new"]
             return o.__class__.__name__, getattr(o, "name", None), getattr(o, "source_path", None)

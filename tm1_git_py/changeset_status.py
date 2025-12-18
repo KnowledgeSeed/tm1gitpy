@@ -155,27 +155,12 @@ class ChangeSetStatusStore:
         self._write()
 
     @staticmethod
-    def load(status_dir: str | Path, execution_id: str) -> ChangeSetExecutionStatus:
+    def load(status_dir: Union[str, Path], execution_id: str) -> ChangeSetExecutionStatus:
         path = Path(status_dir).expanduser().resolve() / f"{execution_id}.json"
         raw = json.loads(path.read_text(encoding="utf-8"))
         ops = [ChangeSetOperationLog(**op) for op in raw.get("operations", [])]
         raw["operations"] = ops
         return ChangeSetExecutionStatus(**raw)
-
-
-def poll_execution_status(status_dir: str | Path, execution_id: str) -> ChangeSetExecutionStatus:
-    return ChangeSetStatusStore.load(status_dir=status_dir, execution_id=execution_id)
-
-
-def wait_for_completion(status_dir: str | Path, execution_id: str, interval_seconds: float = 2.0, timeout_seconds: float | None = None) -> ChangeSetExecutionStatus:
-    start = time.time()
-    while True:
-        status = poll_execution_status(status_dir, execution_id)
-        if status.state in ("SUCCEEDED", "FAILED"):
-            return status
-        if timeout_seconds is not None and (time.time() - start) > timeout_seconds:
-            return status
-        time.sleep(interval_seconds)
 
 
 def _truncate(s: str, limit: int) -> str:
