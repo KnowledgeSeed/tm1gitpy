@@ -1,8 +1,7 @@
 import json
 import os
+import re
 from typing import Dict, List
-from TM1py import TM1Service
-from TM1py.Utils import format_url
 
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
@@ -11,14 +10,11 @@ from tm1_git_py.model.element import Element
 from tm1_git_py.model.hierarchy import Hierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.model import Model
-from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.process import Process
-import TM1py
-import re
-
-from tm1_git_py.model.ti import TI
-from tm1_git_py.model.task import Task
 from tm1_git_py.model.rule import Rule
+from tm1_git_py.model.subset import Subset
+from tm1_git_py.model.task import Task
+from tm1_git_py.model.ti import TI
 
 
 def deserialize_model(dir) -> Model:
