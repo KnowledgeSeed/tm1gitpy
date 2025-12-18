@@ -26,7 +26,7 @@ class Model:
         }
 
     def get_all_objects_with_paths(self) -> Dict[str, Any]:
-        from tm1_git_py.filter import normalize_for_path
+        from filter import normalize_for_path
 
         all_objects = {}
         normalize = lambda path: path.replace('\\', '/')

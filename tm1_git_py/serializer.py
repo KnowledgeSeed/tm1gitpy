@@ -1,5 +1,6 @@
+import json
 import os
-from typing import List
+from typing import Dict, List
 
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube

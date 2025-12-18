@@ -1,90 +1,108 @@
-import json
+import argparse
 import os
-from typing import Dict, List
+import shutil
+import sys
+from pathlib import Path
 from TM1py import TM1Service
-from TM1py.Utils import format_url
+from exporter import export
+from config import TM1ServersConfig
+from serializer import serialize_model
+from deserializer import deserialize_model
+from model import Model
+from filter import filter
 
-from tm1_git_py.deserializer import deserialize_model
-from tm1_git_py.model.chore import Chore
-from tm1_git_py.model.cube import Cube
-from tm1_git_py.model.dimension import Dimension
-from tm1_git_py.model.element import Element
-from tm1_git_py.serializer import serialize_model
-from tm1_git_py.model.hierarchy import Hierarchy
-from tm1_git_py.model.mdxview import MDXView
-from tm1_git_py.model.model import Model
-from tm1_git_py.model.subset import Subset
-from tm1_git_py.model.process import Process
-import TM1py
-from tm1_git_py.comparator import Comparator
-from tm1_git_py.changeset import Changeset
 
-from tm1_git_py.model.ti import TI
-from tm1_git_py.exporter import export
-from tm1_git_py.filter import filter
-
-def tm1_connection() -> TM1Service:
+def _tm1_connection(server_name: str) -> TM1Service:
     """Creates a TM1 connection before tests and closes it after all tests."""
-    # load_dotenv()
+
+    config = TM1ServersConfig()
+    config.load()
+    server_config = config.get(server_name)
+
     tm1 = TM1Service(
-        address=os.environ.get("TM1_ADDRESS"),
-        port=os.environ.get("TM1_PORT"),
-        user=os.environ.get("TM1_USER"),
-        password="",
-        ssl=os.environ.get("TM1_SSL")
+        base_url=server_config.base_url,
+        user=server_config.user,
+        password=server_config.password or ""
     )
-    #basic_logger.debug("Successfully connected to TM1.")
     return tm1
 
+def _prepare_model_folder(model_folder: str, overwrite: bool = False):
+     # Check if export folder exists
+    model_path = Path(model_folder)
+    if model_path.exists() and model_path.is_dir():
+        if not overwrite:
+            print(f"Error: Model folder '{model_folder}' already exists. Use --overwrite flag to clear and overwrite.", file=sys.stderr)
+            sys.exit(1)
+        else:
+            # Clear the model folder
+            print(f"Clearing existing model folder: {model_folder}")
+            shutil.rmtree(model_folder)
 
-#_model, _errors = tm1_to_model(tm1_conn=tm1_connection())
-#serialize_model(_model, dir='export')
+def _filter(model, filter_file) -> Model:
+    # Apply filter if specified
+    if filter_file:
+        filter_path = Path(filter_file)
+        if not filter_path.exists():
+            print(f"Error: Filter file '{filter_file}' not found.", file=sys.stderr)
+            sys.exit(1)
 
-# export_dir(_model=_model, export_dir=os.environ.get("EXPORT_DIR"))
+        print(f"Applying filter from: {filter_file}")
+        try:
+            with open(filter_path, 'r', encoding='utf-8') as f:
+                filter_rules = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
 
-#_model, _errors = deserialize_model(dir='export')
-#serialize_model(_model, dir='export2')
+            print(f"Loaded {len(filter_rules)} filter rules")
+            filtered_model = filter(model, filter_rules)
+            print("Filter applied successfully")
+            return filtered_model
+        except Exception as e:
+            print(f"Error applying filter: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        return model
 
-# def compare_tm1():
-#     model_from_export, export_errors = deserialize_model(dir='export')
-#     if any(export_errors.values()):
-#         print(export_errors)
 
-#     model_from_export2, export_errors = deserialize_model(dir='export2')
-#     if any(export_errors.values()):
-#         print(export_errors)
-#     comparator = Comparator()
+parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 Model Version Control Tool")
+parser.add_argument('command', type=str, choices=['export', 'filter', 'compare'], help="Command to execute")
+parser.add_argument('-s', '--server', type=str, help="TM1 server to use from tm1servers.yaml")
+parser.add_argument('-m', '--model_folder', type=str, default='export', help="Folder to reference model for export and filter")
+parser.add_argument('-mo', '--model_output_folder', type=str, default='export', help="Folder to output filtered model")
+parser.add_argument('-o', '--overwrite', action='store_true', help="Overwrite existing export folder (clears folder if exists)")
+parser.add_argument('-f', '--filter', type=str, help="filter.txt file location for export")
+args = parser.parse_args()
 
-#     print("\n--- full ---")
-#     changeset_full = comparator.compare(model_from_export, model_from_export2, mode='full')
-#     print(changeset_full)
-#     return changeset_full
+if args.command == 'export':
+    tm1_service = _tm1_connection(args.server)
+    model_output_folder = args.model_output_folder or 'export'
 
-#changeset = compare_tm1()
-#changeset.apply(tm1_service=tm1_connection())
+    _prepare_model_folder(model_output_folder, args.overwrite)
 
-# def run_filter_and_export():
-#     source_directory = 'export'
-#     print(f"1. Modell betöltése innen'{source_directory}'")
-#     original_model, errors = deserialize_model(dir=source_directory)
-#     if errors:
-#         print("modell betöltés hiba", errors)
+    print(f"Exporting model to folder: {model_output_folder}")
+    exported_model, export_errors = export(tm1_service)
 
-#     rules_path = 'filter.txt'
-#     filter_rules = []
-#     try:
-#         with open(rules_path, 'r', encoding='utf-8') as f:
-#             filter_rules = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
-#         print(f"\n2. '{rules_path}' létezik:")
-#     except FileNotFoundError:
-#         print(f"\n2. nincs: '{rules_path}'")
+    # Print any export errors
+    if export_errors and any(export_errors.values()):
+        print("Export errors encountered:")
+        for error_type, errors in export_errors.items():
+            if errors:
+                print(f"  {error_type}: {errors}")
+    else:
+        print("Export completed successfully with no errors")
 
-#     print("\n3. Filtering")
-#     filtered_model = filter(original_model, filter_rules)
+    exported_model = _filter(exported_model, args.filter)
 
-#     export_directory = 'export3'
-#     print(f"\n4. A filtered modell mentése '{export_directory}'")
-#     serialize_model(filtered_model, dir=export_directory)
-# run_filter_and_export()
+    serialize_model(exported_model, model_output_folder)
+    print(f"Model serialized to: {model_output_folder}")
 
-print("")
+elif args.command == 'filter':
+    model_folder = args.model_folder or 'export'
+    model_output_folder = args.model_output_folder or 'export'
+    print(f"Loading model from folder: {model_folder}")
+
+    _prepare_model_folder(model_output_folder, args.overwrite)
+    model, errors = deserialize_model(model_folder)
+
+    filtered_model = _filter(model, args.filter)
+
+    serialize_model(filtered_model, model_output_folder)
+    print(f"Model serialized to: {model_output_folder}")

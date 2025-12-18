@@ -35,8 +35,10 @@ def deserialize_model(dir) -> Model:
 
     _cubes, _cube_errors = deserialize_cubes(cubes_dir, _dimensions)
 
-    _model = Model(cubes=_cubes.values(), dimensions=_dimensions.values(), processes=_processes.values(),
-                   chores=_chores.values())
+    _model = Model(cubes=list(_cubes.values()),
+                   dimensions=list(_dimensions.values()),
+                   processes=list(_processes.values()),
+                   chores=list(_chores.values()))
     _errors = _dim_errors | _cube_errors | _process_errors | _chore_errors
     return _model, _errors
 

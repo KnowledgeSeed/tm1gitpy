@@ -2,7 +2,6 @@ import json
 import os
 import re
 from typing import Dict, List
-
 from TM1py import TM1Service
 
 from tm1_git_py.model.chore import Chore
@@ -43,13 +42,12 @@ def export(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
 
     _chores, _chore_errors = chores_to_model(tm1_conn)
 
-    _model = Model(cubes=_cubes.values(),
-                   dimensions=_dimensions.values(),
-                   processes=_processes.values(),
-                   chores=_chores.values(),
+    _model = Model(cubes=list(_cubes.values()),
+                   dimensions=list(_dimensions.values()),
+                   processes=list(_processes.values()),
+                   chores=list(_chores.values()),
                    #server_configs=server_configs_to_model(tm1_conn)
                    )
-
     _errors = {}
     _errors['dim'] = _dim_errors
     _errors['cube'] = _cube_errors

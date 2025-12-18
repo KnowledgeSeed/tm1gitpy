@@ -2,7 +2,6 @@ import json
 import logging
 import re
 from typing import List, Any, Dict
-
 import TM1py
 from TM1py import TM1Service, Hierarchy
 from TM1py.Utils import format_url

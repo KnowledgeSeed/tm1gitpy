@@ -1,7 +1,6 @@
 import json
 import logging
 from typing import List, Any, Dict, Optional
-
 import TM1py
 from TM1_bedrock_py.bedrock import data_copy_intercube
 from TM1py import TM1Service, Cube

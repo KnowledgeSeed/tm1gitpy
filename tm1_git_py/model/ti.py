@@ -24,16 +24,16 @@ class TI:
         if not isinstance(other, TI):
             return NotImplemented
 
-        if _normalize_line_sep(self.prolog_procedure) != _normalize_line_sep(other.prolog_procedure):
+        if TI.normalize_text(self.prolog_procedure) != TI.normalize_text(other.prolog_procedure):
             return False
 
-        if _normalize_line_sep(self.metadata_procedure) != _normalize_line_sep(other.metadata_procedure):
+        if TI.normalize_text(self.metadata_procedure) != TI.normalize_text(other.metadata_procedure):
             return False
 
-        if _normalize_line_sep(self.data_procedure) != _normalize_line_sep(other.data_procedure):
+        if TI.normalize_text(self.data_procedure) != TI.normalize_text(other.data_procedure):
             return False
 
-        if _normalize_line_sep(self.epilog_procedure) != _normalize_line_sep(other.epilog_procedure):
+        if TI.normalize_text(self.epilog_procedure) != TI.normalize_text(other.epilog_procedure):
             return False
 
         return True
@@ -48,6 +48,10 @@ class TI:
             'data_procedure': self.data_procedure,
             'epilog_procedure': self.epilog_procedure,
         }
+
+    @classmethod
+    def normalize_text(cls, text: str) -> str:
+        return text.replace('\r\n', os.linesep).replace('\r', os.linesep).replace('\n', os.linesep).strip()
 
     @classmethod
     def from_string(cls, ti):
@@ -77,7 +81,3 @@ class TI:
             "#endregion"
         ]
         return line_sep.join(sections) + line_sep
-
-
-def _normalize_line_sep(ti_attribute: str) -> str:
-    return ti_attribute.replace('\r', '').strip()
