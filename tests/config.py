@@ -387,7 +387,7 @@ def make_dimension(name: str, hierarchy_names=None, source_path=None) -> Dimensi
         name=name,
         hierarchies=hierarchies,
         defaultHierarchy=default_hierarchy,
-        source_path=source_path+".json",
+        source_path=source_path+".json"
     )
 
 

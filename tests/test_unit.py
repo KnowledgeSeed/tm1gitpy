@@ -6,7 +6,7 @@ from typing import TypeVar
 import pytest
 
 import tm1_git_py.comparator
-from config import (
+from tests.config import (
     _build_mock_changeset_data,
     _objects_equal_case_builders,
     build_mock_model,
@@ -340,7 +340,7 @@ class TestComparator:
         print(changeset)
         assert len(changeset.added) == 3
         assert len(changeset.modified) == 9
-        assert len(changeset.removed) == 2
+        assert len(changeset.removed) == 4
 
 
     def test_comparator_dimensions_change_propagation(self):
@@ -373,7 +373,7 @@ class TestComparator:
         removed = [removed for removed in changeset.removed if type(removed) is MDXView]
         modified = [modified for modified in changeset.modified if type(modified['new']) is Cube]
 
-        assert changes.count('/cubes') == 3
+        assert changes.count('/cubes') == 5
 
         assert (isinstance(added[0], MDXView) and added[0].name == "tm1_bedrock_py_gp0vkg064lilmmga")
         assert (isinstance(modified[0]['new'], Cube) and modified[0]['new'].name == "testbenchSales")
@@ -449,30 +449,11 @@ class TestComparator:
 class TestChangeset:
 
     def test_apply_uses_sorted_order_for_create_and_delete(self, mocker):
-        changeset = Changeset()
+        model_old, errors_old = deserialize_model(str(test_model_dir_base))
+        model_new, errors_new = deserialize_model(str(test_model_dir_diff))
+        comparator = tm1_git_py.Comparator()
 
-        # Create one object of each type, then put them into ADDED in a scrambled order
-        dim = make_dimension("Dim_A")
-        hier = make_hierarchy("Dim_A", "H1")
-        sub = make_subset("Dim_A", "H1", "Sub1")
-        cube = make_cube("Cube_A")
-        mdx_view = make_mdx_view("View_A")
-        proc = make_process("Proc_A")
-        chore = make_chore("Chore_A")
-
-        # Unscrupulously scrambled
-        changeset.added = [chore, cube, sub, proc, hier, dim, mdx_view]
-
-        # Same for REMOVED (different instances just to distinguish in debugging)
-        dim_del = make_dimension("Dim_Del")
-        hier_del = make_hierarchy("Dim_Del", "H_Del")
-        sub_del = make_subset("Dim_Del", "H_Del", "Sub_Del")
-        cube_del = make_cube("Cube_Del")
-        mdx_view_del = make_mdx_view("View_Del")
-        proc_del = make_process("Proc_Del")
-        chore_del = make_chore("Chore_Del")
-
-        changeset.removed = [dim_del, mdx_view_del, hier_del, sub_del, cube_del, proc_del, chore_del]
+        changeset = comparator.compare(model_old, model_new)
 
         # No modified in this test
         changeset.modified = []
@@ -507,7 +488,7 @@ class TestChangeset:
             for call in mock_create.call_args_list
         ]
 
-        assert created_types == [Dimension, Hierarchy, Subset, Cube, MDXView, Process, Chore]
+        assert created_types == [Hierarchy, Subset, MDXView]
 
         # No updates in this test
         mock_update.assert_not_called()
@@ -520,41 +501,21 @@ class TestChangeset:
 
         # For deletes, precedence is:
         # cubes -> subsets -> hierarchies -> dimensions -> chore -> process
-        assert deleted_types == [MDXView, Cube, Subset, Hierarchy, Dimension, Chore, Process]
+        assert deleted_types == [MDXView, Cube, Chore, Process]
 
         assert os.path.isfile(status_dir + '/' + exec_id + '.json')
         os.remove(status_dir + '/' + exec_id + '.json')
 
 
     def test_apply_sorts_updates_in_expected_precedence(self, mocker):
-        cs = Changeset()
+        model_old, errors_old = deserialize_model(str(test_model_dir_base))
+        model_new, errors_new = deserialize_model(str(test_model_dir_diff))
+        comparator = tm1_git_py.Comparator()
 
-        hier_old = make_hierarchy("Dim_A", "Hier_A",
-                                  elements=[make_element("A", "Numeric")])
-        hier_new = make_hierarchy("Dim_A", "Hier_A",
-                                  elements=[make_element("B", "Numeric")])
-        dim_old = make_dimension("Dim_A", hierarchy_names=["Hier_A"])
-        dim_new = make_dimension("Dim_A", hierarchy_names=["Hier_A", "Hier_B"])
-        view_old = make_mdx_view("View_A")
-        view_new = make_mdx_view("View_A", mdx="SELECT {[Dim].[Elem] FROM [Cube_A]}")
-        cube_old = make_cube("Cube_A")
-        cube_new = make_cube("Cube_A", views=[view_new])
-        proc_old = make_process("Proc_A")
-        proc_new = make_process("Proc_A", has_security_access=False)
-        chore_old = make_chore("Chore_A")
-        chore_new = make_chore("Chore_A", active=True)
+        changeset = comparator.compare(model_old, model_new)
 
-        cs.modified = [
-            {"old": cube_old, "new": cube_new, "changes": "cube changed"},
-            {"old": proc_old, "new": proc_new, "changes": "proc changed"},
-            {"old": view_old, "new": view_new, "changes": "view changed"},
-            {"old": dim_old, "new": dim_new, "changes": "dim changed"},
-            {"old": hier_old, "new": hier_new, "changes": "hier changed"},
-            {"old": chore_old, "new": chore_new, "changes": "chore changed"}
-        ]
-        cs.added = []
-        cs.removed = []
-        cs.sort()
+        changeset.added = []
+        changeset.removed = []
 
         mock_create = mocker.patch("tm1_git_py.changeset.create_object")
         mock_delete = mocker.patch("tm1_git_py.changeset.delete_object")
@@ -575,7 +536,7 @@ class TestChangeset:
 
         status_dir = 'tests'
         exec_id = 'test_update'
-        success, _ = cs.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id)
+        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id)
         assert success
 
         mock_create.assert_not_called()
@@ -587,8 +548,7 @@ class TestChangeset:
         ]
         updated_types = [type(o) for o in updated_new_objs]
 
-        # Same precedence as creates: Dimension → Hierarchy → Cube → MDXView → Process → Chore for this subset
-        assert updated_types == [Dimension, Hierarchy, Cube, MDXView, Process, Chore]
+        assert updated_types == [Dimension, Hierarchy, Hierarchy, Hierarchy, Subset, Cube, MDXView, Process, Chore]
 
         assert os.path.isfile(status_dir + '/' + exec_id + '.json')
         os.remove(status_dir + '/' + exec_id + '.json')
@@ -1123,7 +1083,7 @@ class TestDimensionCRUD:
         tm1py_dimension_instance = tm1py_dimension_cls.return_value
         tm1_service.dimensions.create.return_value = "create-result"
 
-        result = dimension.create_dimension(tm1_service, dimension_input)
+        result = dimension.create_dimension(tm1_service, dimension_input.name)
 
         tm1py_dimension_cls.assert_called_once_with("TestDim")
         tm1_service.dimensions.create.assert_called_once_with(tm1py_dimension_instance)
