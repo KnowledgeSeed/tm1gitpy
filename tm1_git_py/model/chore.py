@@ -2,11 +2,10 @@ import json
 import logging
 
 import TM1py
-from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency, ChoreTask
+from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency
 from requests import Response
 from typing import Any, Dict, List
-from .task import Task
-from model import task
+from .task import Task, create_chore_task
 
 # {
 # 	"@type": "Chore",
@@ -273,7 +272,7 @@ class Chore:
 logger = logging.getLogger(__name__)
 
 def create_chore(tm1_service: TM1Service, chore: Chore) -> Response:
-    chore_tasks = [task.create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore.tasks)]
+    chore_tasks = [create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore.tasks)]
     frequency = chore.frequency
     start_time = chore.start_time
     chore_object = TM1py.Chore(
@@ -295,7 +294,7 @@ def update_chore(tm1_service: TM1Service, chore: Dict[str, Any]) -> Response:
     chore_new = chore.get('new')
 
     if tm1_service.chores.exists(chore_name=chore_new.name):
-        chore_tasks = [task.create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore_new.tasks)]
+        chore_tasks = [create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore_new.tasks)]
 
         frequency = chore_new.frequency
         start_time = chore_new.start_time

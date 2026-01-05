@@ -1,6 +1,6 @@
 import fnmatch
 from typing import List
-from model.model import Model
+from tm1_git_py.model import Model
 
 
 def _perform_dependency_check(model: Model):

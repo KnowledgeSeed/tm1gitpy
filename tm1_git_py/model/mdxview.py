@@ -2,7 +2,6 @@ import json
 import logging
 import re
 from typing import Any, Dict
-
 import TM1py
 from TM1py.Services import TM1Service
 from requests import Response

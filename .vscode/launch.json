@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tm1_git_py/main.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            // "args": ["export", "--server=dev", "--model_output_folder=export", "--overwrite"]
+            // "args": ["export", "--server=dev", "--filter=examples/filter.txt", "--model_output_folder=export", "--overwrite"]
+            // "args": ["export", "-s", "dev", "-o", "--filter", "${workspaceFolder}/tm1_git_py/filter.txt"]
+            "args": ["filter", "--filter=examples/filter.txt",  "--model_output_folder=export2", "--overwrite"]
+        }
+    ]
+}

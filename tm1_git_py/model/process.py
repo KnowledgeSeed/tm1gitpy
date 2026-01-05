@@ -1,7 +1,6 @@
 import json
 import logging
-from sqlite3.dbapi2 import paramstyle
-from typing import Any, List, Dict, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 
 import TM1py
 from TM1py import TM1Service, Process

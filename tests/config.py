@@ -1,18 +1,19 @@
 import tm1_git_py
-from tm1_git_py.model import (
-    Process,
-    TI,
-    Cube,
-    MDXView,
-    Dimension,
-    Element,
-    Hierarchy,
-    Edge,
-    Subset,
-    Model,
-    Rule,
-    Task,
-    Chore, )
+from tm1_git_py.model.edge import Edge
+from tm1_git_py.model.process import Process
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.hierarchy import Hierarchy
+from tm1_git_py.model.subset import Subset
+from tm1_git_py.model.element import Element
+from tm1_git_py.model.mdxview import MDXView
+from tm1_git_py.model.model import Model
+from tm1_git_py.model.ti import TI
+from tm1_git_py.model.task import Task
+from tm1_git_py.model.rule import Rule
+import os
+from typing import List, Dict, Set
 
 dim_data = ["""
         {

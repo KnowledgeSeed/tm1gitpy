@@ -1,5 +1,3 @@
-import json
-
 class Rule:
     def __init__(self, area: str, full_statement: str, comment: str = ""):
         self.area = area

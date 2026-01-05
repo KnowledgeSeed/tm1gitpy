@@ -6,10 +6,9 @@ import TM1py
 from TM1py.Utils import format_url
 from TM1py import TM1Service, Hierarchy
 from requests import Response
+from .element import Element, create_element, delete_element, update_element
 from .edge import Edge
-from .element import Element, create_element, update_element, delete_element
 from .subset import Subset
-
 
 # {
 # 	"@type": "Hierarchy",

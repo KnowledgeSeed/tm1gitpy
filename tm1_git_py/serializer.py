@@ -1,22 +1,7 @@
-import json
+
 import os
-from typing import Dict, List
-from TM1py import TM1Service
-from TM1py.Utils import format_url
-
-from model import Chore
-from model import Cube
-from model import Dimension
-from model import Element
-from model import Hierarchy
-from model import MDXView
-from model import Model
-from model import Subset
-from model import Process
-import TM1py
-
-from model import TI
-
+from typing import List
+from tm1_git_py.model import Chore, Cube, Dimension, Process, Model
 
 def serialize_model(model: Model, dir):
     os.makedirs(dir, exist_ok=True)

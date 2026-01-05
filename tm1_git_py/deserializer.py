@@ -2,20 +2,7 @@ import json
 import os
 import re
 from typing import Dict, List
-
-from model.chore import Chore
-from model.cube import Cube
-from model.dimension import Dimension
-from model.element import Element
-from model.hierarchy import Hierarchy
-from model.mdxview import MDXView
-from model.model import Model
-from model.subset import Subset
-from model.process import Process
-from model.ti import TI
-from model.task import Task
-from model.rule import Rule
-
+from tm1_git_py.model import Model, Dimension, Hierarchy, Subset, Cube, MDXView, Process, Chore, TI, Task, Rule, Element
 
 def deserialize_model(dir) -> Model:
     dimensions_dir = dir + '/dimensions'
