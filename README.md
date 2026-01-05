@@ -106,7 +106,7 @@ See the [examples](examples/) directory for usage examples:
 Build a standalone executable using Nuitka:
 
 ```bash
-python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-execution --output-filename=tm1gitpy
+python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-execution --mode=onefile --include-module=ijson.backends.yajl2_c --output-filename=tm1gitpy
 ```
 
 ## Development
