@@ -35,7 +35,7 @@ jobs:
     
     - name: Run tests
       run: |
-        pytest tests/ -v --tb=short
+        PYTHONPATH=. pytest tests/ -v --tb=short
     
     - name: Test import
       run: |
@@ -187,7 +187,7 @@ jobs:
     
     - name: Run tests with coverage
       run: |
-        pytest tests/ --cov=tm1_git_py --cov-report=xml --cov-report=html --cov-report=term
+        PYTHONPATH=. pytest tests/ --cov=tm1_git_py --cov-report=xml --cov-report=html --cov-report=term
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
