@@ -1,13 +1,8 @@
 from collections.abc import Callable, Iterable, Mapping
 import logging
 from typing import List, Dict, Any, Optional, Tuple
-from changeset import Changeset
-from model import Hierarchy, Subset, MDXView
-from model import Chore
-from model import Cube
-from model import Dimension
-from model import Model
-from model import Process
+from tm1_git_py.changeset import Changeset
+from tm1_git_py.model import Hierarchy, Subset, MDXView, Dimension, Cube, Process, Chore, Model
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,6 @@ from typing import TypeVar
 
 import pytest
 
-import tm1_git_py.comparator
 from config import (
     _build_mock_changeset_data,
     _objects_equal_case_builders,
@@ -15,8 +14,9 @@ from config import (
     make_dimension, make_subset, make_chore, make_process, make_mdx_view, make_cube, make_rule, make_hierarchy,
     make_element
 )
-from tm1_git_py import serialize_model
+from tm1_git_py.serializer import serialize_model
 from tm1_git_py.changeset import Changeset
+from tm1_git_py.comparator import Comparator
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview
@@ -314,7 +314,7 @@ class TestComparator:
         serialize_model(model=model1, dir=str(tmp_path))
         model2, error2 = deserialize_model(str(tmp_path))
         
-        comparator = tm1_git_py.Comparator()
+        comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         assert len(changeset.changes) == 0
 
@@ -323,7 +323,7 @@ class TestComparator:
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
-        comparator = tm1_git_py.Comparator()
+        comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='add_only')
         assert len(changeset.added) == 3
         assert len(changeset.modified) == 9
@@ -334,7 +334,7 @@ class TestComparator:
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
-        comparator = tm1_git_py.Comparator()
+        comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         print(changeset)
         assert len(changeset.added) == 3
@@ -349,7 +349,7 @@ class TestComparator:
 
         expected_hierarchies = ["testbenchMeasureSales", "testbenchVersion", "testbenchPeriod", "testbenchSales"]
 
-        comparator = tm1_git_py.Comparator()
+        comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         changes = str(changeset)
         added = [added for added in changeset.added if type(added) is Subset]
@@ -365,7 +365,7 @@ class TestComparator:
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
-        comparator = tm1_git_py.Comparator()
+        comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         changes = str(changeset)
         added = [added for added in changeset.added if type(added) is MDXView]
@@ -384,7 +384,7 @@ class TestComparator:
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
-        comparator = tm1_git_py.Comparator()
+        comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         changes = str(changeset)
         removed = [removed for removed in changeset.removed if type(removed) is Process]
@@ -401,7 +401,7 @@ class TestComparator:
 
         expected_chores = ["Mock Nightly Maintenance", "Mock Weekly Export"]
 
-        comparator = tm1_git_py.Comparator()
+        comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         changes = str(changeset)
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Chore]

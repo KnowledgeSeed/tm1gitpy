@@ -1,12 +1,9 @@
 import json
 import logging
 from typing import List, Dict, Any, Optional
-
 import TM1py
 from TM1py import ChoreTask
-
 from .process import Process
-
 
 class Task:
     def __init__(self, process_name: str, parameters: List[Dict[str, Any]]):

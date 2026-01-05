@@ -1,18 +1,19 @@
 """Internal data structures for representing TM1 artifacts."""
 
-from .chore import Chore
-from .cube import Cube
-from .dimension import Dimension
-from .edge import Edge
-from .element import Element
-from .hierarchy import Hierarchy
-from .mdxview import MDXView
-from .model import Model
-from .process import Process
-from .subset import Subset
-from .ti import TI
-from .rule import Rule
-from .task import Task
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.chore import create_chore, delete_chore, update_chore
+from tm1_git_py.model.cube import Cube, create_cube, delete_cube, update_cube
+from tm1_git_py.model.dimension import Dimension, create_dimension, delete_dimension, update_dimension
+from tm1_git_py.model.edge import Edge
+from tm1_git_py.model.element import Element
+from tm1_git_py.model.hierarchy import Hierarchy, create_hierarchy, delete_hierarchy, update_hierarchy
+from tm1_git_py.model.mdxview import MDXView, create_mdx_view, delete_mdx_view, update_mdx_view
+from tm1_git_py.model.model import Model
+from tm1_git_py.model.process import Process, create_process, delete_process, update_process
+from tm1_git_py.model.subset import Subset
+from tm1_git_py.model.ti import TI
+from tm1_git_py.model.rule import Rule
+from tm1_git_py.model.task import Task
 
 __all__ = [
     "Chore",
