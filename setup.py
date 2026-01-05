@@ -28,5 +28,5 @@ setup(
         "requests>=2.25",
         "tm1_bedrock_py>=0.4.1",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.10",
 )
