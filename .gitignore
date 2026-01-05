@@ -1,3 +1,7 @@
+main.build
+main.onefile-build
+main.dist
+
 # Byte-compiled / optimized / compiled Python files
 __pycache__/
 *.py[cod]
