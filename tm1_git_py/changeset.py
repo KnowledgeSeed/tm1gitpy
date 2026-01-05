@@ -5,14 +5,14 @@ from pathlib import Path
 from typing import List, Dict, Any, TypeVar, Union
 from TM1py import TM1Service
 from requests import Response
-from model import Chore, Cube, Dimension, Process, Model, Hierarchy, Subset, MDXView
-from model.dimension import create_dimension, delete_dimension, update_dimension
-from model.process import create_process, delete_process, update_process
-from model.chore import create_chore, delete_chore, update_chore
-from model.hierarchy import create_hierarchy, delete_hierarchy, update_hierarchy
-from model.subset import create_subset, delete_subset, update_subset
-from model.cube import create_cube, delete_cube, update_cube
-from model.mdxview import create_mdx_view, delete_mdx_view, update_mdx_view
+from tm1_git_py.model import Chore, Cube, Dimension, Process, Model, Hierarchy, Subset, MDXView
+from tm1_git_py.model.dimension import create_dimension, delete_dimension, update_dimension
+from tm1_git_py.model.process import create_process, delete_process, update_process
+from tm1_git_py.model.chore import create_chore, delete_chore, update_chore
+from tm1_git_py.model.hierarchy import create_hierarchy, delete_hierarchy, update_hierarchy
+from tm1_git_py.model.subset import create_subset, delete_subset, update_subset
+from tm1_git_py.model.cube import create_cube, delete_cube, update_cube
+from tm1_git_py.model.mdxview import create_mdx_view, delete_mdx_view, update_mdx_view
 
 
 logger = logging.getLogger(__name__)
