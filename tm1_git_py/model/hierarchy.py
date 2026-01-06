@@ -7,10 +7,9 @@ from TM1py import TM1Service, Hierarchy
 from TM1py.Utils import format_url
 from requests import Response
 
-from tm1_git_py.model.edge import Edge
-from tm1_git_py.model.element import Element, create_element, update_element, delete_element
-from tm1_git_py.model.subset import Subset
-
+from .element import Element, create_element, delete_element, update_element
+from .edge import Edge
+from .subset import Subset
 
 # {
 # 	"@type": "Hierarchy",

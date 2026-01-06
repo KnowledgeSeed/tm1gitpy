@@ -1,12 +1,10 @@
-from itertools import chain
 from typing import List, Any, Dict
+from itertools import chain
 
-from tm1_git_py.model.chore import Chore
-from tm1_git_py.model.cube import Cube
-from tm1_git_py.model.dimension import Dimension
-from tm1_git_py.model.process import Process
-
-
+from .cube import Cube
+from .dimension import Dimension
+from .chore import Chore
+from .process import Process
 class Model:
     def __init__(self, cubes: List[Cube], dimensions: List[Dimension], processes: List[Process], chores: List[Chore],
                  server_configs: List[Any] = None):

@@ -17,6 +17,7 @@ from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 
 
+
 def deserialize_model(dir) -> Model:
     dimensions_dir = dir + '/dimensions'
     cubes_dir = dir + '/cubes'

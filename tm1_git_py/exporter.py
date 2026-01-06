@@ -18,7 +18,6 @@ from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 
-
 def tm1_connection() -> TM1Service:
     """Creates a TM1 connection before tests and closes it after all tests."""
     # load_dotenv()

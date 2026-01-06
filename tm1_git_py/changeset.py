@@ -2,22 +2,20 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Any, TypeVar, Union, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
 
 from requests import Response
-
-from tm1_git_py.changeset_status import ChangeSetStatusStore
-from tm1_git_py.model import MDXView
-from tm1_git_py.model.cube import Cube, create_cube, update_cube, delete_cube
-from tm1_git_py.model.dimension import Dimension, create_dimension, update_dimension, delete_dimension
-from tm1_git_py.model.hierarchy import Hierarchy, create_hierarchy, update_hierarchy, delete_hierarchy
-from tm1_git_py.model.mdxview import create_mdx_view, delete_mdx_view, update_mdx_view
-from tm1_git_py.model.subset import Subset, create_subset, update_subset, delete_subset
-from tm1_git_py.model.process import Process, create_process, update_process, delete_process
-from tm1_git_py.model.chore import Chore, create_chore, update_chore, delete_chore
 from TM1py import TM1Service
 
-from tm1_git_py.model.model import Model
+from tm1_git_py.changeset_status import ChangeSetStatusStore
+from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, Model, Process, Subset
+from tm1_git_py.model.chore import create_chore, delete_chore, update_chore
+from tm1_git_py.model.cube import create_cube, delete_cube, update_cube
+from tm1_git_py.model.dimension import create_dimension, delete_dimension, update_dimension
+from tm1_git_py.model.hierarchy import create_hierarchy, delete_hierarchy, update_hierarchy
+from tm1_git_py.model.mdxview import create_mdx_view, delete_mdx_view, update_mdx_view
+from tm1_git_py.model.process import create_process, delete_process, update_process
+from tm1_git_py.model.subset import create_subset, delete_subset, update_subset
 
 logger = logging.getLogger(__name__)
 
