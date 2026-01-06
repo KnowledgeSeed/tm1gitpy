@@ -6,7 +6,7 @@ from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency
 from requests import Response
 from typing import Any, Dict, List, Optional
 
-from .task import Task, create_chore_task
+from tm1_git_py.model.task import Task, create_chore_task
 
 # {
 # 	"@type": "Chore",

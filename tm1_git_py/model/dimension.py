@@ -3,7 +3,6 @@ import logging
 from typing import List, Any, Dict, Union, Optional
 
 import TM1py
-from TM1py.Utils import format_url
 from TM1py import TM1Service, Dimension
 from TM1py.Utils import format_url
 from requests import Response

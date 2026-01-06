@@ -2182,7 +2182,7 @@ class TestChoreCRUD:
         )
 
         create_chore_task_mock = mocker.patch(
-            "tm1_git_py.model.chore.task.create_chore_task"
+            "tm1_git_py.model.chore.create_chore_task"
         )
         chore_task_instances = [
             mocker.Mock(name="ChoreTask0"),
@@ -2258,7 +2258,7 @@ class TestChoreCRUD:
         tm1_service.chores.get.return_value = tm1_chore_obj
         tm1_service.chores.update.return_value = "update-result"
         create_chore_task_mock = mocker.patch(
-            "tm1_git_py.model.chore.task.create_chore_task"
+            "tm1_git_py.model.chore.create_chore_task"
         )
         chore_task_instances = [
             mocker.Mock(name="ChoreTask0_new"),
@@ -2314,7 +2314,7 @@ class TestChoreCRUD:
         tm1_chore_obj.active = False
         tm1_service.chores.get.return_value = tm1_chore_obj
 
-        mocker.patch("tm1_git_py.model.chore.task.create_chore_task", return_value=mocker.Mock())
+        mocker.patch("tm1_git_py.model.chore.create_chore_task", return_value=mocker.Mock())
         mocker.patch("tm1_git_py.model.chore.ChoreStartTime.from_string", return_value="parsed-start-time")
         mocker.patch("tm1_git_py.model.chore.ChoreFrequency.from_string", return_value="parsed-frequency")
 

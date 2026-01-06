@@ -5,6 +5,7 @@ from typing import List, Any, Dict, Optional
 import TM1py
 from TM1py import TM1Service, Cube
 from TM1py.Utils import format_url
+from TM1_bedrock_py.bedrock import data_copy_intercube
 from requests import Response
 
 from tm1_git_py.model import element
@@ -269,7 +270,6 @@ def _add_dimensions_to_cube(
         dims_new: List[str],
         logging_level: str = "INFO"
 ) -> None:
-    from TM1_bedrock_py.bedrock import data_copy_intercube
     """
     Recreate a cube with additional dimensions using tm1-bedrock-py's
     data_copy_intercube.
@@ -416,7 +416,6 @@ def _delete_dimensions_from_cube(
         default_strategy: str = "sum_all",
         logging_level: str = "INFO"
 ) -> None:
-    from TM1_bedrock_py.bedrock import data_copy_intercube
     """
     Redimensionalise a cube by removing one or more dimensions (n -> n-k)
     using tm1_bedrock_py.data_copy_intercube.
