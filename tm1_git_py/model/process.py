@@ -1,10 +1,12 @@
 import json
 import logging
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING, Optional
 
 import TM1py
 from TM1py import TM1Service, Process
 from requests import Response
+
+from tm1_git_py.model.ti import TI
 
 # Importáljuk a TI osztályt a típus-ellenőrzéshez (type hinting)
 if TYPE_CHECKING:
@@ -110,6 +112,40 @@ class Process:
             'variables': self.variables,
             'ti': self.ti.to_dict()
         }
+
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None
+    ) -> "Process":
+
+        name = data.get("name") or data.get("Name")
+        resolved_path = source_path or f"processes/{name}.json"
+
+        has_security = data.get("has_security_access")
+        if has_security is None:
+            has_security = data.get("HasSecurityAccess")
+
+        code_link = data.get("code_link") or data.get("Code@Code.link") or data.get("Code")
+        datasource = data.get("datasource") or data.get("DataSource")
+        parameters = data.get("parameters") or data.get("Parameters") or []
+        variables = data.get("variables") or data.get("Variables") or []
+        ti_payload = data.get("ti") or {}
+
+        ti_obj = TI.from_dict(ti_payload)
+
+        return cls(
+            name=name,
+            hasSecurityAccess=bool(has_security) if has_security is not None else False,
+            code_link=code_link,
+            datasource=datasource,
+            parameters=parameters,
+            variables=variables,
+            ti=ti_obj,
+            source_path=resolved_path
+        )
 
     @staticmethod
     def as_link(name : str):

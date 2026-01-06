@@ -1,7 +1,8 @@
 import json
 import logging
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
 import TM1py
 from TM1py.Services import TM1Service
 from requests import Response
@@ -46,7 +47,25 @@ class MDXView:
             'name': self.name,
             'mdx': self.mdx
         }
-    
+
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None,
+            cube_name: Optional[str] = None
+    ) -> "MDXView":
+
+        name = data.get("name") or data.get("Name")
+        mdx = data.get("mdx") or data.get("MDX") or ""
+        resolved_path = source_path
+        if resolved_path is None and cube_name and name:
+            resolved_path = f"cubes/{cube_name}.views/{name}.json"
+        if resolved_path is None:
+            raise ValueError("MDXView.from_dict requires a source_path or cube context.")
+        return cls(name=name, mdx=mdx, source_path=resolved_path)
+
     
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations

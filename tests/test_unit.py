@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import TypeVar
 
 import pytest
-from tests.unit_config import (
+
+import tm1_git_py.comparator
+from tests.utility import (
     _build_mock_changeset_data,
     _objects_equal_case_builders,
     build_mock_model,
@@ -15,8 +17,8 @@ from tests.unit_config import (
     make_element
 )
 from tm1_git_py.serializer import serialize_model
-from tm1_git_py.changeset import Changeset
 from tm1_git_py.comparator import Comparator
+from tm1_git_py.changeset import Changeset, import_changeset
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview
@@ -413,20 +415,20 @@ class TestComparator:
 
 
     def test_sort_changes(self):
-        changeset = Changeset()
+        changes = Changeset()
         fixture = self.mock_changeset_data
-        changeset.added = [
+        changes.added = [
             fixture['process_added'],
             fixture['dimension_added'],
             fixture['subset_added']
         ]
-        changeset.removed = [fixture['cube_removed']]
-        changeset.modified = [{
+        changes.removed = [fixture['cube_removed']]
+        changes.modified = [{
             'old': fixture['hierarchy_old'],
             'new': fixture['hierarchy_new'],
             'changes': "Hierarchy updated"
         }]
-        changeset.sort()
+        changes.sort()
 
         expected_order = [
             "C  /dimensions/MockDim",
@@ -436,8 +438,8 @@ class TestComparator:
             "D  /cubes/MockCube"
         ]
 
-        assert changeset.lines == expected_order
-        assert [obj.name for obj in changeset.added] == [
+        assert changes.lines == expected_order
+        assert [obj.name for obj in changes.added] == [
             "MockDim",
             "NewSubset",
             "MockProcess"
@@ -578,7 +580,9 @@ class TestChangeset:
         tm1_service.cubes.get.return_value = cube_object
 
         # Updating cube returns some Response-like object with .url
-        tm1_service.cubes.update.return_value = types.SimpleNamespace(url="https://dummy/cubes/Sales")
+        tm1_service.cubes.update.return_value = types.SimpleNamespace(
+            url="https://dummy/cubes/Sales", ok=True, status_code=200
+        )
 
         # Patch the internal helper we care about:
         # update_cube -> _delete_dimensions_from_cube(..., **kwargs)
@@ -591,7 +595,7 @@ class TestChangeset:
                 "element": "Actual",
             }
         }
-        success, result = changeset.apply(
+        success, _ = changeset.apply(
             tm1_service,
             strategies=strategies,
             default_strategy="keep_element",
@@ -599,9 +603,8 @@ class TestChangeset:
         )
 
         # Ensure apply() actually triggered a cube update
+        assert success
         tm1_service.cubes.update.assert_called_once_with(cube_object)
-        assert len(result) == 1
-        assert result[0] == "https://dummy/cubes/Sales"
 
         # kwargs propagated all the way down
         delete_dims_mock.assert_called_once()
@@ -617,6 +620,100 @@ class TestChangeset:
         assert call_kwargs["strategies"] == strategies
         assert call_kwargs["default_strategy"] == "keep_element"
         assert call_kwargs["logging_level"] == "DEBUG"
+
+
+    def test_export_persists_expected_payload(self, tmp_path):
+        changes = Changeset()
+
+        created_subset = make_subset(
+            name="Subset_Create",
+            expression="{[Dim_New].[Hier_New].Members}",
+            dimension_name="Dim_New",
+            hierarchy_name="Hier_New",
+        )
+        removed_view = make_mdx_view(
+            name="View_To_Delete",
+            mdx="SELECT FROM [Cube_One]",
+            source_path="cubes/Cube_One.views/View_To_Delete.json",
+        )
+        old_dimension = make_dimension(
+            name="Dim_Update",
+            hierarchy_names=["Base"],
+            source_path="/dimensions/Dim_Update",
+        )
+        new_dimension = make_dimension(
+            name="Dim_Update",
+            hierarchy_names=["Base", "Added"],
+            source_path="/dimensions/Dim_Update",
+        )
+
+        changes.add_created(created_subset)
+        changes.add_modified(
+            old=old_dimension,
+            new=new_dimension,
+            changes="Dimension structure changed.",
+        )
+        changes.add_deleted(removed_view)
+
+        export_path = tmp_path / "changes.json"
+        changes.export(export_path)
+
+        exported_payload = json.loads(export_path.read_text(encoding="utf-8"))
+
+        def _serialize_entry(action, old_obj, new_obj, message=None):
+            obj = new_obj or old_obj
+            diff = {
+                "old_object": old_obj.to_dict() if old_obj else None,
+                "new_object": new_obj.to_dict() if new_obj else None,
+            }
+            if message:
+                diff["message"] = message
+            return {
+                "action": action,
+                "object_type": obj.__class__.__name__,
+                "object_name": getattr(obj, "name", None),
+                "source_path": getattr(obj, "source_path", None),
+                "difference": diff,
+            }
+
+        expected_payload = {
+            "changeset_name": None,
+            "changes": [
+                _serialize_entry("CREATE", None, created_subset),
+                _serialize_entry("DELETE", removed_view, None),
+                _serialize_entry("UPDATE", old_dimension, new_dimension, "Dimension structure changed."),
+            ],
+        }
+
+        assert exported_payload == expected_payload
+
+
+    def test_import_changeset(self, tmp_path):
+        model_old, errors_old = deserialize_model(str(test_model_dir_base))
+        model_new, errors_new = deserialize_model(str(test_model_dir_diff))
+        comparator = tm1_git_py.Comparator()
+
+        changeset_compared = comparator.compare(model_old, model_new)
+        export_path = tmp_path / "changes_exported.json"
+        changeset_compared.export(file_path=export_path)
+
+        changeset_imported = import_changeset(
+            base_model=model_old,
+            changeset_file=str(export_path)
+        )
+
+        changeset_compared.sort()
+        changeset_imported.sort()
+
+        assert changeset_compared.lines == changeset_imported.lines
+        assert changeset_compared.added == changeset_imported.added
+        assert changeset_compared.removed == changeset_imported.removed
+
+        assert len(changeset_compared.modified) == len(changeset_imported.modified)
+
+        for expected, actual in zip(changeset_compared.modified, changeset_imported.modified):
+            assert expected["old"].name == actual["old"].name
+            assert expected["new"].name == actual["new"].name
 
 
 

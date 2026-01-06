@@ -1,13 +1,15 @@
 import json
 import logging
 from typing import List, Any, Dict, Optional
+
 import TM1py
 from TM1py import TM1Service, Cube
 from TM1py.Utils import format_url
 from requests import Response
 
 from tm1_git_py.model import element
-from tm1_git_py.model.dimension import Dimension, create_dimension
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.dimension import create_dimension
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.rule import Rule
 
@@ -39,7 +41,7 @@ from tm1_git_py.model.rule import Rule
 # 	]
 # }
 class Cube:
-    def __init__(self, name, dimensions: List[Dimension], rules: list[Rule], views: List[MDXView], source_path: str):
+    def __init__(self, name, dimensions: List[Dimension], rules: List[Rule], views: List[MDXView], source_path: str):
         self.type = 'Cube'
         self.name = name
         self.dimensions = dimensions
@@ -94,6 +96,39 @@ class Cube:
             'rules': [r.__dict__ for r in self.rules],
             'views': [v.to_dict() for v in self.views]
         }
+
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None
+    ) -> "Cube":
+
+        name = data.get("name") or data.get("Name")
+        resolved_path = source_path or f"cubes/{name}"
+
+        dimension_payloads = data.get("dimensions") or data.get("Dimensions") or []
+        dimensions = [Dimension.from_dict(payload) for payload in dimension_payloads]
+
+        rule_payloads = data.get("rules") or data.get("Rules") or []
+        rules = [
+            Rule(
+                area=payload.get("area") or payload.get("Area") or "",
+                full_statement=payload.get("full_statement") or payload.get("fullStatement") or payload.get(
+                    "statement") or "",
+                comment=payload.get("comment") or payload.get("Comment") or ""
+            )
+            for payload in rule_payloads
+        ]
+
+        view_payloads = data.get("views") or data.get("Views") or []
+        views = [
+            MDXView.from_dict(payload, cube_name=name)
+            for payload in view_payloads
+        ]
+
+        return cls(name=name, dimensions=dimensions, rules=rules, views=views, source_path=resolved_path)
 
     @staticmethod
     def as_link(name):
@@ -230,8 +265,8 @@ def _add_dimensions_to_cube(
         tm1_service: TM1Service,
         cube_old: Cube,
         cube_new: Cube,
-        dims_old: list[str],
-        dims_new: list[str],
+        dims_old: List[str],
+        dims_new: List[str],
         logging_level: str = "INFO"
 ) -> None:
     from TM1_bedrock_py.bedrock import data_copy_intercube
@@ -375,8 +410,8 @@ def _delete_dimensions_from_cube(
         tm1_service: TM1Service,
         cube_old: Cube,
         cube_new: Cube,
-        dims_old: list[str],
-        dims_new: list[str],
+        dims_old: List[str],
+        dims_new: List[str],
         strategies: Optional[Dict[str, Dict[str, Any]]] = None,
         default_strategy: str = "sum_all",
         logging_level: str = "INFO"

@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Optional
 import TM1py
 from TM1py import TM1Service, Hierarchy
 from TM1py.Utils import format_url
@@ -95,7 +95,42 @@ class Hierarchy:
     def asLink(self, dimension_name):
         # /dimensions/Dimension_A.hierarchies/Dimension_A.json
         return '/dimensions/' + dimension_name + '.hierarchies/' + self.name + '.json'
-    
+
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None,
+            dimension_name: Optional[str] = None
+    ) -> "Hierarchy":
+
+        name = data.get("name") or data.get("Name")
+        resolved_path = source_path
+        if resolved_path is None and dimension_name and name:
+            resolved_path = f"dimensions/{dimension_name}.hierarchies/{name}.json"
+        if resolved_path is None:
+            raise ValueError("Hierarchy.from_dict requires a source_path or dimension context.")
+
+        element_payloads = data.get("elements") or data.get("Elements") or []
+        edge_payloads = data.get("edges") or data.get("Edges") or []
+        subset_payloads = data.get("subsets") or data.get("Subsets") or []
+        subset_base_path = resolved_path.rsplit(".json", 1)[0] + ".subsets" if resolved_path else None
+
+        elements = [Element(payload) for payload in element_payloads]
+        edges = [Edge.from_dict(payload) for payload in edge_payloads]
+        subsets: List[Subset] = []
+        for payload in subset_payloads:
+            subset_name = payload.get("name") or payload.get("Name")
+            subset_path = None
+            if subset_base_path and subset_name:
+                subset_path = f"{subset_base_path}/{subset_name}.json"
+            subsets.append(
+                Subset.from_dict(payload, source_path=subset_path, dimension_name=dimension_name, hierarchy_name=name)
+            )
+
+        return cls(name=name, elements=elements, edges=edges, subsets=subsets, source_path=resolved_path)
+
     @staticmethod
     def as_link(dimension_name_base, name):
         # /dimensions/Dimension_A.json

@@ -4,7 +4,7 @@ import logging
 import TM1py
 from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency
 from requests import Response
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .task import Task, create_chore_task
 
@@ -259,6 +259,40 @@ class Chore:
             'frequency': self.frequency,
             'tasks': [task.as_json_dict() for task in self.tasks]
         }
+
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None
+    ) -> "Chore":
+
+        name = data.get("name") or data.get("Name")
+        resolved_path = source_path or f"chores/{name}.json"
+
+        start_time = data.get("start_time") or data.get("StartTime")
+        dst_sensitive = data.get("dst_sensitive")
+        if dst_sensitive is None:
+            dst_sensitive = data.get("DSTSensitive")
+        active = data.get("active")
+        if active is None:
+            active = data.get("Active")
+        execution_mode = data.get("execution_mode") or data.get("ExecutionMode")
+        frequency = data.get("frequency") or data.get("Frequency")
+        task_payloads = data.get("tasks") or data.get("Tasks") or []
+        tasks = [Task.from_dict(task_payload) for task_payload in task_payloads]
+
+        return cls(
+            name=name,
+            start_time=start_time,
+            dst_sensitive=bool(dst_sensitive) if dst_sensitive is not None else False,
+            active=bool(active) if active is not None else False,
+            execution_mode=execution_mode,
+            frequency=frequency,
+            tasks=tasks,
+            source_path=resolved_path
+        )
 
     @staticmethod
     def as_link(name :str):

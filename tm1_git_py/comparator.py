@@ -108,12 +108,14 @@ class Comparator:
                   or 'add_only' ( only stores the added and modified objects)
         """
 
-        changeset = Changeset()
+        changeset = Changeset(baseline_model=model1)
 
         self._compare_with_children(model1.cubes, model2.cubes, Cube, changeset, mode)
         self._compare_with_children(model1.dimensions, model2.dimensions, Dimension, changeset, mode)
         self._compare_with_children(model1.processes, model2.processes, Process, changeset, mode)
         self._compare_with_children(model1.chores, model2.chores, Chore, changeset, mode)
+
+        changeset.sort()
 
         return changeset
 

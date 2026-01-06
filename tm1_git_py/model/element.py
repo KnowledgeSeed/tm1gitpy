@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any
+from typing import Any, Dict
 
 import TM1py
 from TM1py import TM1Service, Element
@@ -46,6 +46,13 @@ class Element:
             'name': self.name,
             'type': self.type
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Element":
+        return cls(
+            name=data.get("name") or data.get("Name"),
+            type=data.get("type") or data.get("Type")
+        )
 
 
 # ------------------------------------------------------------------------------------------------------------

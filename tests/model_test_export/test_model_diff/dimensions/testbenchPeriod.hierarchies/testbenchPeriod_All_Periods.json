@@ -1,6 +1,6 @@
 {
 	"@type": "Hierarchy",
-	"Name": "testbenchPeriod",
+	"Name": "testbenchPeriod_All_Period",
 	"Elements": [
 		{
 			"name": "All Periods",

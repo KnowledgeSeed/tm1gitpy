@@ -1,3 +1,6 @@
+from typing import Dict, Any
+
+
 class Rule:
     def __init__(self, area: str, full_statement: str, comment: str = ""):
         self.area = area
@@ -15,3 +18,10 @@ class Rule:
 
     def __hash__(self):
         return hash((self.area, self._normalized_statement, self._normalized_comment))
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Rule":
+        area = data.get("area") or data.get("Area") or ""
+        statement = data.get("full_statement") or data.get("fullStatement") or data.get("statement") or ""
+        comment = data.get("comment") or data.get("Comment") or ""
+        return cls(area=area, full_statement=statement, comment=comment)

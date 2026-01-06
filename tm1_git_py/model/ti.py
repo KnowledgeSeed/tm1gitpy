@@ -1,4 +1,5 @@
 import os
+from typing import Dict, Any
 
 
 class TI:
@@ -61,6 +62,15 @@ class TI:
                 ti, '#region Metadata', '#endregion').strip(),
             cls.get_string_between(ti, '#region Data', '#endregion').strip(),
             cls.get_string_between(ti, '#region Epilog', '#endregion').strip())
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TI":
+        return cls(
+            data.get("prolog_procedure", ""),
+            data.get("metadata_procedure", ""),
+            data.get("data_procedure", ""),
+            data.get("epilog_procedure", "")
+        )
 
     def ti_as_string(self):
         line_sep = os.linesep

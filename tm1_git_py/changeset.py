@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import re
@@ -24,7 +25,7 @@ T = TypeVar('T', Cube, Dimension, Process, Chore)
 
 _CHILD_RELATIONS: Dict[type, List[str]] = {
     Dimension: ["hierarchies"],
-    Hierarchy: ["subsets", "edges", "elements"],
+    Hierarchy: ["subsets"],
     Cube: ["views"],
 }
 
@@ -119,7 +120,7 @@ class Changeset:
 
     model: Model
 
-    def __init__(self):
+    def __init__(self, baseline_model: Optional[Model] = None):
 
         self.added: List[T] = []
         self.modified: List[Dict[T, Any]] = []
@@ -127,6 +128,7 @@ class Changeset:
 
         self.changes: List[str] = []
         self.last_execution_id: str = '0'
+        self.model: Optional[Model] = baseline_model
 
     @property
     def all_removed(self) -> List[str]:
@@ -203,12 +205,12 @@ class Changeset:
         changeset_name: Optional[str] = None,
         fail_fast: bool = True,
         **kwargs
-    ) -> Tuple[bool, List[str]]:
+    ) -> Tuple[bool, Union[List, None]]:
 
         changes = []
         if not self.has_changes():
             logger.info("No changes to apply.")
-            return True, changes
+            return True, None
 
         self.sort()
 
@@ -299,16 +301,74 @@ class Changeset:
 
 
     def export(self, file_path: Union[str, Path]) -> None:
+        """
+        Export a detailed representation of the changeset so it can be recreated later.
+        """
+
+        def _serialize_obj(obj: Optional[Any]) -> Optional[Dict[str, Any]]:
+            if obj is None:
+                return None
+            if hasattr(obj, "to_dict"):
+                try:
+                    return copy.deepcopy(obj.to_dict())
+                except Exception as exc:
+                    logger.error("Failed serializing %s to dict for export: %s", type(obj).__name__, exc)
+                    raise
+            raise ValueError(f"Object '{obj}' does not support to_dict()")
+
+        def _serialize_entry(action: str,
+                             old_obj: Optional[Any],
+                             new_obj: Optional[Any],
+                             message: Optional[str] = None) -> Dict[str, Any]:
+            obj_for_meta = new_obj or old_obj
+            object_type = obj_for_meta.__class__.__name__ if obj_for_meta is not None else None
+            object_name = getattr(obj_for_meta, "name", None) if obj_for_meta is not None else None
+            source_path = getattr(obj_for_meta, "source_path", None) if obj_for_meta is not None else None
+            serialized = {
+                "action": action,
+                "object_type": object_type,
+                "object_name": object_name,
+                "source_path": source_path if source_path else None,
+                "difference": {
+                    "old_object": _serialize_obj(old_obj),
+                    "new_object": _serialize_obj(new_obj)
+                }
+            }
+            if message:
+                serialized["difference"]["message"] = message
+            return serialized
+
+        self.sort()
+
+        export_entries: List[Dict[str, Any]] = []
+        export_entries.extend(
+            _serialize_entry("CREATE", None, obj) for obj in self.added
+        )
+        export_entries.extend(
+            _serialize_entry("DELETE", obj, None) for obj in self.removed
+        )
+        for mod in self.modified:
+            export_entries.append(
+                _serialize_entry("UPDATE", mod.get("old"), mod.get("new"), mod.get("changes"))
+            )
+
         output_path = Path(file_path).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps({"changes": self.lines}, indent=2), encoding="utf-8")
+        payload = {
+            "changeset_name": None,
+            "changes": export_entries
+        }
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------------
 # Import changeset function & helpers
 # --------------------------------------------------------------------------------
 
-def import_changeset(model1: Model, model2: Model, changeset_file) -> Changeset:
+def import_changeset(base_model: Model, changeset_file: Union[str, Path]) -> Changeset:
+    """
+    command line tool apply: export a changeset file -> import file and old model to recreate changeset -> apply it
+    """
     try:
         payload = _load_changeset_payload(changeset_file)
     except Exception as exc:
@@ -319,45 +379,44 @@ def import_changeset(model1: Model, model2: Model, changeset_file) -> Changeset:
     if not isinstance(entries, list):
         raise ValueError("changeset payload must contain a list under 'changes'")
 
-    old_index = _build_path_index(model1)
-    new_index = _build_path_index(model2)
+    base_index = _build_path_index(base_model)
+    changeset = Changeset(baseline_model=base_model)
 
-    changeset = Changeset()
-
-    for raw in entries:
-        if not isinstance(raw, str):
-            continue
-        line = raw.strip()
-        if not line:
+    for entry in entries:
+        if not isinstance(entry, dict):
+            logger.warning("Skipping malformed changeset entry: %s", entry)
             continue
 
-        parts = line.split(None, 2)
-        if len(parts) < 2:
-            continue
+        action = entry.get("action")
+        object_type = entry.get("object_type")
+        source_path = entry.get("source_path")
+        diff = entry.get("difference") or {}
+        old_payload = diff.get("old_object")
+        new_payload = diff.get("new_object")
+        message = diff.get("message")
 
-        flag, path_part = parts[0], parts[1]
+        old_obj = _build_or_resolve_object(object_type, old_payload, source_path, base_index, prefer_payload=False)
+        new_obj = _build_or_resolve_object(object_type, new_payload, source_path, base_index, prefer_payload=True)
 
-        rel_path = path_part.lstrip("/")
+        if action == "CREATE":
+            if new_obj is None:
+                raise ValueError(f"Missing new_object payload for CREATE entry {entry}")
+            changeset.add_created(new_obj)
+        elif action == "DELETE":
+            if old_obj is None:
+                raise ValueError(f"Missing old_object payload for DELETE entry {entry}")
+            changeset.add_deleted(old_obj)
+        elif action == "UPDATE":
+            if old_obj is None or new_obj is None:
+                raise ValueError(f"Missing objects for UPDATE entry {entry}")
+            if not message:
+                target_name = entry.get("object_name") or getattr(new_obj, "name", "")
+                message = f"Content of {object_type} '{target_name}' changed."
+            changeset.add_modified(old=old_obj, new=new_obj, changes=message)
+        else:
+            logger.warning("Unknown action '%s' in entry %s", action, entry)
 
-        old_obj = _resolve_path(rel_path, old_index)
-        new_obj = _resolve_path(rel_path, new_index)
-
-        if flag == "C":
-            if new_obj is not None:
-                changeset.add_created(new_obj)
-        elif flag == "D":
-            if old_obj is not None:
-                changeset.add_deleted(old_obj)
-        elif flag == "U":
-            if old_obj is not None and new_obj is not None:
-                changeset.add_modified(
-                    old=old_obj,
-                    new=new_obj,
-                    changes=f"Content of {new_obj.__class__.__name__} "
-                            f"'{getattr(new_obj, 'name', '')}' changed."
-                )
     changeset.sort()
-
     return changeset
 
 
@@ -408,6 +467,85 @@ def _index_object_paths(index: Dict[str, Any], obj: Any) -> None:
         children = getattr(obj, child_attr, None) or []
         for child in children:
             _index_object_paths(index, child)
+
+
+def _build_dimension_from_payload(payload: Dict[str, Any], source_path: Optional[str]) -> Dimension:
+    return Dimension.from_dict(payload, source_path=source_path)
+
+
+def _build_hierarchy_from_payload(payload: Dict[str, Any], source_path: Optional[str]) -> Hierarchy:
+    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path)
+    if not dimension_name:
+        raise ValueError("Hierarchy payload missing dimension context.")
+    return Hierarchy.from_dict(payload, source_path=source_path, dimension_name=dimension_name.group(1))
+
+
+def _build_subset_from_payload(payload: Dict[str, Any], source_path: Optional[str]) -> Subset:
+    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path)
+    hierarchy_name = re.search(r'/(\w*)(.subsets)', source_path)
+    if not dimension_name or not hierarchy_name:
+        raise ValueError("Subset payload missing dimension or hierarchy context.")
+    return Subset.from_dict(
+        payload, source_path=source_path, dimension_name=dimension_name.group(1), hierarchy_name=hierarchy_name.group(1)
+    )
+
+
+def _build_cube_from_payload(payload: Dict[str, Any], source_path: Optional[str]) -> Cube:
+    return Cube.from_dict(payload, source_path=source_path)
+
+
+def _build_mdx_view_from_payload(payload: Dict[str, Any], source_path: Optional[str]) -> MDXView:
+    cube_name = re.search(r'/(\w*)(.views)', source_path)
+    if not source_path and not cube_name:
+        raise ValueError("MDXView payload missing cube context.")
+    return MDXView.from_dict(payload, source_path=source_path, cube_name=cube_name.group(1))
+
+
+def _build_process_from_payload(payload: Dict[str, Any], source_path: Optional[str]) -> Process:
+    return Process.from_dict(payload, source_path=source_path)
+
+
+def _build_chore_from_payload(payload: Dict[str, Any], source_path: Optional[str]) -> Chore:
+    return Chore.from_dict(payload, source_path=source_path)
+
+
+_OBJECT_BUILDERS: Dict[str, Any] = {
+    "Dimension": _build_dimension_from_payload,
+    "Hierarchy": _build_hierarchy_from_payload,
+    "Subset": _build_subset_from_payload,
+    "Cube": _build_cube_from_payload,
+    "MDXView": _build_mdx_view_from_payload,
+    "Process": _build_process_from_payload,
+    "Chore": _build_chore_from_payload
+}
+
+
+def _deserialize_object_from_payload(object_type: Optional[str],
+                                     payload: Optional[Dict[str, Any]],
+                                     source_path: Optional[str]) -> Optional[Any]:
+    if not payload or not object_type:
+        return None
+    builder = _OBJECT_BUILDERS.get(object_type)
+    if builder is None:
+        raise ValueError(f"Unsupported object type '{object_type}' in changeset import.")
+    return builder(payload, source_path)
+
+
+def _build_or_resolve_object(object_type: Optional[str],
+                             payload: Optional[Dict[str, Any]],
+                             source_path: Optional[str],
+                             index: Dict[str, Any],
+                             prefer_payload: bool = True) -> Optional[Any]:
+    obj = None
+    if prefer_payload:
+        obj = _deserialize_object_from_payload(object_type, payload, source_path)
+    if obj is None and source_path:
+        rel_path = normalize_source_path(source_path)
+        if rel_path:
+            obj = _resolve_path(rel_path, index)
+    if obj is None and not prefer_payload:
+        obj = _deserialize_object_from_payload(object_type, payload, source_path)
+    return obj
 
 
 # --------------------------------------------------------------------------------
