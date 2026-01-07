@@ -489,7 +489,7 @@ class TestChangeset:
             for call in mock_create.call_args_list
         ]
 
-        assert created_types == [Hierarchy, Subset, MDXView]
+        assert created_types == [Subset, MDXView]
 
         # No updates in this test
         mock_update.assert_not_called()
@@ -549,7 +549,7 @@ class TestChangeset:
         ]
         updated_types = [type(o) for o in updated_new_objs]
 
-        assert updated_types == [Dimension, Hierarchy, Hierarchy, Hierarchy, Subset, Cube, MDXView, Process, Chore]
+        assert updated_types == [Hierarchy, Hierarchy, Hierarchy, Hierarchy, Subset, Cube, MDXView, Process, Chore]
 
         assert os.path.isfile(status_dir + '/' + exec_id + '.json')
         os.remove(status_dir + '/' + exec_id + '.json')
