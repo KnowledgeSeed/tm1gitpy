@@ -327,7 +327,7 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='add_only')
-        assert len(changeset.added) == 3
+        assert len(changeset.added) == 2
         assert len(changeset.modified) == 9
         assert len(changeset.removed) == 0
 
@@ -339,7 +339,7 @@ class TestComparator:
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         print(changeset)
-        assert len(changeset.added) == 3
+        assert len(changeset.added) == 2
         assert len(changeset.modified) == 9
         assert len(changeset.removed) == 4
 
@@ -349,7 +349,7 @@ class TestComparator:
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
-        expected_hierarchies = ["testbenchMeasureSales", "testbenchVersion", "testbenchPeriod", "testbenchSales"]
+        expected_hierarchies = ["testbenchMeasureSales", "testbenchVersion", "testbenchPeriod", "testbenchPeriod_All_Period"]
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
@@ -357,7 +357,7 @@ class TestComparator:
         added = [added for added in changeset.added if type(added) is Subset]
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Hierarchy]
 
-        assert changes.count('/dimensions') == 7
+        assert changes.count('/dimensions') == 6
         assert (isinstance(added[0], Subset) and added[0].name == "}Temp_Subset_Discount")
         for hier in modified:
             assert (isinstance(hier, Hierarchy) and hier.name in expected_hierarchies )

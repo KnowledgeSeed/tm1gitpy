@@ -73,9 +73,7 @@ class TI:
         )
 
     def ti_as_string(self):
-        line_sep = os.linesep
-        if line_sep is None:
-            line_sep = "\r\n"
+        line_sep = "\n"
         sections = [
             "#region Prolog",
             self.prolog_procedure,
