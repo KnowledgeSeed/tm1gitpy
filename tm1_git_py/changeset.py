@@ -2,8 +2,9 @@ import copy
 import json
 import logging
 import re
+import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union, Iterable
 
 from requests import Response
 from TM1py import TM1Service
@@ -391,24 +392,35 @@ def import_changeset(base_model: Model, changeset_file: Union[str, Path]) -> Cha
         object_type = entry.get("object_type")
         source_path = entry.get("source_path")
         diff = entry.get("difference") or {}
-        old_payload = diff.get("old_object")
         new_payload = diff.get("new_object")
         message = diff.get("message")
 
-        old_obj = _build_or_resolve_object(object_type, old_payload, source_path, base_index, prefer_payload=False)
-        new_obj = _build_or_resolve_object(object_type, new_payload, source_path, base_index, prefer_payload=True)
+        old_obj = _build_or_resolve_object(object_type, None, source_path, base_index, prefer_payload=False)
 
         if action == "CREATE":
-            if new_obj is None:
+            if new_payload is None:
                 raise ValueError(f"Missing new_object payload for CREATE entry {entry}")
-            changeset.add_created(new_obj)
+            if old_obj is not None:
+                logger.warning("CREATE entry for existing %s at '%s' treated as UPDATE.",
+                               object_type, source_path)
+                new_obj = _apply_payload_to_old(object_type, old_obj, new_payload, source_path)
+                message = message or f"Content of {object_type} '{getattr(old_obj, 'name', '')}' changed."
+                changeset.add_modified(old=old_obj, new=new_obj, changes=message)
+            else:
+                new_obj = _deserialize_object_from_payload(object_type, new_payload, source_path)
+                changeset.add_created(new_obj)
         elif action == "DELETE":
             if old_obj is None:
-                raise ValueError(f"Missing old_object payload for DELETE entry {entry}")
+                logger.warning("DELETE entry for missing %s at '%s' skipped.", object_type, source_path)
+                continue
             changeset.add_deleted(old_obj)
         elif action == "UPDATE":
-            if old_obj is None or new_obj is None:
-                raise ValueError(f"Missing objects for UPDATE entry {entry}")
+            if old_obj is None:
+                logger.warning("UPDATE entry for missing %s at '%s' skipped.", object_type, source_path)
+                continue
+            if new_payload is None:
+                raise ValueError(f"Missing new_object payload for UPDATE entry {entry}")
+            new_obj = _apply_payload_to_old(object_type, old_obj, new_payload, source_path)
             if not message:
                 target_name = entry.get("object_name") or getattr(new_obj, "name", "")
                 message = f"Content of {object_type} '{target_name}' changed."
@@ -546,6 +558,28 @@ def _build_or_resolve_object(object_type: Optional[str],
     if obj is None and not prefer_payload:
         obj = _deserialize_object_from_payload(object_type, payload, source_path)
     return obj
+
+
+def _deep_merge_dict(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+    result = copy.deepcopy(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge_dict(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def _apply_payload_to_old(object_type: Optional[str],
+                          old_obj: Any,
+                          new_payload: Dict[str, Any],
+                          source_path: Optional[str]) -> Any:
+    if object_type is None:
+        raise ValueError("Object type is required to apply payload.")
+    base_dict = old_obj.to_dict()
+    merged = _deep_merge_dict(base_dict, new_payload)
+    merged["name"] = merged.get("name") or getattr(old_obj, "name", None)
+    return _deserialize_object_from_payload(object_type, merged, source_path)
 
 
 # --------------------------------------------------------------------------------

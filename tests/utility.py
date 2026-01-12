@@ -365,7 +365,7 @@ def make_hierarchy(
         elements=elements,
         edges=edges,
         subsets=[],
-        source_path=source_path,
+        source_path=source_path + ".json",
     )
 
 

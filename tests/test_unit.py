@@ -480,7 +480,7 @@ class TestChangeset:
 
         status_dir = 'tests'
         exec_id = 'test_create_and_delete'
-        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id)
+        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id, batch=False)
         assert success
 
         # --- Assert create order ---
@@ -537,7 +537,7 @@ class TestChangeset:
 
         status_dir = 'tests'
         exec_id = 'test_update'
-        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id)
+        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id, batch=False)
         assert success
 
         mock_create.assert_not_called()
@@ -600,6 +600,7 @@ class TestChangeset:
             strategies=strategies,
             default_strategy="keep_element",
             logging_level="DEBUG",
+            batch=False
         )
 
         # Ensure apply() actually triggered a cube update
@@ -714,6 +715,87 @@ class TestChangeset:
         for expected, actual in zip(changeset_compared.modified, changeset_imported.modified):
             assert expected["old"].name == actual["old"].name
             assert expected["new"].name == actual["new"].name
+
+
+    def test_import_changeset_applies_to_current_model(self, tmp_path):
+        """
+        Expected behaviour:
+            - CREATE entry for existing Process at 'processes/MockProcess.json' treated as UPDATE
+            - DELETE entry for missing Chore at 'chores/GhostChore.json' skipped
+        """
+
+        base_model = build_mock_model(include_chore=True)
+        base_dimension = base_model.dimensions[0]
+        base_process = base_model.processes[0]
+
+        added_hierarchy = make_hierarchy(dimension_name=base_dimension.name, hierarchy_name="AddedHier")
+        update_payload = {
+            "name": base_dimension.name,
+            "hierarchies": [
+                base_dimension.hierarchies[0].to_dict(),
+                added_hierarchy.to_dict()
+            ],
+            "defaultHierarchy": base_dimension.hierarchies[0].to_dict()
+        }
+
+        create_payload = base_process.to_dict()
+        create_payload["has_security_access"] = True
+
+        changeset_payload = {
+            "changeset_name": None,
+            "changes": [
+                {
+                    "action": "CREATE",
+                    "object_type": "Process",
+                    "object_name": base_process.name,
+                    "source_path": base_process.source_path,
+                    "difference": {
+                        "old_object": None,
+                        "new_object": create_payload
+                    }
+                },
+                {
+                    "action": "DELETE",
+                    "object_type": "Chore",
+                    "object_name": "GhostChore",
+                    "source_path": "chores/GhostChore.json",
+                    "difference": {
+                        "old_object": {},
+                        "new_object": None
+                    }
+                },
+                {
+                    "action": "UPDATE",
+                    "object_type": "Dimension",
+                    "object_name": base_dimension.name,
+                    "source_path": base_dimension.source_path,
+                    "difference": {
+                        "old_object": base_dimension.to_dict(),
+                        "new_object": update_payload
+                    }
+                },
+            ],
+        }
+
+        changeset_path = tmp_path / "changeset.json"
+        changeset_path.write_text(json.dumps(changeset_payload, indent=2), encoding="utf-8")
+
+        imported = import_changeset(base_model=base_model, changeset_file=str(changeset_path))
+
+        assert imported.added == []
+        assert imported.removed == []
+        assert len(imported.modified) == 2
+
+        by_name = {entry["new"].name: entry for entry in imported.modified}
+        proc_entry = by_name[base_process.name]
+        dim_entry = by_name[base_dimension.name]
+
+        assert proc_entry["old"] is base_process
+        assert proc_entry["new"].hasSecurityAccess is True
+
+        assert dim_entry["old"] is base_dimension
+        assert len(dim_entry["new"].hierarchies) == 2
+        assert dim_entry["new"].defaultHierarchy.name == base_dimension.hierarchies[0].name
 
 
 
