@@ -52,7 +52,7 @@ class TI:
 
     @classmethod
     def normalize_text(cls, text: str) -> str:
-        return text.replace('\r\n', os.linesep).replace('\r', os.linesep).replace('\n', os.linesep).strip()
+        return text.replace('\r\n', '\n').replace('\r', '\n').replace('\n', os.linesep).strip()
 
     @classmethod
     def from_string(cls, ti):
@@ -76,16 +76,16 @@ class TI:
         line_sep = "\n"
         sections = [
             "#region Prolog",
-            self.prolog_procedure,
+            TI.normalize_text(self.prolog_procedure),
             "#endregion",
             "#region Metadata",
-            self.metadata_procedure,
+            TI.normalize_text(self.metadata_procedure),
             "#endregion",
             "#region Data",
-            self.data_procedure,
+            TI.normalize_text(self.data_procedure),
             "#endregion",
             "#region Epilog",
-            self.epilog_procedure,
+            TI.normalize_text(self.epilog_procedure),
             "#endregion"
         ]
         return line_sep.join(sections) + line_sep

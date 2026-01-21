@@ -77,7 +77,7 @@ class Process:
         if self.datasource != other.datasource:
             return False
 
-        if self.ti != other.ti:
+        if self.ti.ti_as_string() != other.ti.ti_as_string():
             return False
 
         if self.parameters != other.parameters:
