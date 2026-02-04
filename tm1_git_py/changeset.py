@@ -2,12 +2,11 @@ import copy
 import json
 import logging
 import re
-import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union, Iterable
+from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
 
-from requests import Response
 from TM1py import TM1Service
+from requests import Response
 
 from tm1_git_py.changeset_status import ChangeSetStatusStore
 from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, Model, Process, Subset
@@ -22,7 +21,7 @@ from tm1_git_py.model.subset import create_subset, delete_subset, update_subset
 logger = logging.getLogger(__name__)
 
 
-T = TypeVar('T', Cube, Dimension, Process, Chore)
+T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore)
 
 _CHILD_RELATIONS: Dict[type, List[str]] = {
     Dimension: ["hierarchies"],

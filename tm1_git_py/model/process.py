@@ -175,19 +175,16 @@ def update_process(tm1_service: TM1Service, process: Dict[str, Any]) -> Response
     process_new = process.get('new')
     process_old = process.get('old')
 
-    if tm1_service.processes.exists(name_process=process_new.name):
-        process_object = tm1_service.processes.get(name_process=process_new.name)
-        process_object.datasource_type = process_new.datasource
-        process_object.has_security_access = process_new.hasSecurityAccess
+    process_object = tm1_service.processes.get(name_process=process_new.name)
+    process_object.datasource_type = process_new.datasource
+    process_object.has_security_access = process_new.hasSecurityAccess
 
-        _update_process_parameters(process_old=process_old, process_new=process_new, process_object=process_object)
-        _update_process_variables(process_old=process_old, process_new=process_new, process_object=process_object)
+    _update_process_parameters(process_old=process_old, process_new=process_new, process_object=process_object)
+    _update_process_variables(process_old=process_old, process_new=process_new, process_object=process_object)
 
-        logger.info(f"Updating Process: {process_new.name}.")
+    logger.info(f"Updating Process: {process_new.name}.")
 
-        return tm1_service.processes.update(process_object)
-    else:
-        raise ValueError(f"Cannot update Process: '{process_new.name}', Process does not exist")
+    return tm1_service.processes.update(process_object)
 
 
 def delete_process(tm1_service: TM1Service, process_name: str) -> Response:

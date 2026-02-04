@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import List, Any, Dict, Optional
+from typing import List, Any, Dict, Optional, Tuple
 import TM1py
 from TM1py import TM1Service, Hierarchy
 from TM1py.Utils import format_url
@@ -143,8 +143,14 @@ class Hierarchy:
 
 logger = logging.getLogger(__name__)
 
+def _hierarchy_context_from_path(source_path: str) -> Tuple[str, str]:
+    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path).group(1)
+    hierarchy_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+    return dimension_name, hierarchy_name
+
+
 def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', hierarchy.source_path).group(1)
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
     hierarchy_object = TM1py.Hierarchy(name=hierarchy.name, dimension_name=dimension_name)
     edges = [(edge.parent, edge.name, edge.weight) for edge in hierarchy.edges]
     for parent, component, weight in edges:
@@ -152,11 +158,10 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     response = tm1_service.hierarchies.create(hierarchy_object)
     logger.info(f"Created Hierarchy: {hierarchy.name}.")
 
-    if response.status_code == 201:
-        for element in hierarchy.elements:
-            if not tm1_service.elements.exists(dimension_name, hierarchy.name, element.name):
-                create_element(tm1_service=tm1_service, dimension_name=dimension_name,
-                               hierarchy_name=hierarchy.name, element=element)
+    for element in hierarchy.elements:
+        if not tm1_service.elements.exists(dimension_name, hierarchy.name, element.name):
+            create_element(tm1_service=tm1_service, dimension_name=dimension_name,
+                           hierarchy_name=hierarchy.name, element=element)
 
     return response
 
@@ -165,25 +170,22 @@ def update_hierarchy(tm1_service: TM1Service, hierarchy: Dict[str, Any]) -> Resp
     hierarchy_new = hierarchy.get('new')
     hierarchy_old = hierarchy.get('old')
 
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', hierarchy_new.source_path).group(1)
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy_new.source_path)
 
-    if tm1_service.hierarchies.exists(dimension_name=dimension_name, hierarchy_name=hierarchy_new.name):
-        hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_name, hierarchy_name=hierarchy_new.name)
+    hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_name, hierarchy_name=hierarchy_new.name)
 
-        _update_hierarchy_edges(hierarchy_new=hierarchy_new, hierarchy_old=hierarchy_old,
-                                hierarchy_object=hierarchy_object)
-        _update_hierarchy_elements(tm1_service=tm1_service, dimension_name=dimension_name, hierarchy_new= hierarchy_new,
-                                   hierarchy_old=hierarchy_old, hierarchy_object=hierarchy_object)
-        logger.info(f"Updating Hierarchy: {hierarchy_new.name}.")
+    _update_hierarchy_edges(hierarchy_new=hierarchy_new, hierarchy_old=hierarchy_old,
+                            hierarchy_object=hierarchy_object)
+    _update_hierarchy_elements(tm1_service=tm1_service, dimension_name=dimension_name, hierarchy_new= hierarchy_new,
+                               hierarchy_old=hierarchy_old, hierarchy_object=hierarchy_object)
+    logger.info(f"Updating Hierarchy: {hierarchy_new.name}.")
 
-        return tm1_service.hierarchies.update(hierarchy_object)
+    return tm1_service.hierarchies.update(hierarchy_object)
 
-    else:
-        raise ValueError(f"Cannot update Hierarchy: '{hierarchy_new.name}', Hierarchy does not exist")
 
 
 def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', hierarchy.source_path).group(1)
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
     logger.info(f"Deleting Hierarchy: {hierarchy.name} of Dimension: {dimension_name}.")
     return tm1_service.hierarchies.delete(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
 

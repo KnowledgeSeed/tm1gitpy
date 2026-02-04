@@ -156,49 +156,46 @@ def create_cube(tm1_service: TM1Service, cube: Cube) -> Response:
 def update_cube(tm1_service: TM1Service, cube: Dict[str, Any], **kwargs) -> Response:
     cube_new = cube.get('new')
     cube_old = cube.get('old')
-    if tm1_service.cubes.exists(cube_name=cube_new.name) and cube_new.name == cube_old.name:
-        dimensions_new = [d.name for d in cube_new.dimensions]
-        dimensions_old = [d.name for d in cube_old.dimensions]
-        cube_object = tm1_service.cubes.get(cube_new.name)
+    dimensions_new = [d.name for d in cube_new.dimensions]
+    dimensions_old = [d.name for d in cube_old.dimensions]
+    cube_object = tm1_service.cubes.get(cube_new.name)
 
-        if dimensions_new != dimensions_old:
-            if set(dimensions_new) == set(dimensions_old):
-                tm1_service.cubes.update_storage_dimension_order(
-                    cube_name=cube_new.name, dimension_names=dimensions_new)
-                logger.info(f"Updated Dimension order for Cube: {cube_new.name}.")
-            else:
-                logger.warning(f"Dimensions for Cube: {cube_new.name} changed. Cube will be recreated to match new Dimension set.")
-                added_dims = list(set(dimensions_new) - set(dimensions_old))
-                removed_dims = list(set(dimensions_old) - set(dimensions_new))
+    if dimensions_new != dimensions_old:
+        if set(dimensions_new) == set(dimensions_old):
+            tm1_service.cubes.update_storage_dimension_order(
+                cube_name=cube_new.name, dimension_names=dimensions_new)
+            logger.info(f"Updated Dimension order for Cube: {cube_new.name}.")
+        else:
+            logger.warning(f"Dimensions for Cube: {cube_new.name} changed. Cube will be recreated to match new Dimension set.")
+            added_dims = list(set(dimensions_new) - set(dimensions_old))
+            removed_dims = list(set(dimensions_old) - set(dimensions_new))
 
-                if added_dims:
-                    _add_dimensions_to_cube(
-                        tm1_service=tm1_service,
-                        cube_old=cube_old,
-                        cube_new=cube_new,
-                        dims_old=dimensions_old,
-                        dims_new=dimensions_new
-                    )
-                    cube_object = tm1_service.cubes.get(cube_new.name)
-                elif removed_dims:
-                    _delete_dimensions_from_cube(
-                        tm1_service=tm1_service,
-                        cube_old=cube_old,
-                        cube_new=cube_new,
-                        dims_old=dimensions_old,
-                        dims_new=dimensions_new,
-                        **kwargs
-                    )
-                    cube_object = tm1_service.cubes.get(cube_new.name)
+            if added_dims:
+                _add_dimensions_to_cube(
+                    tm1_service=tm1_service,
+                    cube_old=cube_old,
+                    cube_new=cube_new,
+                    dims_old=dimensions_old,
+                    dims_new=dimensions_new
+                )
+                cube_object = tm1_service.cubes.get(cube_new.name)
+            elif removed_dims:
+                _delete_dimensions_from_cube(
+                    tm1_service=tm1_service,
+                    cube_old=cube_old,
+                    cube_new=cube_new,
+                    dims_old=dimensions_old,
+                    dims_new=dimensions_new,
+                    **kwargs
+                )
+                cube_object = tm1_service.cubes.get(cube_new.name)
 
-        new_rule_text = cube_new.get_rule_text()
-        if cube_object.rules.body != new_rule_text:
-            cube_object.rules._text = new_rule_text
-            logger.info(f"Updated Rules for Cube: {cube_new.name}.")
+    new_rule_text = cube_new.get_rule_text()
+    if cube_object.rules.body != new_rule_text:
+        cube_object.rules._text = new_rule_text
+        logger.info(f"Updated Rules for Cube: {cube_new.name}.")
 
-        return tm1_service.cubes.update(cube_object)
-    else:
-        raise ValueError(f"Cannot update Cube: '{cube_new.name}', Cube does not exist")
+    return tm1_service.cubes.update(cube_object)
 
 
 def delete_cube(tm1_service: TM1Service, cube_name: str) -> Response:

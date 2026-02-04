@@ -127,13 +127,10 @@ def update_dimension(tm1_service: TM1Service, dimension: Dict[str, Any]) -> Resp
     dimension_new = dimension.get('new')
     dimension_old = dimension.get('old')
 
-    if tm1_service.dimensions.exists(dimension_name=dimension_new.name):
-        dimension_object = tm1_service.dimensions.get(dimension_name=dimension_new.name)
-        _update_dimension_hierarchies(tm1_service=tm1_service, dimension_new=dimension_new, dimension_old=dimension_old,
-                                      dimension_object=dimension_object)
-        return tm1_service.dimensions.update(dimension_object)
-    else:
-        raise ValueError(f"Cannot update Dimension: '{dimension_new.name}', Dimension does not exist")
+    dimension_object = tm1_service.dimensions.get(dimension_name=dimension_new.name)
+    _update_dimension_hierarchies(tm1_service=tm1_service, dimension_new=dimension_new, dimension_old=dimension_old,
+                                  dimension_object=dimension_object)
+    return tm1_service.dimensions.update(dimension_object)
 
 
 def delete_dimension(tm1_service: TM1Service, dimension_name: str) -> Response:

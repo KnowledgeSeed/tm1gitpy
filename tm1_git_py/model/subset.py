@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import TM1py
 from TM1py import TM1Service, Subset
@@ -77,9 +77,14 @@ class Subset:
 
 logger = logging.getLogger(__name__)
 
+def _subset_context_from_path(source_path: str) -> Tuple[str, str]:
+    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path).group(1)
+    hierarchy_name = re.search(r'/(\w*)(.subsets)', source_path).group(1)
+    return dimension_name, hierarchy_name
+
+
 def create_subset(tm1_service: TM1Service, subset: Subset) -> Response:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', subset.source_path).group(1)
-    hierarchy_name = re.search(r'/(\w*)(.subsets)', subset.source_path).group(1)
+    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
 
     subset_object = TM1py.Subset(
         subset_name=subset.name,
@@ -94,21 +99,17 @@ def create_subset(tm1_service: TM1Service, subset: Subset) -> Response:
 
 def update_subset(tm1_service: TM1Service, subset: Dict[str, Any]) -> Response:
     subset_new = subset.get('new')
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', subset_new.source_path).group(1)
-    hierarchy_name = re.search(r'/(\w*)(.subsets)', subset_new.source_path).group(1)
+    dimension_name, hierarchy_name = _subset_context_from_path(subset_new.source_path)
 
-    if tm1_service.subsets.exists(subset_name=subset_new.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name):
-        subset_object = tm1_service.subsets.get(subset_name=subset_new.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name)
-        subset_object.expression = subset_new.expression
-        logger.info(f"Updating Subset: {subset_new.name} in Hierarchy: {hierarchy_name}.")
+    subset_object = tm1_service.subsets.get(subset_name=subset_new.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name)
+    subset_object.expression = subset_new.expression
+    logger.info(f"Updating Subset: {subset_new.name} in Hierarchy: {hierarchy_name}.")
 
-        return tm1_service.subsets.update(subset_object)
-    else:
-        raise ValueError(f"Cannot update Subset: '{subset_new.name}', Subset does not exist")
+    return tm1_service.subsets.update(subset_object)
 
 
 def delete_subset(tm1_service: TM1Service, subset: Subset) -> Response:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', subset.source_path).group(1)
-    hierarchy_name = re.search(r'/(\w*)(.subsets)', subset.source_path).group(1)
+    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
+
     logger.info(f"Deleting Subset: {subset.name} from Hierarchy: {hierarchy_name}.")
     return tm1_service.subsets.delete(subset_name=subset.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name)
