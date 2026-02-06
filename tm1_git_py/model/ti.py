@@ -1,4 +1,5 @@
 import os
+from typing import Dict, Any
 
 
 class TI:
@@ -48,10 +49,10 @@ class TI:
             'data_procedure': self.data_procedure,
             'epilog_procedure': self.epilog_procedure,
         }
-    
+
     @classmethod
     def normalize_text(cls, text: str) -> str:
-        return text.replace('\r\n', os.linesep).replace('\r', os.linesep).replace('\n', os.linesep).strip() 
+        return text.replace('\r\n', '\n').replace('\r', '\n').replace('\n', os.linesep).strip()
 
     @classmethod
     def from_string(cls, ti):
@@ -62,22 +63,29 @@ class TI:
             cls.get_string_between(ti, '#region Data', '#endregion').strip(),
             cls.get_string_between(ti, '#region Epilog', '#endregion').strip())
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TI":
+        return cls(
+            data.get("prolog_procedure", ""),
+            data.get("metadata_procedure", ""),
+            data.get("data_procedure", ""),
+            data.get("epilog_procedure", "")
+        )
+
     def ti_as_string(self):
-        line_sep = os.linesep
-        if line_sep is None:
-            line_sep = "\r\n"
+        line_sep = "\n"
         sections = [
             "#region Prolog",
-            self.prolog_procedure,
+            TI.normalize_text(self.prolog_procedure),
             "#endregion",
             "#region Metadata",
-            self.metadata_procedure,
+            TI.normalize_text(self.metadata_procedure),
             "#endregion",
             "#region Data",
-            self.data_procedure,
+            TI.normalize_text(self.data_procedure),
             "#endregion",
             "#region Epilog",
-            self.epilog_procedure,
+            TI.normalize_text(self.epilog_procedure),
             "#endregion"
         ]
         return line_sep.join(sections) + line_sep

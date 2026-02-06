@@ -1,6 +1,8 @@
 import json
 import logging
-from typing import Any
+import re
+from typing import Any, Dict, Tuple
+
 import TM1py
 from TM1py import TM1Service, Element
 from requests import Response
@@ -46,12 +48,25 @@ class Element:
             'type': self.type
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Element":
+        return cls(
+            name=data.get("name") or data.get("Name"),
+            type=data.get("type") or data.get("Type")
+        )
+
 
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
+
+def _element_context_from_path(source_path: str) -> Tuple[str, str]:
+    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path).group(1)
+    hierarchy_name = re.search(r'/(\w*)(.elements)', source_path).group(1)
+    return dimension_name, hierarchy_name
+
 
 def create_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element: Element) -> Response:
     element_object = TM1py.Element(name=element.name, element_type=element.type)
@@ -60,13 +75,10 @@ def create_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name:
 
 
 def update_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element: Element) -> Response:
-    if tm1_service.elements.exists(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name):
-        element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name)
-        element_object.element_type = element.type
-        logger.debug(f"Updating Element: {element.name} in Hierarchy: {hierarchy_name}.")
-        return tm1_service.elements.update(element_object)
-    else:
-        raise ValueError(f"Cannot update Element: '{element.name}', Element does not exist")
+    element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name)
+    element_object.element_type = element.type
+    logger.debug(f"Updating Element: {element.name} in Hierarchy: {hierarchy_name}.")
+    return tm1_service.elements.update(element_object)
 
 
 def delete_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element_name: str) -> Response:

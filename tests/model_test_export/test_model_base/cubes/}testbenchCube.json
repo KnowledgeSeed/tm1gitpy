@@ -1,0 +1,11 @@
+{
+	"@type": "Cube",
+      "Name": "}testbenchCube",
+      "Dimensions": [
+        {
+          "@id": "Dimensions('}testbenchDim')"
+        }
+      ],
+	"Rules@Code.link": "}testbenchCube.rules",
+	"Views@Code.links": []
+}

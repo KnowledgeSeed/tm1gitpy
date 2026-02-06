@@ -1,10 +1,16 @@
-from collections.abc import Callable, Iterable, Mapping
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
+
 from tm1_git_py.changeset import Changeset
-from tm1_git_py.model import Hierarchy, Subset, MDXView, Dimension, Cube, Process, Chore, Model
+from tm1_git_py.model import Hierarchy, MDXView, Subset
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.model import Model
+from tm1_git_py.model.process import Process
 
 logger = logging.getLogger(__name__)
+
 
 def _dimensions_equal_shallow(old_dimension: Dimension, new_dimension: Dimension) -> bool:
     try:
@@ -78,6 +84,8 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
     except AttributeError as exc:
         logger.error("Cube comparison failed due to missing attributes: %s", exc)
         return False
+
+
 class Comparator:
     _CHILD_RELATIONS: Mapping[type, List[Tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
@@ -100,12 +108,14 @@ class Comparator:
                   or 'add_only' ( only stores the added and modified objects)
         """
 
-        changeset = Changeset()
+        changeset = Changeset(baseline_model=model1)
 
         self._compare_with_children(model1.cubes, model2.cubes, Cube, changeset, mode)
         self._compare_with_children(model1.dimensions, model2.dimensions, Dimension, changeset, mode)
         self._compare_with_children(model1.processes, model2.processes, Process, changeset, mode)
         self._compare_with_children(model1.chores, model2.chores, Chore, changeset, mode)
+
+        changeset.sort()
 
         return changeset
 

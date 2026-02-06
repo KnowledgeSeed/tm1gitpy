@@ -1,21 +1,13 @@
 {
 	"@type": "Hierarchy",
-	"Name": "testbenchPeriod",
+	"Name": "testbenchPeriod_All_Period",
 	"Elements": [
 		{
 			"name": "All Periods",
 			"type": "Consolidated"
 		},
-      {
+        {
 			"name": "2024Q1",
-			"type": "Consolidated"
-		},
-		{
-			"name": "2024",
-			"type": "Consolidated"
-		},
-		{
-			"name": "All Periods",
 			"type": "Consolidated"
 		},
 		{
@@ -32,10 +24,6 @@
 		},
 		{
 			"name": "2025Q1",
-			"type": "Consolidated"
-		},
-		{
-			"name": "2025",
 			"type": "Consolidated"
 		},
 		{
@@ -104,10 +92,6 @@
 		},
 		{
 			"name": "2028Q3",
-			"type": "Consolidated"
-		},
-		{
-			"name": "2028Q4",
 			"type": "Consolidated"
 		}
 	],

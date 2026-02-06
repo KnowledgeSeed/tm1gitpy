@@ -14,11 +14,11 @@ from filter import filter
 
 def _tm1_connection(server_name: str) -> TM1Service:
     """Creates a TM1 connection before tests and closes it after all tests."""
-    
+
     config = TM1ServersConfig()
     config.load()
     server_config = config.get(server_name)
-    
+
     tm1 = TM1Service(
         base_url=server_config.base_url,
         user=server_config.user,
@@ -45,12 +45,12 @@ def _filter(model, filter_file) -> Model:
         if not filter_path.exists():
             print(f"Error: Filter file '{filter_file}' not found.", file=sys.stderr)
             sys.exit(1)
-        
+
         print(f"Applying filter from: {filter_file}")
         try:
             with open(filter_path, 'r', encoding='utf-8') as f:
                 filter_rules = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
-            
+
             print(f"Loaded {len(filter_rules)} filter rules")
             filtered_model = filter(model, filter_rules)
             print("Filter applied successfully")
@@ -90,7 +90,7 @@ if args.command == 'export':
         print("Export completed successfully with no errors")
 
     exported_model = _filter(exported_model, args.filter)
-    
+
     serialize_model(exported_model, model_output_folder)
     print(f"Model serialized to: {model_output_folder}")
 

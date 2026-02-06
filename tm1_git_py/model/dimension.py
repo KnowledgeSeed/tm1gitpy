@@ -1,11 +1,14 @@
 import json
 import logging
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Union, Optional
+
 import TM1py
-from TM1py.Utils import format_url
 from TM1py import TM1Service, Dimension
+from TM1py.Utils import format_url
 from requests import Response
-from .hierarchy import Hierarchy
+
+from tm1_git_py.model.hierarchy import Hierarchy
+
 
 # {
 # 	"@type":"Dimension",
@@ -64,7 +67,39 @@ class Dimension:
             'hierarchies': [h.to_dict() for h in self.hierarchies],
             'defaultHierarchy': self.defaultHierarchy.to_dict()
         }
-        
+
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None
+    ) -> "Dimension":
+
+        name = data.get("name") or data.get("Name")
+        resolved_path = source_path or f"dimensions/{name}.json"
+
+        hierarchy_payloads = data.get("hierarchies") or data.get("Hierarchies") or []
+        hierarchies = [
+            Hierarchy.from_dict(payload, dimension_name=name)
+            for payload in hierarchy_payloads
+        ]
+
+        default_payload = data.get("defaultHierarchy") or data.get("DefaultHierarchy") or {}
+        default_name = default_payload.get("name") or default_payload.get("Name")
+
+        default_hierarchy = None
+        if default_name:
+            default_hierarchy = next((hier for hier in hierarchies if hier.name == default_name), None)
+        if default_hierarchy is None and default_payload:
+            default_hierarchy = Hierarchy.from_dict(default_payload, dimension_name=name)
+            hierarchies.append(default_hierarchy)
+        if default_hierarchy is None and hierarchies:
+            default_hierarchy = hierarchies[0]
+        if default_hierarchy is None:
+            raise ValueError(f"Cannot build Dimension '{name}': missing hierarchy definitions.")
+
+        return cls(name=name, hierarchies=hierarchies, defaultHierarchy=default_hierarchy, source_path=resolved_path)
 
     @staticmethod
     def as_link(name):
@@ -78,7 +113,7 @@ class Dimension:
 
 logger = logging.getLogger(__name__)
 
-def create_dimension(tm1_service: TM1Service, dimension: Dimension | str) -> Response:
+def create_dimension(tm1_service: TM1Service, dimension: Union[Dimension, str]) -> Response:
     dim_name = dimension
     if isinstance(dimension, Dimension):
         dim_name = dimension.name
@@ -92,13 +127,10 @@ def update_dimension(tm1_service: TM1Service, dimension: Dict[str, Any]) -> Resp
     dimension_new = dimension.get('new')
     dimension_old = dimension.get('old')
 
-    if tm1_service.dimensions.exists(dimension_name=dimension_new.name):
-        dimension_object = tm1_service.dimensions.get(dimension_name=dimension_new.name)
-        _update_dimension_hierarchies(tm1_service=tm1_service, dimension_new=dimension_new, dimension_old=dimension_old,
-                                      dimension_object=dimension_object)
-        return tm1_service.dimensions.update(dimension_object)
-    else:
-        raise ValueError(f"Cannot update Dimension: '{dimension_new.name}', Dimension does not exist")
+    dimension_object = tm1_service.dimensions.get(dimension_name=dimension_new.name)
+    _update_dimension_hierarchies(tm1_service=tm1_service, dimension_new=dimension_new, dimension_old=dimension_old,
+                                  dimension_object=dimension_object)
+    return tm1_service.dimensions.update(dimension_object)
 
 
 def delete_dimension(tm1_service: TM1Service, dimension_name: str) -> Response:

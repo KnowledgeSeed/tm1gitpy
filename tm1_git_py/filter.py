@@ -1,5 +1,6 @@
 import fnmatch
 from typing import List
+
 from tm1_git_py.model import Model
 
 

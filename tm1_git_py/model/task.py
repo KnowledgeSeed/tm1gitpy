@@ -1,9 +1,11 @@
 import json
 import logging
+import re
 from typing import List, Dict, Any, Optional
 import TM1py
 from TM1py import ChoreTask
-from .process import Process
+
+from tm1_git_py.model.process import Process
 
 class Task:
     def __init__(self, process_name: str, parameters: List[Dict[str, Any]]):
@@ -37,6 +39,22 @@ class Task:
             'parameters': self.parameters,
             'process': self.process.to_dict() if self.process else None
         }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "Task":
+
+        def _parse_process_binding(binding: Optional[str]) -> Optional[str]:
+            if not binding:
+                return None
+            match = re.search(r"Processes\('([^']+)'\)", binding)
+            if match:
+                return match.group(1)
+            return binding
+
+        process_ref = payload.get("Process@odata.bind") or payload.get("process_name") or payload.get("process")
+        process_name = _parse_process_binding(process_ref)
+        parameters = payload.get("Parameters") or payload.get("parameters") or []
+        return cls(process_name=process_name or "", parameters=parameters)
 
 
 # ------------------------------------------------------------------------------------------------------------

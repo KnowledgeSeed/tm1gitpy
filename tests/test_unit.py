@@ -1,10 +1,12 @@
+import os.path
 import types
 from pathlib import Path
 from typing import TypeVar
 
 import pytest
 
-from config import (
+import tm1_git_py.comparator
+from tests.utility import (
     _build_mock_changeset_data,
     _objects_equal_case_builders,
     build_mock_model,
@@ -15,8 +17,8 @@ from config import (
     make_element
 )
 from tm1_git_py.serializer import serialize_model
-from tm1_git_py.changeset import Changeset
 from tm1_git_py.comparator import Comparator
+from tm1_git_py.changeset import Changeset, import_changeset
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview
@@ -325,7 +327,7 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='add_only')
-        assert len(changeset.added) == 3
+        assert len(changeset.added) == 2
         assert len(changeset.modified) == 9
         assert len(changeset.removed) == 0
 
@@ -337,9 +339,9 @@ class TestComparator:
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         print(changeset)
-        assert len(changeset.added) == 3
+        assert len(changeset.added) == 2
         assert len(changeset.modified) == 9
-        assert len(changeset.removed) == 2
+        assert len(changeset.removed) == 4
 
 
     def test_comparator_dimensions_change_propagation(self):
@@ -347,7 +349,7 @@ class TestComparator:
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
-        expected_hierarchies = ["testbenchMeasureSales", "testbenchVersion", "testbenchPeriod", "testbenchSales"]
+        expected_hierarchies = ["testbenchMeasureSales", "testbenchVersion", "testbenchPeriod", "testbenchPeriod_All_Period"]
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
@@ -355,7 +357,7 @@ class TestComparator:
         added = [added for added in changeset.added if type(added) is Subset]
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Hierarchy]
 
-        assert changes.count('/dimensions') == 7
+        assert changes.count('/dimensions') == 6
         assert (isinstance(added[0], Subset) and added[0].name == "}Temp_Subset_Discount")
         for hier in modified:
             assert (isinstance(hier, Hierarchy) and hier.name in expected_hierarchies )
@@ -372,7 +374,7 @@ class TestComparator:
         removed = [removed for removed in changeset.removed if type(removed) is MDXView]
         modified = [modified for modified in changeset.modified if type(modified['new']) is Cube]
 
-        assert changes.count('/cubes') == 3
+        assert changes.count('/cubes') == 5
 
         assert (isinstance(added[0], MDXView) and added[0].name == "tm1_bedrock_py_gp0vkg064lilmmga")
         assert (isinstance(modified[0]['new'], Cube) and modified[0]['new'].name == "testbenchSales")
@@ -413,20 +415,20 @@ class TestComparator:
 
 
     def test_sort_changes(self):
-        changeset = Changeset()
+        changes = Changeset()
         fixture = self.mock_changeset_data
-        changeset.added = [
+        changes.added = [
             fixture['process_added'],
             fixture['dimension_added'],
             fixture['subset_added']
         ]
-        changeset.removed = [fixture['cube_removed']]
-        changeset.modified = [{
+        changes.removed = [fixture['cube_removed']]
+        changes.modified = [{
             'old': fixture['hierarchy_old'],
             'new': fixture['hierarchy_new'],
             'changes': "Hierarchy updated"
         }]
-        changeset.sort()
+        changes.sort()
 
         expected_order = [
             "C  /dimensions/MockDim",
@@ -436,8 +438,8 @@ class TestComparator:
             "D  /cubes/MockCube"
         ]
 
-        assert changeset.lines == expected_order
-        assert [obj.name for obj in changeset.added] == [
+        assert changes.lines == expected_order
+        assert [obj.name for obj in changes.added] == [
             "MockDim",
             "NewSubset",
             "MockProcess"
@@ -448,30 +450,11 @@ class TestComparator:
 class TestChangeset:
 
     def test_apply_uses_sorted_order_for_create_and_delete(self, mocker):
-        changeset = Changeset()
+        model_old, errors_old = deserialize_model(str(test_model_dir_base))
+        model_new, errors_new = deserialize_model(str(test_model_dir_diff))
+        comparator = Comparator()
 
-        # Create one object of each type, then put them into ADDED in a scrambled order
-        dim = make_dimension("Dim_A")
-        hier = make_hierarchy("Dim_A", "H1")
-        sub = make_subset("Dim_A", "H1", "Sub1")
-        cube = make_cube("Cube_A")
-        mdx_view = make_mdx_view("View_A")
-        proc = make_process("Proc_A")
-        chore = make_chore("Chore_A")
-
-        # Unscrupulously scrambled
-        changeset.added = [chore, cube, sub, proc, hier, dim, mdx_view]
-
-        # Same for REMOVED (different instances just to distinguish in debugging)
-        dim_del = make_dimension("Dim_Del")
-        hier_del = make_hierarchy("Dim_Del", "H_Del")
-        sub_del = make_subset("Dim_Del", "H_Del", "Sub_Del")
-        cube_del = make_cube("Cube_Del")
-        mdx_view_del = make_mdx_view("View_Del")
-        proc_del = make_process("Proc_Del")
-        chore_del = make_chore("Chore_Del")
-
-        changeset.removed = [dim_del, mdx_view_del, hier_del, sub_del, cube_del, proc_del, chore_del]
+        changeset = comparator.compare(model_old, model_new)
 
         # No modified in this test
         changeset.modified = []
@@ -484,18 +467,21 @@ class TestChangeset:
         # Give create/delete something with a .url so apply() doesn't fail
         def create_side_effect(**kwargs):
             obj = kwargs["object_instance"]
-            return types.SimpleNamespace(url=f"CREATE:{obj.type}:{obj.name}")
+            return types.SimpleNamespace(url=f"CREATE:{obj.type}:{obj.name}", status_code=200, ok=True)
 
         def delete_side_effect(**kwargs):
             obj = kwargs["object_instance"]
-            return types.SimpleNamespace(url=f"DELETE:{obj.type}:{obj.name}")
+            return types.SimpleNamespace(url=f"DELETE:{obj.type}:{obj.name}", status_code=200, ok=True)
 
         mock_create.side_effect = create_side_effect
         mock_delete.side_effect = delete_side_effect
 
-        tm1_conn = mocker.Mock()
+        tm1_service = mocker.Mock()
 
-        changeset.apply(tm1_conn)
+        status_dir = 'tests'
+        exec_id = 'test_create_and_delete'
+        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id, batch=False)
+        assert success
 
         # --- Assert create order ---
         created_types = [
@@ -503,7 +489,7 @@ class TestChangeset:
             for call in mock_create.call_args_list
         ]
 
-        assert created_types == [Dimension, Hierarchy, Subset, Cube, MDXView, Process, Chore]
+        assert created_types == [Subset, MDXView]
 
         # No updates in this test
         mock_update.assert_not_called()
@@ -516,46 +502,43 @@ class TestChangeset:
 
         # For deletes, precedence is:
         # cubes -> subsets -> hierarchies -> dimensions -> chore -> process
-        assert deleted_types == [MDXView, Cube, Subset, Hierarchy, Dimension, Chore, Process]
+        assert deleted_types == [MDXView, Cube, Chore, Process]
+
+        assert os.path.isfile(status_dir + '/' + exec_id + '.json')
+        os.remove(status_dir + '/' + exec_id + '.json')
 
 
     def test_apply_sorts_updates_in_expected_precedence(self, mocker):
-        cs = Changeset()
+        model_old, errors_old = deserialize_model(str(test_model_dir_base))
+        model_new, errors_new = deserialize_model(str(test_model_dir_diff))
+        comparator = Comparator()
 
-        hier_old = make_hierarchy("Dim_A", "Hier_A",
-                                  elements=[make_element("A", "Numeric")])
-        hier_new = make_hierarchy("Dim_A", "Hier_A",
-                                  elements=[make_element("B", "Numeric")])
-        dim_old = make_dimension("Dim_A", hierarchy_names=["Hier_A"])
-        dim_new = make_dimension("Dim_A", hierarchy_names=["Hier_A", "Hier_B"])
-        view_old = make_mdx_view("View_A")
-        view_new = make_mdx_view("View_A", mdx="SELECT {[Dim].[Elem] FROM [Cube_A]}")
-        cube_old = make_cube("Cube_A")
-        cube_new = make_cube("Cube_A", views=[view_new])
-        proc_old = make_process("Proc_A")
-        proc_new = make_process("Proc_A", has_security_access=False)
-        chore_old = make_chore("Chore_A")
-        chore_new = make_chore("Chore_A", active=True)
+        changeset = comparator.compare(model_old, model_new)
 
-        cs.modified = [
-            {"old": cube_old, "new": cube_new, "changes": "cube changed"},
-            {"old": proc_old, "new": proc_new, "changes": "proc changed"},
-            {"old": view_old, "new": view_new, "changes": "view changed"},
-            {"old": dim_old, "new": dim_new, "changes": "dim changed"},
-            {"old": hier_old, "new": hier_new, "changes": "hier changed"},
-            {"old": chore_old, "new": chore_new, "changes": "chore changed"}
-        ]
-        cs.added = []
-        cs.removed = []
-        cs.sort()
+        changeset.added = []
+        changeset.removed = []
 
         mock_create = mocker.patch("tm1_git_py.changeset.create_object")
         mock_delete = mocker.patch("tm1_git_py.changeset.delete_object")
         mock_update = mocker.patch("tm1_git_py.changeset.update_object")
 
+        def update_side_effect(**kwargs):
+            obj = kwargs["object_instance"]
+            target = obj
+            if isinstance(obj, dict) and "new" in obj:
+                target = obj["new"]
+            name = getattr(target, "name", "unknown")
+            obj_type = getattr(target, "type", target.__class__.__name__)
+            return types.SimpleNamespace(url=f"UPDATE:{obj_type}:{name}", status_code=200, ok=True)
+
+        mock_update.side_effect = update_side_effect
+
         tm1_service = mocker.Mock()
 
-        cs.apply(tm1_service)
+        status_dir = 'tests'
+        exec_id = 'test_update'
+        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id, batch=False)
+        assert success
 
         mock_create.assert_not_called()
         mock_delete.assert_not_called()
@@ -566,8 +549,10 @@ class TestChangeset:
         ]
         updated_types = [type(o) for o in updated_new_objs]
 
-        # Same precedence as creates: Dimension → Hierarchy → Cube → MDXView → Process → Chore for this subset
-        assert updated_types == [Dimension, Hierarchy, Cube, MDXView, Process, Chore]
+        assert updated_types == [Hierarchy, Hierarchy, Hierarchy, Hierarchy, Subset, Cube, MDXView, Process, Chore]
+
+        assert os.path.isfile(status_dir + '/' + exec_id + '.json')
+        os.remove(status_dir + '/' + exec_id + '.json')
 
 
     def test_changeset_apply_propagates_kwargs_to_delete_dimensions_from_cube(self, mocker):
@@ -595,7 +580,9 @@ class TestChangeset:
         tm1_service.cubes.get.return_value = cube_object
 
         # Updating cube returns some Response-like object with .url
-        tm1_service.cubes.update.return_value = types.SimpleNamespace(url="https://dummy/cubes/Sales")
+        tm1_service.cubes.update.return_value = types.SimpleNamespace(
+            url="https://dummy/cubes/Sales", ok=True, status_code=200
+        )
 
         # Patch the internal helper we care about:
         # update_cube -> _delete_dimensions_from_cube(..., **kwargs)
@@ -608,17 +595,17 @@ class TestChangeset:
                 "element": "Actual",
             }
         }
-        result = changeset.apply(
+        success, _ = changeset.apply(
             tm1_service,
             strategies=strategies,
             default_strategy="keep_element",
             logging_level="DEBUG",
+            batch=False
         )
 
         # Ensure apply() actually triggered a cube update
+        assert success
         tm1_service.cubes.update.assert_called_once_with(cube_object)
-        assert len(result) == 1
-        assert getattr(result[0], "url", None) == "https://dummy/cubes/Sales"
 
         # kwargs propagated all the way down
         delete_dims_mock.assert_called_once()
@@ -634,6 +621,181 @@ class TestChangeset:
         assert call_kwargs["strategies"] == strategies
         assert call_kwargs["default_strategy"] == "keep_element"
         assert call_kwargs["logging_level"] == "DEBUG"
+
+
+    def test_export_persists_expected_payload(self, tmp_path):
+        changes = Changeset()
+
+        created_subset = make_subset(
+            name="Subset_Create",
+            expression="{[Dim_New].[Hier_New].Members}",
+            dimension_name="Dim_New",
+            hierarchy_name="Hier_New",
+        )
+        removed_view = make_mdx_view(
+            name="View_To_Delete",
+            mdx="SELECT FROM [Cube_One]",
+            source_path="cubes/Cube_One.views/View_To_Delete.json",
+        )
+        old_dimension = make_dimension(
+            name="Dim_Update",
+            hierarchy_names=["Base"],
+            source_path="/dimensions/Dim_Update",
+        )
+        new_dimension = make_dimension(
+            name="Dim_Update",
+            hierarchy_names=["Base", "Added"],
+            source_path="/dimensions/Dim_Update",
+        )
+
+        changes.add_created(created_subset)
+        changes.add_modified(
+            old=old_dimension,
+            new=new_dimension,
+            changes="Dimension structure changed.",
+        )
+        changes.add_deleted(removed_view)
+
+        export_path = tmp_path / "changes.json"
+        changes.export(export_path)
+
+        exported_payload = json.loads(export_path.read_text(encoding="utf-8"))
+
+        def _serialize_entry(action, old_obj, new_obj, message=None):
+            obj = new_obj or old_obj
+            diff = {
+                "old_object": old_obj.to_dict() if old_obj else None,
+                "new_object": new_obj.to_dict() if new_obj else None,
+            }
+            if message:
+                diff["message"] = message
+            return {
+                "action": action,
+                "object_type": obj.__class__.__name__,
+                "object_name": getattr(obj, "name", None),
+                "source_path": getattr(obj, "source_path", None),
+                "difference": diff,
+            }
+
+        expected_payload = {
+            "changeset_name": None,
+            "changes": [
+                _serialize_entry("CREATE", None, created_subset),
+                _serialize_entry("DELETE", removed_view, None),
+                _serialize_entry("UPDATE", old_dimension, new_dimension, "Dimension structure changed."),
+            ],
+        }
+
+        assert exported_payload == expected_payload
+
+
+    def test_import_changeset(self, tmp_path):
+        model_old, errors_old = deserialize_model(str(test_model_dir_base))
+        model_new, errors_new = deserialize_model(str(test_model_dir_diff))
+        comparator = tm1_git_py.Comparator()
+
+        changeset_compared = comparator.compare(model_old, model_new)
+        export_path = tmp_path / "changes_exported.json"
+        changeset_compared.export(file_path=export_path)
+
+        changeset_imported = import_changeset(
+            base_model=model_old,
+            changeset_file=str(export_path)
+        )
+
+        changeset_compared.sort()
+        changeset_imported.sort()
+
+        assert changeset_compared.lines == changeset_imported.lines
+        assert changeset_compared.added == changeset_imported.added
+        assert changeset_compared.removed == changeset_imported.removed
+
+        assert len(changeset_compared.modified) == len(changeset_imported.modified)
+
+        for expected, actual in zip(changeset_compared.modified, changeset_imported.modified):
+            assert expected["old"].name == actual["old"].name
+            assert expected["new"].name == actual["new"].name
+
+
+    def test_import_changeset_applies_to_current_model(self, tmp_path):
+        """
+        Expected behaviour:
+            - CREATE entry for existing Process at 'processes/MockProcess.json' treated as UPDATE
+            - DELETE entry for missing Chore at 'chores/GhostChore.json' skipped
+        """
+
+        base_model = build_mock_model(include_chore=True)
+        base_dimension = base_model.dimensions[0]
+        base_process = base_model.processes[0]
+
+        added_hierarchy = make_hierarchy(dimension_name=base_dimension.name, hierarchy_name="AddedHier")
+        update_payload = {
+            "name": base_dimension.name,
+            "hierarchies": [
+                base_dimension.hierarchies[0].to_dict(),
+                added_hierarchy.to_dict()
+            ],
+            "defaultHierarchy": base_dimension.hierarchies[0].to_dict()
+        }
+
+        create_payload = base_process.to_dict()
+        create_payload["has_security_access"] = True
+
+        changeset_payload = {
+            "changeset_name": None,
+            "changes": [
+                {
+                    "action": "CREATE",
+                    "object_type": "Process",
+                    "object_name": base_process.name,
+                    "source_path": base_process.source_path,
+                    "difference": {
+                        "old_object": None,
+                        "new_object": create_payload
+                    }
+                },
+                {
+                    "action": "DELETE",
+                    "object_type": "Chore",
+                    "object_name": "GhostChore",
+                    "source_path": "chores/GhostChore.json",
+                    "difference": {
+                        "old_object": {},
+                        "new_object": None
+                    }
+                },
+                {
+                    "action": "UPDATE",
+                    "object_type": "Dimension",
+                    "object_name": base_dimension.name,
+                    "source_path": base_dimension.source_path,
+                    "difference": {
+                        "old_object": base_dimension.to_dict(),
+                        "new_object": update_payload
+                    }
+                },
+            ],
+        }
+
+        changeset_path = tmp_path / "changeset.json"
+        changeset_path.write_text(json.dumps(changeset_payload, indent=2), encoding="utf-8")
+
+        imported = import_changeset(base_model=base_model, changeset_file=str(changeset_path))
+
+        assert imported.added == []
+        assert imported.removed == []
+        assert len(imported.modified) == 2
+
+        by_name = {entry["new"].name: entry for entry in imported.modified}
+        proc_entry = by_name[base_process.name]
+        dim_entry = by_name[base_dimension.name]
+
+        assert proc_entry["old"] is base_process
+        assert proc_entry["new"].hasSecurityAccess is True
+
+        assert dim_entry["old"] is base_dimension
+        assert len(dim_entry["new"].hierarchies) == 2
+        assert dim_entry["new"].defaultHierarchy.name == base_dimension.hierarchies[0].name
 
 
 
@@ -1099,7 +1261,7 @@ class TestDimensionCRUD:
         tm1py_dimension_instance = tm1py_dimension_cls.return_value
         tm1_service.dimensions.create.return_value = "create-result"
 
-        result = dimension.create_dimension(tm1_service, dimension_input)
+        result = dimension.create_dimension(tm1_service, dimension_input.name)
 
         tm1py_dimension_cls.assert_called_once_with("TestDim")
         tm1_service.dimensions.create.assert_called_once_with(tm1py_dimension_instance)
@@ -2102,7 +2264,7 @@ class TestChoreCRUD:
         )
 
         create_chore_task_mock = mocker.patch(
-            "tm1_git_py.model.chore.task.create_chore_task"
+            "tm1_git_py.model.chore.create_chore_task"
         )
         chore_task_instances = [
             mocker.Mock(name="ChoreTask0"),
@@ -2178,7 +2340,7 @@ class TestChoreCRUD:
         tm1_service.chores.get.return_value = tm1_chore_obj
         tm1_service.chores.update.return_value = "update-result"
         create_chore_task_mock = mocker.patch(
-            "tm1_git_py.model.chore.task.create_chore_task"
+            "tm1_git_py.model.chore.create_chore_task"
         )
         chore_task_instances = [
             mocker.Mock(name="ChoreTask0_new"),
@@ -2234,7 +2396,7 @@ class TestChoreCRUD:
         tm1_chore_obj.active = False
         tm1_service.chores.get.return_value = tm1_chore_obj
 
-        mocker.patch("tm1_git_py.model.chore.task.create_chore_task", return_value=mocker.Mock())
+        mocker.patch("tm1_git_py.model.chore.create_chore_task", return_value=mocker.Mock())
         mocker.patch("tm1_git_py.model.chore.ChoreStartTime.from_string", return_value="parsed-start-time")
         mocker.patch("tm1_git_py.model.chore.ChoreFrequency.from_string", return_value="parsed-frequency")
 

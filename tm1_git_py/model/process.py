@@ -1,14 +1,16 @@
 import json
 import logging
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING, Optional
 
 import TM1py
 from TM1py import TM1Service, Process
 from requests import Response
 
+from tm1_git_py.model.ti import TI
+
 # Importáljuk a TI osztályt a típus-ellenőrzéshez (type hinting)
 if TYPE_CHECKING:
-    from .ti import TI
+    pass
 # {
 #   "@type":"Process",
 # 	"Name":"airflow_test_success",
@@ -71,10 +73,11 @@ class Process:
             return False
 
         other.datasource = other.datasource or None
+        self.datasource = self.datasource or None
         if self.datasource != other.datasource:
             return False
 
-        if self.ti != other.ti:
+        if self.ti.ti_as_string() != other.ti.ti_as_string():
             return False
 
         if self.parameters != other.parameters:
@@ -110,6 +113,40 @@ class Process:
             'ti': self.ti.to_dict()
         }
 
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None
+    ) -> "Process":
+
+        name = data.get("name") or data.get("Name")
+        resolved_path = source_path or f"processes/{name}.json"
+
+        has_security = data.get("has_security_access")
+        if has_security is None:
+            has_security = data.get("HasSecurityAccess")
+
+        code_link = data.get("code_link") or data.get("Code@Code.link") or data.get("Code")
+        datasource = data.get("datasource") or data.get("DataSource")
+        parameters = data.get("parameters") or data.get("Parameters") or []
+        variables = data.get("variables") or data.get("Variables") or []
+        ti_payload = data.get("ti") or {}
+
+        ti_obj = TI.from_dict(ti_payload)
+
+        return cls(
+            name=name,
+            hasSecurityAccess=bool(has_security) if has_security is not None else False,
+            code_link=code_link,
+            datasource=datasource,
+            parameters=parameters,
+            variables=variables,
+            ti=ti_obj,
+            source_path=resolved_path
+        )
+
     @staticmethod
     def as_link(name : str):
         # /processes/Process_A.json
@@ -138,19 +175,16 @@ def update_process(tm1_service: TM1Service, process: Dict[str, Any]) -> Response
     process_new = process.get('new')
     process_old = process.get('old')
 
-    if tm1_service.processes.exists(name_process=process_new.name):
-        process_object = tm1_service.processes.get(name_process=process_new.name)
-        process_object.datasource_type = process_new.datasource
-        process_object.has_security_access = process_new.hasSecurityAccess
+    process_object = tm1_service.processes.get(name_process=process_new.name)
+    process_object.datasource_type = process_new.datasource
+    process_object.has_security_access = process_new.hasSecurityAccess
 
-        _update_process_parameters(process_old=process_old, process_new=process_new, process_object=process_object)
-        _update_process_variables(process_old=process_old, process_new=process_new, process_object=process_object)
+    _update_process_parameters(process_old=process_old, process_new=process_new, process_object=process_object)
+    _update_process_variables(process_old=process_old, process_new=process_new, process_object=process_object)
 
-        logger.info(f"Updating Process: {process_new.name}.")
+    logger.info(f"Updating Process: {process_new.name}.")
 
-        return tm1_service.processes.update(process_object)
-    else:
-        raise ValueError(f"Cannot update Process: '{process_new.name}', Process does not exist")
+    return tm1_service.processes.update(process_object)
 
 
 def delete_process(tm1_service: TM1Service, process_name: str) -> Response:

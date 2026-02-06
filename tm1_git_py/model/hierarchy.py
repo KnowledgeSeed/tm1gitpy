@@ -1,11 +1,12 @@
 import json
 import logging
 import re
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Optional, Tuple
 import TM1py
-from TM1py.Utils import format_url
 from TM1py import TM1Service, Hierarchy
+from TM1py.Utils import format_url
 from requests import Response
+
 from .element import Element, create_element, delete_element, update_element
 from .edge import Edge
 from .subset import Subset
@@ -94,7 +95,42 @@ class Hierarchy:
     def asLink(self, dimension_name):
         # /dimensions/Dimension_A.hierarchies/Dimension_A.json
         return '/dimensions/' + dimension_name + '.hierarchies/' + self.name + '.json'
-    
+
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None,
+            dimension_name: Optional[str] = None
+    ) -> "Hierarchy":
+
+        name = data.get("name") or data.get("Name")
+        resolved_path = source_path
+        if resolved_path is None and dimension_name and name:
+            resolved_path = f"dimensions/{dimension_name}.hierarchies/{name}.json"
+        if resolved_path is None:
+            raise ValueError("Hierarchy.from_dict requires a source_path or dimension context.")
+
+        element_payloads = data.get("elements") or data.get("Elements") or []
+        edge_payloads = data.get("edges") or data.get("Edges") or []
+        subset_payloads = data.get("subsets") or data.get("Subsets") or []
+        subset_base_path = resolved_path.rsplit(".json", 1)[0] + ".subsets" if resolved_path else None
+
+        elements = [Element(payload) for payload in element_payloads]
+        edges = [Edge.from_dict(payload) for payload in edge_payloads]
+        subsets: List[Subset] = []
+        for payload in subset_payloads:
+            subset_name = payload.get("name") or payload.get("Name")
+            subset_path = None
+            if subset_base_path and subset_name:
+                subset_path = f"{subset_base_path}/{subset_name}.json"
+            subsets.append(
+                Subset.from_dict(payload, source_path=subset_path, dimension_name=dimension_name, hierarchy_name=name)
+            )
+
+        return cls(name=name, elements=elements, edges=edges, subsets=subsets, source_path=resolved_path)
+
     @staticmethod
     def as_link(dimension_name_base, name):
         # /dimensions/Dimension_A.json
@@ -107,8 +143,14 @@ class Hierarchy:
 
 logger = logging.getLogger(__name__)
 
+def _hierarchy_context_from_path(source_path: str) -> Tuple[str, str]:
+    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path).group(1)
+    hierarchy_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+    return dimension_name, hierarchy_name
+
+
 def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', hierarchy.source_path).group(1)
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
     hierarchy_object = TM1py.Hierarchy(name=hierarchy.name, dimension_name=dimension_name)
     edges = [(edge.parent, edge.name, edge.weight) for edge in hierarchy.edges]
     for parent, component, weight in edges:
@@ -116,11 +158,10 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     response = tm1_service.hierarchies.create(hierarchy_object)
     logger.info(f"Created Hierarchy: {hierarchy.name}.")
 
-    if response.status_code == 201:
-        for element in hierarchy.elements:
-            if not tm1_service.elements.exists(dimension_name, hierarchy.name, element.name):
-                create_element(tm1_service=tm1_service, dimension_name=dimension_name,
-                               hierarchy_name=hierarchy.name, element=element)
+    for element in hierarchy.elements:
+        if not tm1_service.elements.exists(dimension_name, hierarchy.name, element.name):
+            create_element(tm1_service=tm1_service, dimension_name=dimension_name,
+                           hierarchy_name=hierarchy.name, element=element)
 
     return response
 
@@ -129,25 +170,22 @@ def update_hierarchy(tm1_service: TM1Service, hierarchy: Dict[str, Any]) -> Resp
     hierarchy_new = hierarchy.get('new')
     hierarchy_old = hierarchy.get('old')
 
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', hierarchy_new.source_path).group(1)
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy_new.source_path)
 
-    if tm1_service.hierarchies.exists(dimension_name=dimension_name, hierarchy_name=hierarchy_new.name):
-        hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_name, hierarchy_name=hierarchy_new.name)
+    hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_name, hierarchy_name=hierarchy_new.name)
 
-        _update_hierarchy_edges(hierarchy_new=hierarchy_new, hierarchy_old=hierarchy_old,
-                                hierarchy_object=hierarchy_object)
-        _update_hierarchy_elements(tm1_service=tm1_service, dimension_name=dimension_name, hierarchy_new= hierarchy_new,
-                                   hierarchy_old=hierarchy_old, hierarchy_object=hierarchy_object)
-        logger.info(f"Updating Hierarchy: {hierarchy_new.name}.")
+    _update_hierarchy_edges(hierarchy_new=hierarchy_new, hierarchy_old=hierarchy_old,
+                            hierarchy_object=hierarchy_object)
+    _update_hierarchy_elements(tm1_service=tm1_service, dimension_name=dimension_name, hierarchy_new= hierarchy_new,
+                               hierarchy_old=hierarchy_old, hierarchy_object=hierarchy_object)
+    logger.info(f"Updating Hierarchy: {hierarchy_new.name}.")
 
-        return tm1_service.hierarchies.update(hierarchy_object)
+    return tm1_service.hierarchies.update(hierarchy_object)
 
-    else:
-        raise ValueError(f"Cannot update Hierarchy: '{hierarchy_new.name}', Hierarchy does not exist")
 
 
 def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', hierarchy.source_path).group(1)
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
     logger.info(f"Deleting Hierarchy: {hierarchy.name} of Dimension: {dimension_name}.")
     return tm1_service.hierarchies.delete(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
 

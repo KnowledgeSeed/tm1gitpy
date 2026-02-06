@@ -1,13 +1,18 @@
 import json
 import logging
-from typing import List, Any, Dict
-from requests import Response
+from typing import List, Any, Dict, Optional
+
 import TM1py
 from TM1py import TM1Service, Cube
 from TM1py.Utils import format_url
-from .rule import Rule
-from .dimension import Dimension
-from .mdxview import MDXView
+from TM1_bedrock_py.bedrock import data_copy_intercube
+from requests import Response
+
+from tm1_git_py.model import element
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.dimension import create_dimension
+from tm1_git_py.model.mdxview import MDXView
+from tm1_git_py.model.rule import Rule
 
 
 # {
@@ -37,7 +42,7 @@ from .mdxview import MDXView
 # 	]
 # }
 class Cube:
-    def __init__(self, name, dimensions: List[Dimension], rules: list[Rule], views: List[MDXView], source_path: str):
+    def __init__(self, name, dimensions: List[Dimension], rules: List[Rule], views: List[MDXView], source_path: str):
         self.type = 'Cube'
         self.name = name
         self.dimensions = dimensions
@@ -93,6 +98,39 @@ class Cube:
             'views': [v.to_dict() for v in self.views]
         }
 
+    @classmethod
+    def from_dict(
+            cls,
+            data: Dict[str, Any],
+            *,
+            source_path: Optional[str] = None
+    ) -> "Cube":
+
+        name = data.get("name") or data.get("Name")
+        resolved_path = source_path or f"cubes/{name}"
+
+        dimension_payloads = data.get("dimensions") or data.get("Dimensions") or []
+        dimensions = [Dimension.from_dict(payload) for payload in dimension_payloads]
+
+        rule_payloads = data.get("rules") or data.get("Rules") or []
+        rules = [
+            Rule(
+                area=payload.get("area") or payload.get("Area") or "",
+                full_statement=payload.get("full_statement") or payload.get("fullStatement") or payload.get(
+                    "statement") or "",
+                comment=payload.get("comment") or payload.get("Comment") or ""
+            )
+            for payload in rule_payloads
+        ]
+
+        view_payloads = data.get("views") or data.get("Views") or []
+        views = [
+            MDXView.from_dict(payload, cube_name=name)
+            for payload in view_payloads
+        ]
+
+        return cls(name=name, dimensions=dimensions, rules=rules, views=views, source_path=resolved_path)
+
     @staticmethod
     def as_link(name):
         # /cubes/Cube_A.json
@@ -118,49 +156,46 @@ def create_cube(tm1_service: TM1Service, cube: Cube) -> Response:
 def update_cube(tm1_service: TM1Service, cube: Dict[str, Any], **kwargs) -> Response:
     cube_new = cube.get('new')
     cube_old = cube.get('old')
-    if tm1_service.cubes.exists(cube_name=cube_new.name) and cube_new.name == cube_old.name:
-        dimensions_new = [d.name for d in cube_new.dimensions]
-        dimensions_old = [d.name for d in cube_old.dimensions]
-        cube_object = tm1_service.cubes.get(cube_new.name)
+    dimensions_new = [d.name for d in cube_new.dimensions]
+    dimensions_old = [d.name for d in cube_old.dimensions]
+    cube_object = tm1_service.cubes.get(cube_new.name)
 
-        if dimensions_new != dimensions_old:
-            if set(dimensions_new) == set(dimensions_old):
-                tm1_service.cubes.update_storage_dimension_order(
-                    cube_name=cube_new.name, dimension_names=dimensions_new)
-                logger.info(f"Updated Dimension order for Cube: {cube_new.name}.")
-            else:
-                logger.warning(f"Dimensions for Cube: {cube_new.name} changed. Cube will be recreated to match new Dimension set.")
-                added_dims = list(set(dimensions_new) - set(dimensions_old))
-                removed_dims = list(set(dimensions_old) - set(dimensions_new))
+    if dimensions_new != dimensions_old:
+        if set(dimensions_new) == set(dimensions_old):
+            tm1_service.cubes.update_storage_dimension_order(
+                cube_name=cube_new.name, dimension_names=dimensions_new)
+            logger.info(f"Updated Dimension order for Cube: {cube_new.name}.")
+        else:
+            logger.warning(f"Dimensions for Cube: {cube_new.name} changed. Cube will be recreated to match new Dimension set.")
+            added_dims = list(set(dimensions_new) - set(dimensions_old))
+            removed_dims = list(set(dimensions_old) - set(dimensions_new))
 
-                if added_dims:
-                    _add_dimensions_to_cube(
-                        tm1_service=tm1_service,
-                        cube_old=cube_old,
-                        cube_new=cube_new,
-                        dims_old=dimensions_old,
-                        dims_new=dimensions_new
-                    )
-                    cube_object = tm1_service.cubes.get(cube_new.name)
-                elif removed_dims:
-                    _delete_dimensions_from_cube(
-                        tm1_service=tm1_service,
-                        cube_old=cube_old,
-                        cube_new=cube_new,
-                        dims_old=dimensions_old,
-                        dims_new=dimensions_new,
-                        **kwargs
-                    )
-                    cube_object = tm1_service.cubes.get(cube_new.name)
+            if added_dims:
+                _add_dimensions_to_cube(
+                    tm1_service=tm1_service,
+                    cube_old=cube_old,
+                    cube_new=cube_new,
+                    dims_old=dimensions_old,
+                    dims_new=dimensions_new
+                )
+                cube_object = tm1_service.cubes.get(cube_new.name)
+            elif removed_dims:
+                _delete_dimensions_from_cube(
+                    tm1_service=tm1_service,
+                    cube_old=cube_old,
+                    cube_new=cube_new,
+                    dims_old=dimensions_old,
+                    dims_new=dimensions_new,
+                    **kwargs
+                )
+                cube_object = tm1_service.cubes.get(cube_new.name)
 
-        new_rule_text = cube_new.get_rule_text()
-        if cube_object.rules.body != new_rule_text:
-            cube_object.rules._text = new_rule_text
-            logger.info(f"Updated Rules for Cube: {cube_new.name}.")
+    new_rule_text = cube_new.get_rule_text()
+    if cube_object.rules.body != new_rule_text:
+        cube_object.rules._text = new_rule_text
+        logger.info(f"Updated Rules for Cube: {cube_new.name}.")
 
-        return tm1_service.cubes.update(cube_object)
-    else:
-        raise ValueError(f"Cannot update Cube: '{cube_new.name}', Cube does not exist")
+    return tm1_service.cubes.update(cube_object)
 
 
 def delete_cube(tm1_service: TM1Service, cube_name: str) -> Response:
@@ -228,8 +263,8 @@ def _add_dimensions_to_cube(
         tm1_service: TM1Service,
         cube_old: Cube,
         cube_new: Cube,
-        dims_old: list[str],
-        dims_new: list[str],
+        dims_old: List[str],
+        dims_new: List[str],
         logging_level: str = "INFO"
 ) -> None:
     """
@@ -335,7 +370,7 @@ def _add_dimensions_to_cube(
 def _build_cube_mdx_with_dim_sets(
         cube_name: str,
         dimension_names: List[str],
-        per_dim_set_mdx: Dict[str, str] | None = None
+        per_dim_set_mdx: Optional[Dict[str, str]] = None
 ) -> str:
     """
     Build a generic MDX that cross-joins all dimensions on a single axis.
@@ -372,9 +407,9 @@ def _delete_dimensions_from_cube(
         tm1_service: TM1Service,
         cube_old: Cube,
         cube_new: Cube,
-        dims_old: list[str],
-        dims_new: list[str],
-        strategies: Dict[str, Dict[str, Any]] | None = None,
+        dims_old: List[str],
+        dims_new: List[str],
+        strategies: Optional[Dict[str, Dict[str, Any]]] = None,
         default_strategy: str = "sum_all",
         logging_level: str = "INFO"
 ) -> None:
@@ -567,4 +602,3 @@ def _delete_dimensions_from_cube(
     # 4) Clean up temporary cube
     logger.info(f"Deleting temporary Cube '{temp_cube_name}'.")
     tm1_service.cubes.delete(temp_cube_name)
-

@@ -2,7 +2,21 @@ import json
 import os
 import re
 from typing import Dict, List
-from tm1_git_py.model import Model, Dimension, Hierarchy, Subset, Cube, MDXView, Process, Chore, TI, Task, Rule, Element
+
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.element import Element
+from tm1_git_py.model.hierarchy import Hierarchy
+from tm1_git_py.model.mdxview import MDXView
+from tm1_git_py.model.model import Model
+from tm1_git_py.model.process import Process
+from tm1_git_py.model.rule import Rule
+from tm1_git_py.model.subset import Subset
+from tm1_git_py.model.task import Task
+from tm1_git_py.model.ti import TI
+
+
 
 def deserialize_model(dir) -> Model:
     dimensions_dir = dir + '/dimensions'
@@ -18,8 +32,8 @@ def deserialize_model(dir) -> Model:
 
     _cubes, _cube_errors = deserialize_cubes(cubes_dir, _dimensions)
 
-    _model = Model(cubes=list(_cubes.values()), 
-                   dimensions=list(_dimensions.values()), 
+    _model = Model(cubes=list(_cubes.values()),
+                   dimensions=list(_dimensions.values()),
                    processes=list(_processes.values()),
                    chores=list(_chores.values()))
     _errors = _dim_errors | _cube_errors | _process_errors | _chore_errors

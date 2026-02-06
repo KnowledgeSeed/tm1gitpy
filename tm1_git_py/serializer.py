@@ -1,7 +1,12 @@
-
 import os
 from typing import List
-from tm1_git_py.model import Chore, Cube, Dimension, Process, Model
+
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.model import Model
+from tm1_git_py.model.process import Process
+
 
 def serialize_model(model: Model, dir):
     os.makedirs(dir, exist_ok=True)
