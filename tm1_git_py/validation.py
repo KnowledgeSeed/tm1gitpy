@@ -1,26 +1,31 @@
+from __future__ import annotations
+
 import importlib
-from typing import TypeVar, Dict
+from typing import TYPE_CHECKING, TypeVar, Optional
 
 from TM1py import TM1Service
 
-import tm1_git_py.changeset as ch
 from tm1_git_py.model import Cube, Dimension, Process, Chore, Hierarchy, Subset, MDXView
+
+if TYPE_CHECKING:
+    from tm1_git_py.changeset import Changeset
 
 T = TypeVar('T', Cube, Dimension, Process, Chore, Hierarchy, Subset, MDXView)
 
-_PARENT_RELATIONS: Dict[str, str] = {
+_PARENT_RELATIONS: dict[str, str] = {
     "Hierarchy": "Dimension",
     "Subset": "Hierarchy",
     "MDXView": "Cube",
+    #"Dimension": "Cube"
 }
 
-_CHILD_RELATIONS: Dict[str, str] = {
-    "Dimension": "Hierarchy",
-    "Hierarchy": "Subset",
-    "Cube": "View",
+_CHILD_RELATIONS: dict[str, list[str]] = {
+    "Dimension": ["Hierarchy"],
+    "Hierarchy": ["Subset"],
+    "Cube": ["View", "Dimension"],
 }
 
-_TYPE_MAP: Dict[str, str] = {
+_TYPE_MAP: dict[str, str] = {
     "Dimension": "dimensions",
     "Hierarchy": "hierarchies",
     "Subset": "subsets",
@@ -57,7 +62,7 @@ def __normalize_for_view(object_instance: T) -> str:
     return object_type
 
 
-def __build_args(object_instance: T, object_type: str, object_args: Dict[str, str] = None) -> Dict[str, str]:
+def __build_args(object_instance: T, object_type: str, object_args: dict[str, str] = None) -> dict[str, str]:
     if object_type == "Process":
         object_args = {"name": object_instance.name}
     elif object_args is None:
@@ -67,7 +72,7 @@ def __build_args(object_instance: T, object_type: str, object_args: Dict[str, st
     return object_args
 
 
-def validate_existence_with_parent(tm1_service: TM1Service, object_instance: T, changeset_object: ch.Changeset):
+def validate_create(tm1_service: TM1Service, object_instance: T, changeset_object: Changeset):
     object_type = __normalize_for_view(object_instance)
     func_object_exists = getattr(getattr(tm1_service, f"{_TYPE_MAP[object_type]}"), "exists")
     object_args = __build_args(object_instance, object_type)
@@ -91,52 +96,109 @@ def validate_existence_with_parent(tm1_service: TM1Service, object_instance: T, 
             raise ValueError(f"Cannot create {object_type}: '{object_instance.name}'. "
                              f"Parent {parent_type}: '{parent_name}' missing.")
 
+    child_types = _CHILD_RELATIONS.get(object_instance.type)
+    if child_types:
+        for child_type in child_types:
+            for child in getattr(object_instance, _TYPE_MAP[child_type]):
+                func_child_exists = getattr(getattr(tm1_service, f"{_TYPE_MAP[child_type]}"), "exists")
+                object_args = __build_args(child, child_type.lower(), object_args)
+                child_exists = func_child_exists(**object_args)
+
+                if not (child_exists or child in changeset_object.added):
+                    raise ValueError(f"Cannot update {object_type}: '{object_instance.name}' with {child_type}."
+                                     f" {child_type}: '{child.name}' does not exist.")
+
     if func_object_exists(**object_args):
         raise ValueError(f"Cannot create {object_type}: '{object_instance.name}, {object_type} already exists.")
 
 
 
-def validate_existence_with_children(tm1_service: TM1Service, object_instance: T, changeset_object: ch.Changeset):
+def validate_update(tm1_service: TM1Service, object_instance: T, changeset_object: Changeset):
     object_type = __normalize_for_view(object_instance)
     func_object_exists = getattr(getattr(tm1_service, f"{_TYPE_MAP[object_type]}"), "exists")
     object_args = __build_args(object_instance, object_type)
 
     parent_type = _PARENT_RELATIONS.get(object_instance.type)
     if parent_type:
-        object_args = __get_parent_name_args(object_instance=object_instance, parent_type=parent_type)
+        parent_args = __get_parent_name_args(object_instance=object_instance, parent_type=parent_type)
+        object_args.update(parent_args)
 
     if not func_object_exists(**object_args):
         raise ValueError(f"Cannot update {object_type}: '{object_instance.name}, {object_type} does not exist.")
 
-    child_type = _CHILD_RELATIONS.get(object_instance.type)
-    if child_type:
-        for child in getattr(object_instance, _TYPE_MAP[child_type]):
-            func_child_exists = getattr(getattr(tm1_service, f"{_TYPE_MAP[child_type]}"), "exists")
-            object_args = __build_args(child, child_type.lower(), object_args)
-            child_exists = func_child_exists(**object_args)
+    child_types = _CHILD_RELATIONS.get(object_instance.type)
+    if child_types:
+        for child_type in child_types:
+            for child in getattr(object_instance, _TYPE_MAP[child_type]):
+                func_child_exists = getattr(getattr(tm1_service, f"{_TYPE_MAP[child_type]}"), "exists")
+                object_args = __build_args(child, child_type.lower(), object_args)
+                child_exists = func_child_exists(**object_args)
 
-            if not (child_exists or child in changeset_object.added):
-                raise ValueError(f"Cannot update {object_type}: '{object_instance.name}' with {child_type}."
-                                 f" {child_type}: '{child.name}' does not exist.")
+                if not (child_exists or child in changeset_object.added):
+                    raise ValueError(f"Cannot update {object_type}: '{object_instance.name}' with {child_type}."
+                                     f" {child_type}: '{child.name}' does not exist.")
 
 
-def validate_existence(tm1_service: TM1Service, object_instance: T):
+def validate_delete(tm1_service: TM1Service, object_instance: T):
     object_type = __normalize_for_view(object_instance)
     func_object_exists = getattr(getattr(tm1_service, f"{_TYPE_MAP[object_type]}"), "exists")
     object_args = __build_args(object_instance, object_type)
 
     parent_type = _PARENT_RELATIONS.get(object_instance.type)
     if parent_type:
-        object_args = __get_parent_name_args(object_instance=object_instance, parent_type=parent_type)
+        parent_args = __get_parent_name_args(object_instance=object_instance, parent_type=parent_type)
+        object_args.update(parent_args)
 
     if not func_object_exists(**object_args):
         raise ValueError(f"{object_type} to delete: '{object_instance.name} does not exist.")
 
 
-def validate_changeset(tm1_service: TM1Service, changeset_object: ch.Changeset):
+def validate_changeset(tm1_service: TM1Service, changeset_object: Changeset, fail_fast: Optional[bool] = True) -> list[str]:
+    errors: list[str] = []
+
+    changeset_object.errors.pop("validation", None)
+
     for added in changeset_object.added:
-        validate_existence_with_parent(tm1_service=tm1_service, object_instance=added, changeset_object=changeset_object)
+        try:
+            validate_create(
+                tm1_service=tm1_service,
+                object_instance=added,
+                changeset_object=changeset_object
+            )
+        except Exception as exc:
+            error_msg = str(exc)
+            errors.append(error_msg)
+            if fail_fast:
+                changeset_object.errors["validation"] = errors
+                raise ValueError(error_msg) from exc
+
     for modified in changeset_object.modified:
-        validate_existence_with_children(tm1_service=tm1_service, object_instance=modified["new"], changeset_object=changeset_object)
+        try:
+            validate_update(
+                tm1_service=tm1_service,
+                object_instance=modified["new"],
+                changeset_object=changeset_object
+            )
+        except Exception as exc:
+            error_msg = str(exc)
+            errors.append(error_msg)
+            if fail_fast:
+                changeset_object.errors["validation"] = errors
+                raise ValueError(error_msg) from exc
+
     for removed in changeset_object.removed:
-        validate_existence(tm1_service=tm1_service, object_instance=removed)
+        try:
+            validate_delete(tm1_service=tm1_service, object_instance=removed)
+        except Exception as exc:
+            error_msg = str(exc)
+            errors.append(error_msg)
+            if fail_fast:
+                changeset_object.errors["validation"] = errors
+                raise ValueError(error_msg) from exc
+
+    if errors:
+        changeset_object.errors["validation"] = errors
+        if fail_fast:
+            raise ValueError("; ".join(errors))
+
+    return errors

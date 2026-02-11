@@ -107,6 +107,7 @@ class Process:
             'has_security_access': self.hasSecurityAccess,
             #'data_source_type': self.data_source_type,
             #'data_source_name': self.data_source_name,
+            "code_link": self.code_link,
             'datasource' : self.datasource,
             'parameters': self.parameters,
             'variables': self.variables,
