@@ -7,9 +7,11 @@ from TM1py import TM1Service, Hierarchy
 from TM1py.Utils import format_url
 from requests import Response
 
-from .element import Element, create_element, delete_element, update_element
-from .edge import Edge
-from .subset import Subset
+from .element import Element, create_element, delete_element, update_element, build_element_create_ti, \
+    build_element_update_ti, build_element_delete_ti
+from .edge import Edge, build_edge_create_ti
+from .subset import Subset, build_subset_create_ti
+
 
 # {
 # 	"@type": "Hierarchy",
@@ -245,3 +247,181 @@ def _update_hierarchy_edges(
         for parent, component, weight in edges_to_add:
             hierarchy_object.add_edge(parent, component, weight)
         logger.debug(f"Added Edges: {edges_to_add} from Hierarchy: {hierarchy_new.name}.")
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str) -> str:
+    if value is None: return ""
+    return str(value).replace("'", "''")
+
+def _map_ti_type(api_type: str) -> str:
+    if not api_type: return "N"
+    t = api_type.lower()
+    if "string" in t: return "S"
+    if "consolidated" in t: return "C"
+    return "N"
+
+
+def build_hierarchy_create_ti(hierarchy: Hierarchy, dimension_name: Optional[str] = None) -> str:
+    """
+    Generates TI code to create a Hierarchy, Elements, and Edges.
+    Does NOT check for Dimension existence (relies on TM1 erroring out to trigger rollback).
+    """
+
+    # 1. Resolve Context
+    # Using your existing helper logic
+    if not dimension_name:
+        dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+    hierarchy_name = hierarchy.name
+
+    # 2. Sanitize Inputs for TI
+    dim_clean = _escape_ti(dimension_name)
+    hier_clean = _escape_ti(hierarchy_name)
+
+    lines = []
+    lines.append(f"# --- Create Hierarchy: {dim_clean}:{hier_clean} ---")
+
+    # 3. Create the Hierarchy Object
+    # We explicitly do NOT check 'If(DimensionExists...)' here.
+    # If the dimension is missing, 'HierarchyCreate' or 'DimensionElementInsert'
+    # will throw a critical error, ensuring the transaction rolls back.
+
+    if dimension_name != hierarchy_name:
+        # Only needed for named hierarchies.
+        # The 'Leaves' hierarchy (same name as dim) is created automatically with the Dimension.
+
+        lines.append(f"IF( HierarchyExists('{dim_clean}', '{hier_clean}') = 1 );")
+        lines.append(f"   HierarchyCreate('{dim_clean}', '{hier_clean}');")
+        lines.append(f"ENDIF;")
+
+    # 4. Create Elements
+    # Must happen before Edges.
+    for element in hierarchy.elements:
+        element_ti = build_element_create_ti(
+            element=element,
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name
+        )
+        lines.append(element_ti)
+
+    # 5. Create Edges (Parent-Child relationships)
+    for edge in hierarchy.edges:
+        edge_ti = build_edge_create_ti(
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+            edge=edge
+        )
+        lines.append(edge_ti)
+
+    return "\r\n".join(lines)
+
+
+def build_hierarchy_update_ti(
+        hierarchy: Dict[str, Any]
+) -> str:
+    """
+    Generates a TI script to synchronize elements between two hierarchy states.
+    Handles Removes, Updates (Type changes), and Creates.
+    """
+
+    hierarchy_new = hierarchy.get("new")
+    hierarchy_old = hierarchy.get("old")
+
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy_new.source_path)
+    hierarchy_name = hierarchy_new.name
+
+    elements_new = hierarchy_new.elements
+    elements_old = hierarchy_old.elements
+    # 1. Map Names to Objects for easy lookup
+    # We use dictionaries keyed by Name to handle the logic efficiently
+    old_map: Dict[str, Element] = {e.name: e for e in elements_old}
+    new_map: Dict[str, Element] = {e.name: e for e in elements_new}
+
+    old_names = set(old_map.keys())
+    new_names = set(new_map.keys())
+
+    # 2. Determine Actions based on Names
+    names_to_remove = old_names - new_names
+    names_to_create = new_names - old_names
+    names_to_update = old_names.intersection(new_names)
+
+    lines = []
+    lines.append(f"# --- Synchronizing Elements for {dimension_name}:{hierarchy_name} ---")
+
+    # 3. Handle REMOVALS
+    # (Do this first to clear out unused elements)
+    if names_to_remove:
+        lines.append(f"# -- removing {len(names_to_remove)} elements --")
+        for name in names_to_remove:
+            # Call the helper builder defined previously
+            snippet = build_element_delete_ti(
+                hierarchy_name=hierarchy_name,
+                dimension_name=dimension_name,
+                element_name=name
+            )
+            lines.append(snippet)
+
+    # 4. Handle UPDATES
+    # We pass the NEW element definition (target state) to the builder.
+    # The builder contains the "IF DType <> TargetType" check, so it's safe to run on all.
+    """
+    if names_to_update:
+        lines.append(f"# -- checking updates for {len(names_to_update)} elements --")
+        for name in names_to_update:
+            target_element = new_map[name]
+            source_element = old_map
+
+            # Optimization:
+            # If we know strictly in Python that types match, we can skip generating TI code.
+            # However, letting TI check it (via the builder) is safer if Python state is stale.
+            # We will use the builder.
+            snippet = build_element_update_ti(
+                hierarchy_name=hierarchy_name,
+                dimension_name=dimension_name,
+                new_name=target_element,
+            )
+            lines.append(snippet)
+    """
+    # 5. Handle CREATIONS
+    if names_to_create:
+        lines.append(f"# -- creating {len(names_to_create)} elements --")
+        for name in names_to_create:
+            element_to_create = new_map[name]
+            snippet = build_element_create_ti(
+                hierarchy_name=hierarchy_name,
+                dimension_name=dimension_name,
+                element=element_to_create
+            )
+            lines.append(snippet)
+
+    return "\r\n".join(lines)
+
+
+def build_hierarchy_delete_ti(
+        hierarchy: Hierarchy,
+) -> str:
+    """
+    Generates TI code to delete an element from a specific hierarchy.
+    """
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+
+    # 1. Sanitize Inputs
+    dim_clean = _escape_ti(dimension_name)
+    hier_clean = _escape_ti(hierarchy.name)
+
+    lines = []
+    lines.append(f"# --- Delete Hierarchy: {hier_clean} ---")
+
+    # 2. Check Existence
+    # HierarchyExists returns 1 if found, 0 if not.
+    lines.append(f"IF( HierarchyExists('{dim_clean}', '{hier_clean}') = 1 );")
+
+    # 3. Delete
+    lines.append(f"   HierarchyDestroy('{dim_clean}', '{hier_clean}');")
+
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)

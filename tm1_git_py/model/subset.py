@@ -113,3 +113,112 @@ def delete_subset(tm1_service: TM1Service, subset: Subset) -> Response:
 
     logger.info(f"Deleting Subset: {subset.name} from Hierarchy: {hierarchy_name}.")
     return tm1_service.subsets.delete(subset_name=subset.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name)
+
+# ---------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str) -> str:
+    return str(value).replace("'", "''") if value else ""
+
+
+def build_subset_create_ti(subset: Subset) -> str:
+    """
+    Generates TI code to create a Subset.
+    """
+
+    # 1. Resolve Context
+    # We assume _subset_context_from_path is available in your scope
+    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
+
+    # 3. Sanitize
+    dim_name_clean = _escape_ti(dimension_name)
+    hier_name_clean = _escape_ti(hierarchy_name)
+    sub_name_clean = _escape_ti(subset.name)
+
+    lines = []
+    lines.append(f"# --- Create Subset: {sub_name_clean} in {hier_name_clean} ---")
+
+    # 4. Create the Container (Idempotent)
+    # HierarchySubsetExists(DimName, HierName, SubsetName) returns 1 if exists.
+    lines.append(f"IF( HierarchySubsetExists('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}') = 0 );")
+    # HierarchySubsetCreate(DimName, HierName, SubName, [AsTemporary]); -> 0 for Permanent
+    lines.append(f"    HierarchySubsetCreate('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', 0);")
+    lines.append(f"ENDIF;")
+
+    # 5. Apply MDX Expression (If Dynamic)
+    # The snippet implies if 'expression' is present, we set it.
+    if subset.expression:
+        mdx_clean = _escape_ti(subset.expression)
+        # HierarchySubsetMDXSet turns a static subset into a dynamic one or updates the MDX.
+        lines.append(f"HierarchySubsetMDXSet('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{mdx_clean}');")
+
+    return "\r\n".join(lines)
+
+
+def build_subset_update_ti(subset: Dict[str, Any]) -> str:
+    """
+    Generates TI code to update a Subset's MDX expression.
+    Expects the 'subset' dict to contain a 'new' key with the target Subset object.
+    """
+
+    # 1. Extract the Target Object
+    # Based on your input structure: subset = {'new': SubsetObject, ...}
+    subset_new = subset.get('new')
+
+    if not subset_new:
+        return "# Error: Missing 'new' state for subset update."
+
+    # 2. Resolve Context
+    dimension_name, hierarchy_name = _subset_context_from_path(subset_new.source_path)
+
+    dim_name_clean = _escape_ti(dimension_name)
+    hier_name_clean = _escape_ti(hierarchy_name)
+    sub_name_clean = _escape_ti(subset.name)
+
+    # Critical: MDX expressions often contain single quotes (e.g., [Dim].[Hier].[Elem]).
+    # _escape_ti turns "'" into "''" ensuring the TI string doesn't break.
+    mdx_clean = _escape_ti(subset_new.expression)
+
+    lines = []
+    lines.append(f"# --- Update Subset: {sub_name_clean} in {dim_name_clean} ---")
+
+    # 5. Check Existence
+    lines.append(f"IF( HierarchySubsetExists('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}') = 1 );")
+
+    # 6. Apply Expression
+    # This updates the definition. If mdx_clean is empty, the subset becomes static.
+    lines.append(f"    HierarchySubsetMDXSet('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{mdx_clean}');")
+
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)
+
+
+def build_subset_delete_ti(subset: Subset) -> str:
+    """
+    Generates TI code to delete a Subset.
+    """
+
+    # 1. Resolve Context
+    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
+
+    # 3. Sanitize
+    dim_name_clean = _escape_ti(dimension_name)
+    hier_name_clean = _escape_ti(hierarchy_name)
+    sub_name_clean = _escape_ti(subset.name)
+
+    lines = []
+    lines.append(f"# --- Delete Subset: {sub_name_clean} from {dim_name_clean} ---")
+
+    # 4. Check Existence
+    # HierarchySubsetExists returns 1 if it exists.
+    # Checking prevents errors if the subset was already deleted.
+    lines.append(f"IF( HierarchySubsetExists('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}') = 1 );")
+
+    # 5. Delete
+    lines.append(f"    HierarchySubsetDestroy('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}');")
+
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)

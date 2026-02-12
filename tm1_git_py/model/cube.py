@@ -602,3 +602,52 @@ def _delete_dimensions_from_cube(
     # 4) Clean up temporary cube
     logger.info(f"Deleting temporary Cube '{temp_cube_name}'.")
     tm1_service.cubes.delete(temp_cube_name)
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str) -> str:
+    if value is None: return ""
+    return str(value).replace("'", "''")
+
+
+def build_cube_create_ti(cube: Cube) -> str:
+    """
+    Generates TI code to create a Dimension.
+    """
+
+    cube_clean = _escape_ti(cube.name)
+    dims_clean = [_escape_ti(dim.name) for dim in cube.dimensions]
+    all_dims_str = ", ".join(dims_clean)
+
+    lines = []
+    lines.append(f"# --- Create Cube: {cube_clean} ---")
+    lines.append(f"IF( CubeExists('{cube_clean}') = 0 );")
+    lines.append(f"    CubeCreate('{cube_clean}', {all_dims_str});")
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)
+
+
+def build_cube_update_ti(cube: dict[str, Any]) -> str:
+    lines = []
+    lines.append(f"# --- Update Cube: {cube["new"].name} ---")
+
+    return "\r\n".join(lines)
+
+
+def build_cube_delete_ti(cube_name: str) -> str:
+    """
+    Generates TI code to delete a Dimension.
+    """
+    cube_clean = _escape_ti(cube_name)
+
+    lines = []
+    lines.append(f"# --- Delete Cube: {cube_clean} ---")
+    lines.append(f"IF( CubeExists('{cube_clean}') = 1 );")
+    lines.append(f"    CubeDestroy('{cube_clean}');")
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)

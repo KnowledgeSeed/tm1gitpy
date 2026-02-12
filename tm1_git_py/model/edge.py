@@ -69,3 +69,65 @@ def create_edge(tm1_service: TM1Service, hierarchy: str, dimension: str, edge: E
 def delete_edge(tm1_service: TM1Service, hierarchy: str, dimension: str, edge: Edge) -> Response:
     logger.debug(f"Removing Edge: {edge.name} from Hierarchy: {hierarchy}.")
     return tm1_service.elements.remove_edge(hierarchy, dimension, edge.parent, edge.name)
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str) -> str:
+    return str(value).replace("'", "''") if value else ""
+
+
+def build_edge_create_ti(dimension_name: str, hierarchy_name: str, edge: Edge) -> str:
+    """
+    Generates TI to add a component (child) to a parent.
+    Acts as an Upsert (Updates weight if edge already exists).
+    """
+    # 1. Sanitize Inputs
+    dim_clean = _escape_ti(dimension_name)
+    hier_clean = _escape_ti(hierarchy_name)
+    parent_clean = _escape_ti(edge.parent)
+    child_clean = _escape_ti(edge.name)  # Assuming edge.name is the Child element
+    weight = edge.weight
+
+    lines = []
+    lines.append(f"# --- Add/Update Edge: {parent_clean} -> {child_clean} (Weight: {weight}) ---")
+    lines.append(f"IF( ElementIsComponent('{dim_clean}', '{hier_clean}', '{child_clean}', '{parent_clean}') = 0 );")
+
+    # 2. Add Component
+    # Syntax: HierarchyElementComponentAdd(DimName, HierName, ConsolidatedElName, ElName, ElWeight);
+    lines.append(
+        f"    HierarchyElementComponentAdd('{dim_clean}', '{hier_clean}', '{parent_clean}', '{child_clean}', {weight});"
+    )
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)
+
+
+def build_edge_delete_ti(dimension_name: str, hierarchy_name: str, edge: Edge) -> str:
+    """
+    Generates TI to remove a component (child) from a parent.
+    """
+    # 1. Sanitize Inputs
+    dim_clean = _escape_ti(dimension_name)
+    hier_clean = _escape_ti(hierarchy_name)
+    parent_clean = _escape_ti(edge.parent)
+    child_clean = _escape_ti(edge.name)
+
+    lines = []
+    lines.append(f"# --- Remove Edge: {parent_clean} -> {child_clean} ---")
+
+    # 2. Check Existence
+    # ElementIsComponent(Dim, Hier, Child, Parent ) returns 1 if true.
+    lines.append(f"IF( ElementIsComponent('{dim_clean}', '{hier_clean}', '{child_clean}', '{parent_clean}') = 1 );")
+
+    # 3. Delete Component
+    # Syntax: HierarchyElementComponentDelete(DimName, HierName, ConsolidatedElName, ElName);
+    lines.append(
+        f"    HierarchyElementComponentDelete('{dim_clean}', '{hier_clean}', '{parent_clean}, '{child_clean}');"
+    )
+
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)

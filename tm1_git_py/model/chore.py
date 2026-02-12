@@ -353,3 +353,17 @@ def update_chore(tm1_service: TM1Service, chore: Dict[str, Any]) -> Response:
 def delete_chore(tm1_service: TM1Service, chore_name: str) -> Response:
     logger.info(f"Deleting Chore: {chore_name}.")
     return tm1_service.chores.delete(chore_name)
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def build_chore_create_ti(chore: Chore) -> str:
+    pass
+
+def build_chore_update_ti(chore: Chore) -> str:
+    pass
+
+def build_chore_delete_ti(chore: Chore) -> str:
+    pass

@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 
 import TM1py
 from TM1py import TM1Service, Element
@@ -84,3 +84,144 @@ def update_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name:
 def delete_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element_name: str) -> Response:
     logger.debug(f"Deleting Element: {element_name} of Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.delete(hierarchy_name, dimension_name, element_name)
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str) -> str:
+    """
+    Escapes single quotes for TI.
+    Example: "Director's Office" -> "Director''s Office"
+    """
+    if value is None:
+        return ""
+    return str(value).replace("'", "''")
+
+def _map_ti_type(api_type: str) -> str:
+    """
+    Maps verbose API types to TI characters.
+    Numeric -> N, String -> S, Consolidated -> C
+    """
+    if not api_type:
+        return "N" # Default to Numeric
+    t = api_type.lower()
+    if "string" in t:
+        return "S"
+    elif "consolidated" in t:
+        return "C"
+    return "N"
+
+
+def build_element_create_ti(
+        element: Element,
+        *,
+        dimension_name: Optional[str] = None,
+        hierarchy_name: Optional[str] = None,
+        source_path: Optional[str] = None
+) -> str:
+    # 1. Resolve Context (Same logic as before)
+    if source_path:
+        dimension_name, hierarchy_name = _element_context_from_path(source_path)
+
+    if not dimension_name or not hierarchy_name:
+        raise ValueError("Element create requires dimension and hierarchy context.")
+
+    # 2. Sanitize Inputs for TI
+    dim_clean = _escape_ti(dimension_name)
+    hier_clean = _escape_ti(hierarchy_name)
+    el_name_clean = _escape_ti(element.name)
+    el_type_code = _map_ti_type(element.type)
+
+    # 3. Generate TI Code
+    # Syntax: HierarchyElementInsert(DimName, HierName, InsertionPoint, ElName, ElType)
+    # InsertionPoint: '' means append to the end.
+    lines = []
+    lines.append(f"# --- Create Element: {el_name_clean} ---")
+    lines.append(f"IF( HierarchyElementExists('{dim_clean}', '{hier_clean}', '{el_name_clean}') = 0 );")
+
+    lines.append(
+        f"    HierarchyElementInsert("
+        f"'{dim_clean}', "
+        f"'{hier_clean}', "
+        f"'', "
+        f"'{el_name_clean}', "
+        f"'{el_type_code}');"
+    )
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)
+
+
+def build_element_update_ti(
+        dimension_name: str,
+        hierarchy_name: str,
+        original_name: str,
+        new_name: str
+) -> str:
+    """
+    Generates TI code to rename an element while RETAINING DATA.
+    Uses 'DimensionElementPrincipalNameChange'.
+    """
+
+    # 1. Sanitize Inputs
+    dim_clean = _escape_ti(dimension_name)
+    hier_clean = _escape_ti(hierarchy_name)
+    old_clean = _escape_ti(original_name)
+    new_clean = _escape_ti(new_name)
+
+    lines = []
+    lines.append(f"# --- Rename Element: '{old_clean}' -> '{new_clean}' ---")
+
+    # 2. Validation Checks in TI
+    # A. Ensure the Old Name actually exists
+    lines.append(f"IF( DimensionElementExists('{dim_clean}', '{old_clean}') = 1 );")
+
+    # B. Ensure the New Name does NOT exist (prevent collision errors)
+    lines.append(f"    IF( DimensionElementExists('{dim_clean}', '{new_clean}') = 0 );")
+
+    # 3. Perform the Rename (Atomic & Safe)
+    # This function moves all data, attributes, and hierarchy structure to the new name.
+    lines.append(
+        f"        DimensionElementPrincipalNameChange('{dim_clean}', '{hier_clean}', '{old_clean}', '{new_clean}');")
+
+    lines.append(f"    ELSE;")
+    lines.append(f"        # Error: Target name '{new_clean}' already exists. Skipping rename.")
+    lines.append(f"        # You might want to trigger ProcessQuit here if strict strictness is required.")
+    lines.append(f"    ENDIF;")
+
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)
+
+
+def build_element_delete_ti(
+        dimension_name: str,
+        hierarchy_name: str,
+        element_name: str
+) -> str:
+    """
+    Generates TI code to delete an element from a specific hierarchy.
+    """
+
+    # 1. Sanitize Inputs
+    dim_clean = _escape_ti(dimension_name)
+    hier_clean = _escape_ti(hierarchy_name)
+    el_clean = _escape_ti(element_name)
+
+    lines = []
+    lines.append(f"# --- Delete Element: {el_clean} ---")
+
+    # 2. Check Existence
+    # HierarchyElementExists returns 1 if found, 0 if not.
+    lines.append(f"IF( HierarchyElementExists('{dim_clean}', '{hier_clean}', '{el_clean}') = 1 );")
+
+    # 3. Delete
+    # Note: If this is a consolidated element, its children remain in the dimension
+    # but are detached from this parent. Data on this specific element is lost.
+    lines.append(f"   HierarchyElementDelete('{dim_clean}', '{hier_clean}', '{el_clean}');")
+
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)

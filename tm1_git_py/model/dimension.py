@@ -167,3 +167,47 @@ def _update_dimension_hierarchies(
                 raise ValueError(f"Cannot update Dimension '{dimension_new.name}' "
                                  f"with Hierarchy: {hierarchy.name}, Hierarchy does not exist")
         logger.info(f"Added Hierarchies: {hierarchies_to_add_names} to Dimension: {dimension_new.name}.")
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str) -> str:
+    return str(value).replace("'", "''") if value else ""
+
+
+def build_dimension_create_ti(dimension: Union[Dimension, str]) -> str:
+    """
+    Generates TI code to create a Dimension.
+    """
+
+    if isinstance(dimension, str):
+        dim_name = dimension
+    else:
+        dim_name = dimension.name
+
+    dim_clean = _escape_ti(dim_name)
+
+    lines = []
+    lines.append(f"# --- Create Dimension: {dim_clean} ---")
+    lines.append(f"IF( DimensionExists('{dim_clean}') = 0 );")
+    lines.append(f"    DimensionCreate('{dim_clean}');")
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)
+
+
+def build_dimension_delete_ti(dimension_name: str) -> str:
+    """
+    Generates TI code to delete a Dimension.
+    """
+    dim_clean = _escape_ti(dimension_name)
+
+    lines = []
+    lines.append(f"# --- Delete Dimension: {dim_clean} ---")
+    lines.append(f"IF( DimensionExists('{dim_clean}') = 1 );")
+    lines.append(f"    DimensionDestroy('{dim_clean}');")
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)
