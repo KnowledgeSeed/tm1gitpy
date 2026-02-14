@@ -20,6 +20,7 @@ from tm1_git_py.serializer import serialize_model
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.changeset import Changeset, import_changeset
 from tm1_git_py.deserializer import *
+from tm1_git_py.exporter import dimensions_to_model
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview
 
@@ -128,6 +129,48 @@ class TestDeserializer:
 
 
 class TestSerializer:
+
+    def test_dimensions_to_model_sets_serializable_default_hierarchy(self):
+        class FakeDefaultHierarchyRef:
+            def __init__(self, name):
+                self.name = name
+
+        class FakeHierarchy:
+            def __init__(self, name):
+                self.name = name
+                self.elements = {}
+                self.edges = {}
+                self.subsets = []
+
+        class FakeDimension:
+            def __init__(self, name, default_hierarchy_name):
+                self.name = name
+                self.default_hierarchy = FakeDefaultHierarchyRef(default_hierarchy_name)
+                self.hierarchies = [FakeHierarchy(default_hierarchy_name)]
+
+        class FakeDimensionsService:
+            def __init__(self, dim):
+                self._dim = dim
+
+            def get_all_names(self, skip_control_dims=False):
+                return [self._dim.name]
+
+            def get(self, dimension_name):
+                return self._dim
+
+        class FakeTm1Conn:
+            def __init__(self, dim):
+                self.dimensions = FakeDimensionsService(dim)
+
+        fake_tm1 = FakeTm1Conn(FakeDimension("Product", "Product"))
+
+        dimensions, errors = dimensions_to_model(fake_tm1)
+
+        assert not errors
+        result = dimensions["Product"]
+        assert isinstance(result.defaultHierarchy, Hierarchy)
+        assert result.defaultHierarchy.name == "Product"
+        assert isinstance(result.defaultHierarchy.to_dict(), dict)
 
     def test_serializer_round_trip_sanity_check(self, tmp_path):
         model = build_mock_model()

@@ -187,7 +187,7 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
         dim = tm1_conn.dimensions.get(dimension_name=dim_name)
 
         _dimension = Dimension(name=dim.name, hierarchies=[],
-                               defaultHierarchy=dim.default_hierarchy,
+                               defaultHierarchy=None,
                                source_path=os.path.join('dimensions', f"{dim_name}.json").replace('\\', '/'))
         _dimensions[dim.name] = _dimension
 
@@ -203,6 +203,9 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
 
             _dimension.hierarchies.append(_hierarchy)
 
+            if dim.default_hierarchy and hierarchy.name == dim.default_hierarchy.name:
+                _dimension.defaultHierarchy = _hierarchy
+
             if hierarchy.subsets:
                 for subset_name in hierarchy.subsets:
                     try:
@@ -216,6 +219,12 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
                         _hierarchy.subsets.append(_subset)
                     except Exception as e:
                         _errors[dim_name] = str(e)
+
+        if _dimension.defaultHierarchy is None:
+            if _dimension.hierarchies:
+                _dimension.defaultHierarchy = _dimension.hierarchies[0]
+            else:
+                _errors[dim_name] = f"Dimension '{dim_name}' has no hierarchy definitions"
     return _dimensions, _errors
 
 
