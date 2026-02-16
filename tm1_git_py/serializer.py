@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List
 
 from tm1_git_py.model.chore import Chore
@@ -8,8 +9,26 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
 
 
+
+def _handle_long_path(file_path) -> str:
+    file_path = os.path.abspath(file_path)
+
+    if os.name == 'nt' and not file_path.startswith("\\\\?\\"):
+        if file_path.startswith("\\\\"):
+            file_path = Path(file_path[2:])
+            file_path = "\\\\?\\UNC\\" /file_path
+            return str(file_path)
+        else:
+            file_path = Path(file_path)
+            file_path = "\\\\?\\" / file_path
+            return str(file_path)
+    return file_path
+
+
 def serialize_model(model: Model, dir):
     os.makedirs(dir, exist_ok=True)
+
+    dir = _handle_long_path(dir)
 
     dim_dir = dir + '/dimensions'
     os.makedirs(dim_dir, exist_ok=True)
