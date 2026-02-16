@@ -633,8 +633,17 @@ def build_cube_create_ti(cube: Cube) -> str:
 
 def build_cube_update_ti(cube: dict[str, Any]) -> str:
     lines = []
-    lines.append(f"# --- Update Cube: {cube["new"].name} ---")
-    # TODO: update rules
+    cube_old = cube.get("old")
+    cube_new = cube.get("new")
+    cube_name_clean = _escape_ti(cube_new)
+
+    rules_old = cube_old.rules
+    rules_new = cube_new.rules
+
+    if rules_new != rules_old:
+        lines.append(f"# --- Update Cube Rules: {cube_name_clean} ---")
+        rule_clean = _escape_ti(cube_new.get_rule_text)
+        lines.append(f"CubeRuleSet({cube_name_clean}, {rule_clean});")
 
     return "\r\n".join(lines)
 
