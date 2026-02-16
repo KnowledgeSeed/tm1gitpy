@@ -33,6 +33,8 @@ FLAG_PRECEDENCE = {"C": 0, "U": 1, "D": 2}
 OBJECT_PRECEDENCE = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'views': 4, 'processes': 5, 'chores': 6}
 DELETE_OBJECT_PRECEDENCE = {'views': 0, 'cubes': 1, 'subsets': 2, 'hierarchies': 3, 'dimensions': 4, 'chores': 5, 'processes': 6}
 
+FILTER_SEMAPHORE_OBJECT_TYPES = ("Dimension", "Hierarchy", "Subset", "Element", "Edge", "MDXView")
+
 
 def normalize_source_path(source_path: str) -> str:
     if not source_path:
@@ -114,6 +116,33 @@ def _source_path_sort_key(s: Union[T, dict[T, Any]], delete_precedence = False):
         )
 
     return key
+
+
+def _iter_changeset_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Normalize changeset payload entries to a flat list with action.
+    Supports both legacy format:
+      "changes": [{"action": "...", ...}]
+    and grouped format:
+      "changes": {"added": [...], "removed": [...], "modified": [...]}
+    """
+    changes = payload.get("changes", [])
+
+    if isinstance(changes, list):
+        return [entry for entry in changes if isinstance(entry, dict)]
+
+    if isinstance(changes, dict):
+        entries: list[dict[str, Any]] = []
+        for action, key in (("CREATE", "added"), ("DELETE", "removed"), ("UPDATE", "modified")):
+            for entry in changes.get(key, []) or []:
+                if not isinstance(entry, dict):
+                    continue
+                normalized = dict(entry)
+                normalized["action"] = action
+                entries.append(normalized)
+        return entries
+
+    raise ValueError("changeset payload must contain either a list or an object under 'changes'")
 
 
 class Changeset:
@@ -302,47 +331,6 @@ class Changeset:
             )
 
 
-    def to_json(self) -> dict[str, Any]:
-        def _obj_to_json(obj: Optional[Any]) -> Optional[dict[str, Any]]:
-            if obj is None:
-                return None
-            base = {
-                "type": getattr(obj, "type", obj.__class__.__name__),
-                "name": getattr(obj, "name", None),
-                "source_path": getattr(obj, "source_path", None),
-            }
-            if hasattr(obj, "to_dict"):
-                try:
-                    base["data"] = obj.to_dict()
-                except Exception:
-                    pass
-            return base
-        
-        status = "ok"
-        if self.errors:
-            status = "error"
-
-        return {
-            "status": status,
-            "summary": {
-                "added": len(self.added),
-                "removed": len(self.removed),
-                "modified": len(self.modified),
-            },
-            "added": [_obj_to_json(o) for o in self.added],
-            "removed": [_obj_to_json(o) for o in self.removed],
-            "modified": [
-                {
-                    "old": _obj_to_json(m.get("old")),
-                    "new": _obj_to_json(m.get("new")),
-                    "changes": m.get("changes"),
-                }
-                for m in self.modified
-            ],
-            "errors": self.errors,
-        }
-
-
     def export(self, file_path: Union[str, Path]) -> None:
         """
         Export a detailed representation of the changeset so it can be recreated later.
@@ -359,16 +347,17 @@ class Changeset:
                     raise
             raise ValueError(f"Object '{obj}' does not support to_dict()")
 
-        def _serialize_entry(action: str,
-                             old_obj: Optional[Any],
+        def _serialize_entry(old_obj: Optional[Any],
                              new_obj: Optional[Any],
-                             message: Optional[str] = None) -> dict[str, Any]:
+                             message: Optional[str] = None,
+                             apply: Optional[bool] = None) -> dict[str, Any]:
             obj_for_meta = new_obj or old_obj
             object_type = obj_for_meta.__class__.__name__ if obj_for_meta is not None else None
             object_name = getattr(obj_for_meta, "name", None) if obj_for_meta is not None else None
             source_path = getattr(obj_for_meta, "source_path", None) if obj_for_meta is not None else None
+            apply_value = apply if apply is not None else bool(getattr(obj_for_meta, "apply", True))
             serialized = {
-                "action": action,
+                "apply": apply_value,
                 "object_type": object_type,
                 "object_name": object_name,
                 "source_path": source_path if source_path else None,
@@ -381,25 +370,76 @@ class Changeset:
                 serialized["difference"]["message"] = message
             return serialized
 
+        def _build_filter_semaphore(changes_by_action: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, Any]]:
+            state = {
+                key: {"has_added_or_modified": False, "has_removed": False, "has_false_apply": False, "has_any": False}
+                for key in FILTER_SEMAPHORE_OBJECT_TYPES
+            }
+
+            for action, entries in changes_by_action.items():
+                for entry in entries:
+                    obj_type = entry.get("object_type")
+                    if obj_type not in state:
+                        continue
+
+                    entry_state = state[obj_type]
+                    entry_state["has_any"] = True
+                    if action == "removed":
+                        entry_state["has_removed"] = True
+                    else:
+                        entry_state["has_added_or_modified"] = True
+                    if not entry.get("apply", True):
+                        entry_state["has_false_apply"] = True
+
+            filter_semaphore: dict[str, dict[str, Any]] = {}
+            for key in FILTER_SEMAPHORE_OBJECT_TYPES:
+                entry_state = state[key]
+                if not entry_state["has_any"]:
+                    color = None
+                    sign = None
+                else:
+                    has_removed = entry_state["has_removed"]
+                    has_add_mod = entry_state["has_added_or_modified"]
+                    if has_removed and not has_add_mod:
+                        color = "red"
+                    elif has_removed and has_add_mod:
+                        color = "yellow"
+                    else:
+                        color = "green"
+                    sign = not entry_state["has_false_apply"]
+
+                filter_semaphore[key] = {"color": color, "sign": sign}
+
+            return filter_semaphore
+
         self.sort()
 
-        export_entries: list[dict[str, Any]] = []
-        export_entries.extend(
-            _serialize_entry("CREATE", None, obj) for obj in self.added
-        )
-        export_entries.extend(
-            _serialize_entry("DELETE", obj, None) for obj in self.removed
-        )
-        for mod in self.modified:
-            export_entries.append(
-                _serialize_entry("UPDATE", mod.get("old"), mod.get("new"), mod.get("changes"))
-            )
+        export_entries = {
+            "added": [_serialize_entry(None, obj) for obj in self.added],
+            "removed": [_serialize_entry(obj, None) for obj in self.removed],
+            "modified": [
+                _serialize_entry(mod.get("old"), mod.get("new"), mod.get("changes"), mod.get("apply"))
+                for mod in self.modified
+            ],
+        }
+
+        status = "ok"
+        if self.errors:
+            status = "error"
 
         output_path = Path(file_path).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "changeset_name": None,
-            "changes": export_entries
+            "status": status,
+            "summary": {
+                "added": len(self.added),
+                "removed": len(self.removed),
+                "modified": len(self.modified),
+            },
+            "changes": export_entries,
+            "filter_semaphore": _build_filter_semaphore(export_entries),
+            "errors": self.errors,
         }
         output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -424,9 +464,7 @@ def import_changeset_stateful(base_model: Model, changeset_file: Union[str, Path
         logger.error("Failed to load changeset payload from '%s': %s", changeset_file, exc)
         raise
 
-    entries = payload.get("changes", [])
-    if not isinstance(entries, list):
-        raise ValueError("changeset payload must contain a list under 'changes'")
+    entries = _iter_changeset_entries(payload)
 
     base_index = _build_path_index(base_model)
     changeset = Changeset(baseline_model=base_model)
@@ -490,9 +528,7 @@ def import_changeset_stateless(changeset_file: Union[str, Path]) -> Changeset:
         logger.error("Failed to load changeset payload from '%s': %s", changeset_file, exc)
         raise
 
-    entries = payload.get("changes", [])
-    if not isinstance(entries, list):
-        raise ValueError("changeset payload must contain a list under 'changes'")
+    entries = _iter_changeset_entries(payload)
 
     changeset = Changeset(baseline_model=None)
 

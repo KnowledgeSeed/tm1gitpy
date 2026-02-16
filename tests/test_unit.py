@@ -661,7 +661,7 @@ class TestChangeset:
 
         exported_payload = json.loads(export_path.read_text(encoding="utf-8"))
 
-        def _serialize_entry(action, old_obj, new_obj, message=None):
+        def _serialize_entry(old_obj, new_obj, message=None, apply=True):
             obj = new_obj or old_obj
             diff = {
                 "old_object": old_obj.to_dict() if old_obj else None,
@@ -670,7 +670,7 @@ class TestChangeset:
             if message:
                 diff["message"] = message
             return {
-                "action": action,
+                "apply": apply,
                 "object_type": obj.__class__.__name__,
                 "object_name": getattr(obj, "name", None),
                 "source_path": getattr(obj, "source_path", None),
@@ -679,11 +679,50 @@ class TestChangeset:
 
         expected_payload = {
             "changeset_name": None,
-            "changes": [
-                _serialize_entry("CREATE", None, created_subset),
-                _serialize_entry("DELETE", removed_view, None),
-                _serialize_entry("UPDATE", old_dimension, new_dimension, "Dimension structure changed."),
-            ],
+            "status": "ok",
+            "summary": {
+                "added": 1,
+                "removed": 1,
+                "modified": 1,
+            },
+            "changes": {
+                "added": [
+                    _serialize_entry(None, created_subset),
+                ],
+                "removed": [
+                    _serialize_entry(removed_view, None),
+                ],
+                "modified": [
+                    _serialize_entry(old_dimension, new_dimension, "Dimension structure changed."),
+                ],
+            },
+            "filter_semaphore": {
+                "Dimension": {
+                    "color": "green",
+                    "sign": True
+                },
+                "Hierarchy": {
+                    "color": None,
+                    "sign": None
+                },
+                "Subset": {
+                    "color": "green",
+                    "sign": True
+                },
+                "Element": {
+                    "color": None,
+                    "sign": None
+                },
+                "Edge": {
+                    "color": None,
+                    "sign": None
+                },
+                "MDXView": {
+                    "color": "red",
+                    "sign": True
+                },
+            },
+            "errors": {}
         }
 
         assert exported_payload == expected_payload
