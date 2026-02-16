@@ -634,6 +634,7 @@ def build_cube_create_ti(cube: Cube) -> str:
 def build_cube_update_ti(cube: dict[str, Any]) -> str:
     lines = []
     lines.append(f"# --- Update Cube: {cube["new"].name} ---")
+    # TODO: update rules
 
     return "\r\n".join(lines)
 

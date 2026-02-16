@@ -105,7 +105,7 @@ def _map_ti_type(api_type: str) -> str:
     Numeric -> N, String -> S, Consolidated -> C
     """
     if not api_type:
-        return "N" # Default to Numeric
+        return "N"
     t = api_type.lower()
     if "string" in t:
         return "S"
@@ -115,26 +115,19 @@ def _map_ti_type(api_type: str) -> str:
 
 
 def build_element_create_ti(
-        element: Element,
-        *,
-        dimension_name: Optional[str] = None,
-        hierarchy_name: Optional[str] = None,
-        source_path: Optional[str] = None
+    element: Element,
+    dimension_name: str,
+    hierarchy_name: str,
 ) -> str:
-    # 1. Resolve Context (Same logic as before)
-    if source_path:
-        dimension_name, hierarchy_name = _element_context_from_path(source_path)
 
     if not dimension_name or not hierarchy_name:
         raise ValueError("Element create requires dimension and hierarchy context.")
 
-    # 2. Sanitize Inputs for TI
     dim_clean = _escape_ti(dimension_name)
     hier_clean = _escape_ti(hierarchy_name)
     el_name_clean = _escape_ti(element.name)
     el_type_code = _map_ti_type(element.type)
 
-    # 3. Generate TI Code
     # Syntax: HierarchyElementInsert(DimName, HierName, InsertionPoint, ElName, ElType)
     # InsertionPoint: '' means append to the end.
     lines = []
@@ -155,43 +148,36 @@ def build_element_create_ti(
 
 
 def build_element_update_ti(
-        dimension_name: str,
-        hierarchy_name: str,
-        original_name: str,
-        new_name: str
+    element_old: Element,
+    element_new: Element,
+    dimension_name: str,
+    hierarchy_name: str,
 ) -> str:
     """
     Generates TI code to rename an element while RETAINING DATA.
     Uses 'DimensionElementPrincipalNameChange'.
     """
+    if not dimension_name or not hierarchy_name:
+        raise ValueError("Element create requires dimension and hierarchy context.")
 
-    # 1. Sanitize Inputs
-    dim_clean = _escape_ti(dimension_name)
-    hier_clean = _escape_ti(hierarchy_name)
-    old_clean = _escape_ti(original_name)
-    new_clean = _escape_ti(new_name)
+    old_clean = _escape_ti(element_old.name)
+    new_clean = _escape_ti(element_new.name)
 
     lines = []
-    lines.append(f"# --- Rename Element: '{old_clean}' -> '{new_clean}' ---")
+    lines.append(f"# --- Update (Recreate) Element: '{old_clean}' -> '{new_clean}' ---")
+    snippet = build_element_delete_ti(
+        hierarchy_name=hierarchy_name,
+        dimension_name=dimension_name,
+        element_name=old_clean
+    )
+    lines.append(snippet)
 
-    # 2. Validation Checks in TI
-    # A. Ensure the Old Name actually exists
-    lines.append(f"IF( DimensionElementExists('{dim_clean}', '{old_clean}') = 1 );")
-
-    # B. Ensure the New Name does NOT exist (prevent collision errors)
-    lines.append(f"    IF( DimensionElementExists('{dim_clean}', '{new_clean}') = 0 );")
-
-    # 3. Perform the Rename (Atomic & Safe)
-    # This function moves all data, attributes, and hierarchy structure to the new name.
-    lines.append(
-        f"        DimensionElementPrincipalNameChange('{dim_clean}', '{hier_clean}', '{old_clean}', '{new_clean}');")
-
-    lines.append(f"    ELSE;")
-    lines.append(f"        # Error: Target name '{new_clean}' already exists. Skipping rename.")
-    lines.append(f"        # You might want to trigger ProcessQuit here if strict strictness is required.")
-    lines.append(f"    ENDIF;")
-
-    lines.append(f"ENDIF;")
+    snippet = build_element_create_ti(
+        hierarchy_name=hierarchy_name,
+        dimension_name=dimension_name,
+        element=element_new
+    )
+    lines.append(snippet)
 
     return "\r\n".join(lines)
 
@@ -205,7 +191,6 @@ def build_element_delete_ti(
     Generates TI code to delete an element from a specific hierarchy.
     """
 
-    # 1. Sanitize Inputs
     dim_clean = _escape_ti(dimension_name)
     hier_clean = _escape_ti(hierarchy_name)
     el_clean = _escape_ti(element_name)
@@ -213,11 +198,9 @@ def build_element_delete_ti(
     lines = []
     lines.append(f"# --- Delete Element: {el_clean} ---")
 
-    # 2. Check Existence
     # HierarchyElementExists returns 1 if found, 0 if not.
     lines.append(f"IF( HierarchyElementExists('{dim_clean}', '{hier_clean}', '{el_clean}') = 1 );")
 
-    # 3. Delete
     # Note: If this is a consolidated element, its children remain in the dimension
     # but are detached from this parent. Data on this specific element is lost.
     lines.append(f"   HierarchyElementDelete('{dim_clean}', '{hier_clean}', '{el_clean}');")

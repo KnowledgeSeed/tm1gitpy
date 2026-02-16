@@ -285,8 +285,7 @@ def build_hierarchy_create_ti(hierarchy: Hierarchy, dimension_name: Optional[str
     lines.append(f"# --- Create Hierarchy: {dim_clean}:{hier_clean} ---")
 
     # 3. Create the Hierarchy Object
-    # We explicitly do NOT check 'If(DimensionExists...)' here.
-    # If the dimension is missing, 'HierarchyCreate' or 'DimensionElementInsert'
+    # If the dimension is missing, 'HierarchyCreate' or 'HierarchyElementInsert'
     # will throw a critical error, ensuring the transaction rolls back.
 
     if dimension_name != hierarchy_name:
@@ -298,7 +297,6 @@ def build_hierarchy_create_ti(hierarchy: Hierarchy, dimension_name: Optional[str
         lines.append(f"ENDIF;")
 
     # 4. Create Elements
-    # Must happen before Edges.
     for element in hierarchy.elements:
         element_ti = build_element_create_ti(
             element=element,
@@ -336,7 +334,6 @@ def build_hierarchy_update_ti(
     elements_new = hierarchy_new.elements
     elements_old = hierarchy_old.elements
     # 1. Map Names to Objects for easy lookup
-    # We use dictionaries keyed by Name to handle the logic efficiently
     old_map: Dict[str, Element] = {e.name: e for e in elements_old}
     new_map: Dict[str, Element] = {e.name: e for e in elements_new}
 
@@ -352,11 +349,9 @@ def build_hierarchy_update_ti(
     lines.append(f"# --- Synchronizing Elements for {dimension_name}:{hierarchy_name} ---")
 
     # 3. Handle REMOVALS
-    # (Do this first to clear out unused elements)
     if names_to_remove:
         lines.append(f"# -- removing {len(names_to_remove)} elements --")
         for name in names_to_remove:
-            # Call the helper builder defined previously
             snippet = build_element_delete_ti(
                 hierarchy_name=hierarchy_name,
                 dimension_name=dimension_name,
@@ -366,25 +361,22 @@ def build_hierarchy_update_ti(
 
     # 4. Handle UPDATES
     # We pass the NEW element definition (target state) to the builder.
-    # The builder contains the "IF DType <> TargetType" check, so it's safe to run on all.
-    """
+    # If an element has a type change, it gets recreated.
+    # Type changes cause data loss!
     if names_to_update:
         lines.append(f"# -- checking updates for {len(names_to_update)} elements --")
         for name in names_to_update:
             target_element = new_map[name]
-            source_element = old_map
+            source_element = old_map[name]
+            if target_element.type != source_element.type:
+                snippet = build_element_update_ti(
+                    hierarchy_name=hierarchy_name,
+                    dimension_name=dimension_name,
+                    element_old=source_element,
+                    element_new=target_element
+                )
+                lines.append(snippet)
 
-            # Optimization:
-            # If we know strictly in Python that types match, we can skip generating TI code.
-            # However, letting TI check it (via the builder) is safer if Python state is stale.
-            # We will use the builder.
-            snippet = build_element_update_ti(
-                hierarchy_name=hierarchy_name,
-                dimension_name=dimension_name,
-                new_name=target_element,
-            )
-            lines.append(snippet)
-    """
     # 5. Handle CREATIONS
     if names_to_create:
         lines.append(f"# -- creating {len(names_to_create)} elements --")
@@ -404,7 +396,7 @@ def build_hierarchy_delete_ti(
         hierarchy: Hierarchy,
 ) -> str:
     """
-    Generates TI code to delete an element from a specific hierarchy.
+    Generates TI code to delete a hierarchy from a specific dimension.
     """
     dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
 

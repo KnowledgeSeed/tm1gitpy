@@ -198,6 +198,17 @@ def build_dimension_create_ti(dimension: Union[Dimension, str]) -> str:
     return "\r\n".join(lines)
 
 
+def build_dimension_update_ti(dimension: Dict[str, Any]) -> str:
+    """
+    Generates TI placeholder code to update a Dimension.
+    Contained objects are updated by their respective modules (hierarchies).
+    """
+
+    dim_clean = _escape_ti(dimension.get("new").name)
+    lines = [f"# --- Create Dimension: {dim_clean} ---"]
+    return "\r\n".join(lines)
+
+
 def build_dimension_delete_ti(dimension_name: str) -> str:
     """
     Generates TI code to delete a Dimension.
