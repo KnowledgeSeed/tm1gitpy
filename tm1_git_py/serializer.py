@@ -89,7 +89,7 @@ def serialize_cubes(cubes: List[Cube], cubes_dir):
 
 def serialize_processes(processes: List[Process], process_dir):
     for process in processes:
-        with open(process_dir + '/' + process.name + '.ti', 'w', encoding='utf-8') as processti_file:
+        with open(process_dir + '/' + process.name + '.ti', 'w', encoding='utf-8', newline='\n') as processti_file:
             processti_file.write(process.ti.ti_as_string())
 
         with open(process_dir + '/' + process.name + '.json', 'w', encoding='utf-8') as processjson_file:
