@@ -3,7 +3,7 @@ import logging
 import re
 from typing import List, Any, Dict, Optional, Tuple
 import TM1py
-from TM1py import TM1Service, Hierarchy
+from TM1py import TM1Service
 from TM1py.Utils import format_url
 from requests import Response
 

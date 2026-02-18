@@ -448,7 +448,7 @@ class Changeset:
 # Import changeset function & helpers
 # --------------------------------------------------------------------------------
 
-def import_changeset(changeset_file: Union[str, Path], *, base_model: Optional[Model]) -> Changeset:
+def import_changeset(changeset_file: Union[str, Path], *, base_model: Optional[Model] = None) -> Changeset:
     if base_model:
         return import_changeset_stateful(base_model=base_model, changeset_file=changeset_file)
     return import_changeset_stateless(changeset_file=changeset_file)
