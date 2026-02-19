@@ -1,5 +1,6 @@
 import importlib
 import logging
+import uuid
 from pathlib import Path
 from typing import Optional, Union, Any, TypeVar
 
@@ -10,7 +11,6 @@ from requests import Response
 from tm1_git_py import Changeset
 from tm1_git_py.changeset_status import ChangeSetStatusStore
 from tm1_git_py.model import Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore
-from tm1_git_py.model.hierarchy import build_hierarchy_create_ti
 from tm1_git_py.validation import validate_changeset
 
 logger = logging.getLogger(__name__)
@@ -167,9 +167,9 @@ def build_master_changeset_ti(changeset: Changeset) -> str:
     ti_lines.append("")
 
     operations: list[tuple[str, Any]] = []
-    operations += [("CREATE", obj) for obj in changeset.added]
-    operations += [("UPDATE", obj) for obj in changeset.modified]
     operations += [("DELETE", obj) for obj in changeset.removed]
+    operations += [("UPDATE", obj) for obj in changeset.modified]
+    operations += [("CREATE", obj) for obj in changeset.added]
 
     for action, obj in operations:
         snippet = ""
@@ -197,9 +197,6 @@ def build_master_changeset_ti(changeset: Changeset) -> str:
             ti_lines.append("")
 
     return "\r\n".join(ti_lines)
-
-
-import uuid
 
 
 def apply_atomic(changeset: Changeset, tm1_service: TM1Service) -> bool:

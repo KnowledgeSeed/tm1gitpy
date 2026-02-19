@@ -359,11 +359,29 @@ def delete_chore(tm1_service: TM1Service, chore_name: str) -> Response:
 # Utility: interface between tm1_git_py and TI processes for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-def build_chore_create_ti(chore: Chore) -> str:
-    pass
+def _escape_ti(value: str) -> str:
+    return str(value).replace("'", "''") if value else ""
 
-def build_chore_update_ti(chore: Chore) -> str:
-    pass
+
+def build_chore_create_ti(chore: Chore) -> str:
+    chore_clean = _escape_ti(chore.name)
+
+    lines = []
+    lines.append(f"# --- Create Chore: {chore_clean} ---")
+
+    return "\r\n".join(lines)
+
+
+def build_chore_update_ti(chore: Dict[str, Any]) -> str:
+    chore_clean = _escape_ti(chore.get("new").name)
+    lines = [f"# --- Update Chore: {chore_clean} ---"]
+    return "\r\n".join(lines)
+
 
 def build_chore_delete_ti(chore: Chore) -> str:
-    pass
+    chore_clean = _escape_ti(chore.name)
+
+    lines = []
+    lines.append(f"# --- Delete Chore: {chore_clean} ---")
+
+    return "\r\n".join(lines)

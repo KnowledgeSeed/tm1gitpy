@@ -118,6 +118,7 @@ def build_element_create_ti(
     element: Element,
     dimension_name: str,
     hierarchy_name: str,
+    insertion_point: Optional[str] = ''
 ) -> str:
 
     if not dimension_name or not hierarchy_name:
@@ -127,6 +128,7 @@ def build_element_create_ti(
     hier_clean = _escape_ti(hierarchy_name)
     el_name_clean = _escape_ti(element.name)
     el_type_code = _map_ti_type(element.type)
+    insert_clean = _escape_ti(insertion_point)
 
     # Syntax: HierarchyElementInsert(DimName, HierName, InsertionPoint, ElName, ElType)
     # InsertionPoint: '' means append to the end.
@@ -138,7 +140,7 @@ def build_element_create_ti(
         f"    HierarchyElementInsert("
         f"'{dim_clean}', "
         f"'{hier_clean}', "
-        f"'', "
+        f"'{insert_clean}', "
         f"'{el_name_clean}', "
         f"'{el_type_code}');"
     )

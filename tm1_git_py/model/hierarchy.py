@@ -379,15 +379,23 @@ def build_hierarchy_update_ti(
 
     # 5. Handle CREATIONS
     if names_to_create:
-        lines.append(f"# -- creating {len(names_to_create)} elements --")
-        for name in names_to_create:
-            element_to_create = new_map[name]
-            snippet = build_element_create_ti(
-                hierarchy_name=hierarchy_name,
-                dimension_name=dimension_name,
-                element=element_to_create
-            )
-            lines.append(snippet)
+        lines.append(f"# -- creating {len(names_to_create)} elements (Reverse processing) --")
+        for i in range(len(elements_new) - 1, -1, -1):
+            element = elements_new[i]
+
+            if element.name in names_to_create:
+                if i == len(elements_new) - 1:
+                    insertion_point = ''
+                else:
+                    insertion_point = elements_new[i + 1].name
+
+                snippet = build_element_create_ti(
+                    hierarchy_name=hierarchy_name,
+                    dimension_name=dimension_name,
+                    element=element,
+                    insertion_point=insertion_point
+                )
+                lines.append(snippet)
 
     return "\r\n".join(lines)
 

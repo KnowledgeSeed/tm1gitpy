@@ -233,3 +233,35 @@ def _diff_lists(old_list, new_list):
     dicts_to_remove = [old_tuples[t] for t in (old_tuples.keys() - new_tuples.keys())]
 
     return dicts_to_add, dicts_to_remove
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str) -> str:
+    return str(value).replace("'", "''") if value else ""
+
+
+def build_process_create_ti(process: Process) -> str:
+    proc_clean = _escape_ti(process.name)
+
+    lines = []
+    lines.append(f"# --- Create Process: {proc_clean} ---")
+
+    return "\r\n".join(lines)
+
+
+def build_process_update_ti(process: Dict[str, Any]) -> str:
+    proc_clean = _escape_ti(process.get("new").name)
+    lines = [f"# --- Update Process: {proc_clean} ---"]
+    return "\r\n".join(lines)
+
+
+def build_process_delete_ti(process: Process) -> str:
+    proc_clean = _escape_ti(process.name)
+
+    lines = []
+    lines.append(f"# --- Delete Process: {proc_clean} ---")
+
+    return "\r\n".join(lines)

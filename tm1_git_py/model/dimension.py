@@ -209,11 +209,11 @@ def build_dimension_update_ti(dimension: Dict[str, Any]) -> str:
     return "\r\n".join(lines)
 
 
-def build_dimension_delete_ti(dimension_name: str) -> str:
+def build_dimension_delete_ti(dimension: Dimension) -> str:
     """
     Generates TI code to delete a Dimension.
     """
-    dim_clean = _escape_ti(dimension_name)
+    dim_clean = _escape_ti(dimension.name)
 
     lines = []
     lines.append(f"# --- Delete Dimension: {dim_clean} ---")

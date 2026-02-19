@@ -29,7 +29,7 @@ _CHILD_RELATIONS: dict[type, list[str]] = {
     Cube: ["views"],
 }
 
-FLAG_PRECEDENCE = {"C": 0, "U": 1, "D": 2}
+FLAG_PRECEDENCE = {"D": 0, "U": 1, "C": 2}
 OBJECT_PRECEDENCE = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'views': 4, 'processes': 5, 'chores': 6}
 DELETE_OBJECT_PRECEDENCE = {'views': 0, 'cubes': 1, 'subsets': 2, 'hierarchies': 3, 'dimensions': 4, 'chores': 5, 'processes': 6}
 

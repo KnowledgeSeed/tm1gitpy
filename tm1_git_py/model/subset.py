@@ -174,7 +174,7 @@ def build_subset_update_ti(subset: Dict[str, Any]) -> str:
 
     dim_name_clean = _escape_ti(dimension_name)
     hier_name_clean = _escape_ti(hierarchy_name)
-    sub_name_clean = _escape_ti(subset.name)
+    sub_name_clean = _escape_ti(subset_new.name)
 
     # Critical: MDX expressions often contain single quotes (e.g., [Dim].[Hier].[Elem]).
     # _escape_ti turns "'" into "''" ensuring the TI string doesn't break.

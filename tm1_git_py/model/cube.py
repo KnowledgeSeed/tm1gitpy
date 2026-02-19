@@ -615,7 +615,7 @@ def _escape_ti(value: str) -> str:
 
 def build_cube_create_ti(cube: Cube) -> str:
     """
-    Generates TI code to create a Dimension.
+    Generates TI code to create a Cube.
     """
 
     cube_clean = _escape_ti(cube.name)
@@ -632,27 +632,30 @@ def build_cube_create_ti(cube: Cube) -> str:
 
 
 def build_cube_update_ti(cube: dict[str, Any]) -> str:
+    """
+    Generates TI code to update the Rules of a Cube.
+    """
     lines = []
     cube_old = cube.get("old")
     cube_new = cube.get("new")
-    cube_name_clean = _escape_ti(cube_new)
+    cube_name_clean = _escape_ti(cube_new.name)
 
     rules_old = cube_old.rules
     rules_new = cube_new.rules
 
     if rules_new != rules_old:
         lines.append(f"# --- Update Cube Rules: {cube_name_clean} ---")
-        rule_clean = _escape_ti(cube_new.get_rule_text)
+        rule_clean = _escape_ti(cube_new.get_rule_text())
         lines.append(f"CubeRuleSet({cube_name_clean}, {rule_clean});")
 
     return "\r\n".join(lines)
 
 
-def build_cube_delete_ti(cube_name: str) -> str:
+def build_cube_delete_ti(cube: Cube) -> str:
     """
-    Generates TI code to delete a Dimension.
+    Generates TI code to delete a Cube.
     """
-    cube_clean = _escape_ti(cube_name)
+    cube_clean = _escape_ti(cube.name)
 
     lines = []
     lines.append(f"# --- Delete Cube: {cube_clean} ---")
