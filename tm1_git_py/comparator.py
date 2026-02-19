@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Iterable, Mapping, Optional, Literal
 
 from tm1_git_py.changeset import Changeset
 from tm1_git_py.model import Hierarchy, MDXView, Subset
@@ -87,7 +87,7 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
 
 
 class Comparator:
-    _CHILD_RELATIONS: Mapping[type, List[Tuple[str, type]]] = {
+    _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
         Hierarchy: [("subsets", Subset)],
         Cube: [("views", MDXView)],
@@ -99,7 +99,7 @@ class Comparator:
         Cube: _cubes_equal_shallow
     }
 
-    def compare(self, model1: Model, model2: Model, mode: str = 'full') -> Changeset:
+    def compare(self, model1: Model, model2: Model, mode: Literal['full', 'add_only'] = 'full') -> Changeset:
         """
         Comparison:
             model1: Old model.
@@ -126,8 +126,8 @@ class Comparator:
             new_list: Iterable[Any],
             parent_cls: type,
             changeset: Changeset,
-            mode: str,
-    ) -> Dict[str, Tuple[Any, Any]]:
+            mode: Literal['full', 'add_only'],
+    ) -> dict[str, tuple[Any, Any]]:
 
         equals_fn = self._EQUALITY_OVERRIDES.get(parent_cls)
         object_type_name = getattr(parent_cls, "__name__", str(parent_cls))
@@ -156,12 +156,12 @@ class Comparator:
         return parent_pairs
 
     def _compare_object_lists(self,
-                              old_list: List[Any],
-                              new_list: List[Any],
+                              old_list: list[Any],
+                              new_list: list[Any],
                               changeset: Changeset,
                               object_type_name: str,
-                              mode: str,
-                              equals_fn: Optional[Callable[[Any, Any], bool]] = None) -> Dict[str, Tuple[Any, Any]]:
+                              mode: Literal['full', 'add_only'],
+                              equals_fn: Optional[Callable[[Any, Any], bool]] = None) -> dict[str, tuple[Any, Any]]:
 
         try:
             old_map = {obj.name: obj for obj in old_list}
@@ -183,7 +183,7 @@ class Comparator:
                 changeset.add_deleted(old_map[name])
 
         common_names = new_names & old_names
-        matched_pairs: Dict[str, Tuple[Any, Any]] = {}
+        matched_pairs: dict[str, tuple[Any, Any]] = {}
         for name in common_names:
             try:
                 old_obj = old_map[name]

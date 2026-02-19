@@ -185,9 +185,10 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
     _dimensions: Dict[str, Dimension] = {}
     for dim_name in all_dims:
         dim = tm1_conn.dimensions.get(dimension_name=dim_name)
+        default_hierarchy = Hierarchy.from_dict(dim.default_hierarchy.body_as_dict, dimension_name=dim_name)
 
         _dimension = Dimension(name=dim.name, hierarchies=[],
-                               defaultHierarchy=dim.default_hierarchy,
+                               defaultHierarchy=default_hierarchy,
                                source_path=os.path.join('dimensions', f"{dim_name}.json").replace('\\', '/'))
         _dimensions[dim.name] = _dimension
 

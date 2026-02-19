@@ -1,4 +1,3 @@
-import os
 from typing import Dict, Any
 
 
@@ -52,7 +51,7 @@ class TI:
 
     @classmethod
     def normalize_text(cls, text: str) -> str:
-        return text.replace('\r\n', '\n').replace('\r', '\n').replace('\n', os.linesep).strip()
+        return text.replace('\r\n', '\n').replace('\r', '\n').strip()
 
     @classmethod
     def from_string(cls, ti):
