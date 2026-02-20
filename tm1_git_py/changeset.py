@@ -9,7 +9,8 @@ from TM1py.Services import TM1Service
 from requests import Response
 
 from tm1_git_py.changeset_status import ChangeSetStatusStore
-from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, Model, Process, Subset
+from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, Model, Process, Subset, hierarchy, subset, \
+    mdxview
 from tm1_git_py.model.chore import create_chore, delete_chore, update_chore
 from tm1_git_py.model.cube import create_cube, delete_cube, update_cube
 from tm1_git_py.model.dimension import create_dimension, delete_dimension, update_dimension
@@ -631,20 +632,18 @@ def _build_dimension_from_payload(payload: dict[str, Any], source_path: Optional
 
 
 def _build_hierarchy_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Hierarchy:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path)
+    dimension_name, _ = hierarchy._hierarchy_context_from_path(source_path)
     if not dimension_name:
         raise ValueError("Hierarchy payload missing dimension context.")
-    return Hierarchy.from_dict(payload, source_path=source_path, dimension_name=dimension_name.group(1))
+    return Hierarchy.from_dict(payload, source_path=source_path, dimension_name=dimension_name)
 
 
 def _build_subset_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Subset:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path)
-    hierarchy_name = re.search(r'/(\w*)(.subsets)', source_path)
+    dimension_name, hierarchy_name = subset._subset_context_from_path(source_path)
     if not dimension_name or not hierarchy_name:
         raise ValueError("Subset payload missing dimension or hierarchy context.")
-    return Subset.from_dict(
-        payload, source_path=source_path, dimension_name=dimension_name.group(1), hierarchy_name=hierarchy_name.group(1)
-    )
+    return Subset.from_dict(payload, source_path=source_path,
+                            dimension_name=dimension_name, hierarchy_name=hierarchy_name)
 
 
 def _build_cube_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Cube:
@@ -652,10 +651,10 @@ def _build_cube_from_payload(payload: dict[str, Any], source_path: Optional[str]
 
 
 def _build_mdx_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> MDXView:
-    cube_name = re.search(r'/(\w*)(.views)', source_path)
+    cube_name, _ = mdxview._view_context_from_path(source_path)
     if not source_path and not cube_name:
         raise ValueError("MDXView payload missing cube context.")
-    return MDXView.from_dict(payload, source_path=source_path, cube_name=cube_name.group(1))
+    return MDXView.from_dict(payload, source_path=source_path, cube_name=cube_name)
 
 
 def _build_process_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Process:

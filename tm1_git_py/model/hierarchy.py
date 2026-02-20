@@ -144,7 +144,7 @@ class Hierarchy:
 logger = logging.getLogger(__name__)
 
 def _hierarchy_context_from_path(source_path: str) -> Tuple[str, str]:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path).group(1)
+    dimension_name = re.search(r'/([\w}]*)(.hierarchies)', source_path).group(1)
     hierarchy_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
     return dimension_name, hierarchy_name
 

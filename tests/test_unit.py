@@ -902,7 +902,6 @@ class TestSubsetCRUD:
         )
 
         payload = {"new": subset_new, "old": subset_old}
-        tm1_service.subsets.exists.return_value = True
 
         tm1_subset_obj = mocker.Mock()
         tm1_subset_obj.expression = "{[Dim_A].[Hier_A].OldMembers}"
@@ -911,12 +910,6 @@ class TestSubsetCRUD:
         tm1_service.subsets.update.return_value = "update-result"
 
         result = subset.update_subset(tm1_service, payload)
-
-        tm1_service.subsets.exists.assert_called_once_with(
-            subset_name="Subset_A",
-            dimension_name="Dim_A",
-            hierarchy_name="Hier_A",
-        )
 
         tm1_service.subsets.get.assert_called_once_with(
             subset_name="Subset_A",
@@ -927,27 +920,6 @@ class TestSubsetCRUD:
         assert tm1_subset_obj.expression == "{[Dim_A].[Hier_A].NewMembers}"
         tm1_service.subsets.update.assert_called_once_with(tm1_subset_obj)
         assert result == "update-result"
-
-
-    def test_update_subset_raises_if_subset_does_not_exist(self, mocker):
-        tm1_service = mocker.Mock()
-
-        subset_new = make_subset(
-            name="MissingSubsetset",
-            expression="{[Dim_X].[Hier_X].Members}",
-            dimension_name="Dim_X",
-            hierarchy_name="Hier_X",
-        )
-
-        payload = {"new": subset_new}
-        tm1_service.subsets.exists.return_value = False
-
-        with pytest.raises(ValueError) as excinfo:
-            subset.update_subset(tm1_service, payload)
-
-        assert "Cannot update Subset: 'MissingSubsetset'" in str(excinfo.value)
-        tm1_service.subsets.get.assert_not_called()
-        tm1_service.subsets.update.assert_not_called()
 
 
 
@@ -1008,30 +980,6 @@ class TestHierarchyCRUD:
         assert kwargs["element"].name == "E1"
 
 
-    def test_create_hierarchy_does_not_create_elements_when_not_201(self, mocker):
-        tm1_service = mocker.Mock()
-
-        hierarchy_mock = make_hierarchy()
-        tm1py_hierarchy_cls = mocker.patch("tm1_git_py.model.hierarchy.TM1py.Hierarchy")
-
-        response = mocker.Mock()
-        response.status_code = 400
-        tm1_service.hierarchies.create.return_value = response
-        create_element_mock = mocker.patch("tm1_git_py.model.hierarchy.create_element")
-
-        result = hierarchy.create_hierarchy(tm1_service, hierarchy_mock)
-
-        assert result is response
-
-        # Still creates the TM1py hierarchy and calls TM1 create
-        tm1py_hierarchy_cls.assert_called_once()
-        tm1_service.hierarchies.create.assert_called_once()
-
-        # But no element creation is attempted
-        create_element_mock.assert_not_called()
-        tm1_service.elements.exists.assert_not_called()
-
-
     def test_delete_hierarchy_calls_tm1_with_correct_dimension_and_name(self, mocker):
         tm1_service = mocker.Mock()
 
@@ -1079,7 +1027,6 @@ class TestHierarchyCRUD:
         payload = {"new": hierarchy_new, "old": hierarchy_old}
 
         # TM1: hierarchy exists and returns a TM1 hierarchy object
-        tm1_service.hierarchies.exists.return_value = True
         hierarchy_object = mocker.Mock()
         tm1_service.hierarchies.get.return_value = hierarchy_object
         tm1_service.hierarchies.update.return_value = "update-result"
@@ -1087,11 +1034,6 @@ class TestHierarchyCRUD:
         # Act
         result = hierarchy.update_hierarchy(tm1_service, payload)
 
-        # Dimension name comes from hierarchy_new.source_path
-        tm1_service.hierarchies.exists.assert_called_once_with(
-            dimension_name="Dimension_A",
-            hierarchy_name="Hierarchy_A",
-        )
         tm1_service.hierarchies.get.assert_called_once_with(
             dimension_name="Dimension_A",
             hierarchy_name="Hierarchy_A",
@@ -1129,7 +1071,6 @@ class TestHierarchyCRUD:
 
         payload = {"old": hierarchy_old, "new": hierarchy_new}
 
-        tm1_service.hierarchies.exists.return_value = True
         hierarchy_object = mocker.Mock()
         tm1_service.hierarchies.get.return_value = hierarchy_object
         tm1_service.hierarchies.update.return_value = "update-result"
@@ -1141,10 +1082,6 @@ class TestHierarchyCRUD:
 
         result = hierarchy.update_hierarchy(tm1_service, payload)
 
-        tm1_service.hierarchies.exists.assert_called_once_with(
-            dimension_name=dim_name,
-            hierarchy_name=hier_name,
-        )
         tm1_service.hierarchies.get.assert_called_once_with(
             dimension_name=dim_name,
             hierarchy_name=hier_name,
@@ -1180,7 +1117,6 @@ class TestHierarchyCRUD:
 
         payload = {"old": hierarchy_old, "new": hierarchy_new}
 
-        tm1_service.hierarchies.exists.return_value = True
         hierarchy_object = mocker.Mock()
         hierarchy_object.elements.values.return_value = []
         tm1_service.hierarchies.get.return_value = hierarchy_object
@@ -1237,7 +1173,6 @@ class TestHierarchyCRUD:
 
         payload = {"old": hierarchy_old, "new": hierarchy_new}
 
-        tm1_service.hierarchies.exists.return_value = True
         hierarchy_object = mocker.Mock()
         hierarchy_object.elements.values.return_value = []
         tm1_service.hierarchies.get.return_value = hierarchy_object
@@ -1317,22 +1252,6 @@ class TestDimensionCRUD:
         assert result == "delete-result"
 
 
-    def test_update_dimension_raises_if_dimension_does_not_exist(self, mocker):
-        tm1_service = mocker.Mock()
-        new_dim = make_dimension("Dim_A", ["H1"])
-        old_dim = make_dimension("Dim_A", ["H1"])
-
-        payload = {"new": new_dim, "old": old_dim}
-        tm1_service.dimensions.exists.return_value = False
-
-        with pytest.raises(ValueError) as excinfo:
-            dimension.update_dimension(tm1_service, payload)
-
-        assert "Cannot update Dimension: 'Dim_A'" in str(excinfo.value)
-        tm1_service.dimensions.get.assert_not_called()
-        tm1_service.dimensions.update.assert_not_called()
-
-
     def test_update_dimension_adds_and_removes_hierarchies(self, mocker):
         tm1_service = mocker.Mock()
         dim_name = "Dim_A"
@@ -1340,7 +1259,6 @@ class TestDimensionCRUD:
         new_dim = make_dimension(dim_name, ["H1", "H3"])
 
         payload = {"new": new_dim, "old": old_dim}
-        tm1_service.dimensions.exists.return_value = True
 
         dimension_object = mocker.Mock()
         tm1_service.dimensions.get.return_value = dimension_object
@@ -1352,7 +1270,6 @@ class TestDimensionCRUD:
 
         result = dimension.update_dimension(tm1_service, payload)
 
-        tm1_service.dimensions.exists.assert_called_once_with(dimension_name=dim_name)
         tm1_service.dimensions.get.assert_called_once_with(dimension_name=dim_name)
 
         dimension_object.remove_hierarchy.assert_called_once_with(hierarchy_name="H2")
@@ -1365,27 +1282,6 @@ class TestDimensionCRUD:
 
         tm1_service.dimensions.update.assert_called_once_with(dimension_object)
         assert result == "update-result"
-
-
-    def test_update_dimension_raises_if_hierarchy_to_add_missing_in_tm1(self, mocker):
-        tm1_service = mocker.Mock()
-
-        old_dim = make_dimension("Dim_A", ["H1"])
-        new_dim = make_dimension("Dim_A", ["H1", "H2"])
-
-        payload = {"new": new_dim, "old": old_dim}
-
-        tm1_service.dimensions.exists.return_value = True
-        dimension_object = mocker.Mock()
-        tm1_service.dimensions.get.return_value = dimension_object
-
-        tm1_service.hierarchies.get.side_effect = Exception("Hierarchy not found")
-
-        with pytest.raises(ValueError) as excinfo:
-            dimension.update_dimension(tm1_service, payload)
-
-        assert "Cannot update Dimension 'Dim_A' with Hierarchy: H2" in str(excinfo.value)
-        dimension_object.add_hierarchy.assert_not_called()
 
 
 
@@ -1442,20 +1338,12 @@ class TestMDXViewCRUD:
 
         payload = {"new": mdx_view_new, "old": mdx_view_old}
 
-        tm1_service.views.exists.return_value = True
-
         tm1_mdx_view_obj = mocker.Mock()
         tm1_mdx_view_obj.mdx = "OLD MDX"
         tm1_service.views.get_mdx_view.return_value = tm1_mdx_view_obj
         tm1_service.views.update.return_value = "update-result"
 
         result = mdxview.update_mdx_view(tm1_service, payload)
-
-        # Assert: existence check
-        tm1_service.views.exists.assert_called_once_with(
-            cube_name=cube_name,
-            view_name="View_A",
-        )
 
         # Assert: we got the existing MDX view from TM1
         tm1_service.views.get_mdx_view.assert_called_once_with(
@@ -1471,28 +1359,6 @@ class TestMDXViewCRUD:
 
         # Function returns whatever TM1 update() returned
         assert result == "update-result"
-
-
-    def test_update_mdx_view_raises_if_view_does_not_exist(self, mocker):
-        tm1_service = mocker.Mock()
-        mdx_view_old = make_mdx_view(
-            name="View_A",
-            mdx="SELECT {[Dim].[Elem], [Dim].[Elem Other]} ON 0 FROM [Cube_A]",
-        )
-        mdx_view_new = make_mdx_view(
-            name="Missing_View",
-            mdx="SELECT FROM [Cube_X]",
-        )
-        payload = {"new": mdx_view_new, "old": mdx_view_old}
-
-        tm1_service.views.exists.return_value = False
-
-        with pytest.raises(ValueError) as excinfo:
-            mdxview.update_mdx_view(tm1_service, payload)
-
-        assert "Cannot update view 'Missing_View'" in str(excinfo.value)
-        tm1_service.views.get_mdx_view.assert_not_called()
-        tm1_service.views.update.assert_not_called()
 
 
 
@@ -1566,8 +1432,6 @@ class TestCubeCRUD:
 
         payload = {"old": cube_old, "new": cube_new}
 
-        tm1_service.cubes.exists.return_value = True
-
         class RulesObj:
             def __init__(self, body: str):
                 self.body = body
@@ -1598,8 +1462,6 @@ class TestCubeCRUD:
 
         payload = {"old": cube_old, "new": cube_new}
 
-        tm1_service.cubes.exists.return_value = True
-
         class RulesObj:
             def __init__(self, body: str):
                 self.body = body
@@ -1614,8 +1476,6 @@ class TestCubeCRUD:
         result = cube.update_cube(tm1_service, payload)
 
         # --- Assertions on dimension reordering logic ---
-        # Existence + get
-        tm1_service.cubes.exists.assert_called_once_with(cube_name="Cube_Order")
         tm1_service.cubes.get.assert_called_once_with("Cube_Order")
 
         # Because order changed but set is the same, we must reorder storage dims
@@ -1640,9 +1500,6 @@ class TestCubeCRUD:
 
         # --- TM1 mocks ---
 
-        # Dimensions: Region already exists
-        tm1_service.dimensions.exists.return_value = True
-
         # Hierarchy with one consolidated + one leaf
         hier = mocker.Mock()
         consolidated = mocker.Mock()
@@ -1653,9 +1510,6 @@ class TestCubeCRUD:
         leaf.element_type = "Numeric"
         hier.elements.values.return_value = [consolidated, leaf]
         tm1_service.hierarchies.get.return_value = hier
-
-        # No existing temp cube
-        tm1_service.cubes.exists.return_value = False
 
         # Patch TM1py.Cube
         cube_cls = mocker.patch("tm1_git_py.model.cube.TM1py.Cube")
@@ -1683,7 +1537,6 @@ class TestCubeCRUD:
         temp_cube_name = "Sales__tmp_add_dims"
 
         # 1) default element: first leaf, no new element created
-        tm1_service.dimensions.exists.assert_called_once_with(dimension_name="Region")
         tm1_service.hierarchies.get.assert_called_once_with(
             dimension_name="Region",
             hierarchy_name="Region",
@@ -1751,9 +1604,6 @@ class TestCubeCRUD:
         dims_old = ["Version"]
         dims_new = ["Version", "NewDim"]
 
-        # NewDim does NOT exist yet
-        tm1_service.dimensions.exists.return_value = False
-
         # Hierarchy with only consolidated elements (no leaves)
         hier = mocker.Mock()
         cons = mocker.Mock()
@@ -1761,8 +1611,6 @@ class TestCubeCRUD:
         cons.element_type = "Consolidated"
         hier.elements.values.return_value = [cons]
         tm1_service.hierarchies.get.return_value = hier
-
-        tm1_service.cubes.exists.return_value = False
 
         cube_cls = mocker.patch("tm1_git_py.model.cube.TM1py.Cube")
         copy_mock = mocker.patch("tm1_git_py.model.cube.data_copy_intercube")
@@ -1839,7 +1687,6 @@ class TestCubeCRUD:
 
         assert "Cube name mismatch" in str(excinfo.value)
 
-        tm1_service.cubes.exists.assert_not_called()
         tm1_service.cubes.create.assert_not_called()
 
 

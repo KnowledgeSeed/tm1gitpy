@@ -62,12 +62,6 @@ class Element:
 
 logger = logging.getLogger(__name__)
 
-def _element_context_from_path(source_path: str) -> Tuple[str, str]:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path).group(1)
-    hierarchy_name = re.search(r'/(\w*)(.elements)', source_path).group(1)
-    return dimension_name, hierarchy_name
-
-
 def create_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element: Element) -> Response:
     element_object = TM1py.Element(name=element.name, element_type=element.type)
     logger.debug(f"Creating Element: {element.name} in Hierarchy: {hierarchy_name}.")
