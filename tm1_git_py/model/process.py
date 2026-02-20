@@ -164,7 +164,7 @@ def create_process(tm1_service: TM1Service, process: Process) -> Response:
     process_object = TM1py.Process(
         name=process.name,
         has_security_access=process.hasSecurityAccess,
-        datasource_type=process.datasource,
+        datasource_type=process.datasource or "None",
         parameters=process.parameters,
         variables=process.variables
     )
