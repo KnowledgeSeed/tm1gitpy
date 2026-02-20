@@ -19,6 +19,7 @@ from tests.utility import (
 from tm1_git_py.serializer import serialize_model
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.changeset import Changeset, import_changeset
+from tm1_git_py.filter import filter_changeset
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview
@@ -835,6 +836,109 @@ class TestChangeset:
         assert dim_entry["old"] is base_dimension
         assert len(dim_entry["new"].hierarchies) == 2
         assert dim_entry["new"].defaultHierarchy.name == base_dimension.hierarchies[0].name
+
+
+
+class TestChangesetFiltering:
+
+    def test_filter_changeset_removes_parent_and_children_across_sections(self):
+        changeset = Changeset()
+        dim = make_dimension(name="MockDim", source_path="dimensions/MockDim")
+        hier_new = make_hierarchy(dimension_name="MockDim", hierarchy_name="MockHier")
+        hier_old = make_hierarchy(dimension_name="MockDim", hierarchy_name="MockHier")
+        subset = Subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([MockDim].[MockHier])}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
+        )
+        subset_mod_old = Subset(
+            name="SubsetMod",
+            expression="{TM1SUBSETALL([MockDim].[MockHier])}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"
+        )
+        subset_mod_new = Subset(
+            name="SubsetMod",
+            expression="{[MockDim].[MockHier].[E1]}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"
+        )
+        process_obj = make_process(name="KeepProcess")
+
+        changeset.removed = [dim]
+        changeset.modified = [
+            {"old": hier_old, "new": hier_new, "changes": "updated hierarchy"},
+            {"old": subset_mod_old, "new": subset_mod_new, "changes": "updated subset"}
+        ]
+        changeset.added = [subset, process_obj]
+
+        filtered = filter_changeset(
+            changeset,
+            {
+                "added": [],
+                "removed": ["dimensions/MockDim.json"],
+                "modified": [
+                    "dimensions/MockDim.hierarchies/MockHier.json"
+                ],
+            },
+            filter_children=True
+        )
+
+        assert [obj.name for obj in filtered.added] == ["SubsetA", "KeepProcess"]
+        assert filtered.modified == []
+        assert filtered.removed == []
+
+
+    def test_filter_changeset_keeps_parent_when_only_child_matches(self):
+        changeset = Changeset()
+        dim = make_dimension(name="MockDim", source_path="dimensions/MockDim")
+        subset = Subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([MockDim].[MockHier])}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
+        )
+
+        changeset.added = [dim, subset]
+
+        filtered = filter_changeset(
+            changeset,
+            {
+                "added": ["dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"],
+                "removed": [],
+                "modified": [],
+            }
+        )
+
+        assert [obj.name for obj in filtered.added] == ["MockDim"]
+
+
+    def test_filter_changeset_does_not_remove_children_when_filter_children_false(self):
+        changeset = Changeset()
+        dim = make_dimension(name="MockDim", source_path="dimensions/MockDim")
+        hier_new = make_hierarchy(dimension_name="MockDim", hierarchy_name="MockHier")
+        hier_old = make_hierarchy(dimension_name="MockDim", hierarchy_name="MockHier")
+        subset = Subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([MockDim].[MockHier])}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
+        )
+        process_obj = make_process(name="KeepProcess")
+
+        changeset.removed = [dim]
+        changeset.modified = [{"old": hier_old, "new": hier_new, "changes": "updated hierarchy"}]
+        changeset.added = [subset, process_obj]
+
+        filtered = filter_changeset(
+            changeset,
+            {
+                "added": [],
+                "removed": ["dimensions/MockDim.json"],
+                "modified": [],
+            },
+            filter_children=False
+        )
+
+        assert [obj.name for obj in filtered.added] == ["SubsetA", "KeepProcess"]
+        assert len(filtered.modified) == 1
+        assert [obj.name for obj in filtered.removed] == []
 
 
 
