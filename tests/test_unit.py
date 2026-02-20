@@ -2140,8 +2140,6 @@ class TestProcessCRUD:
 
         payload = {"new": process_new, "old": process_old}
 
-        tm1_service.processes.exists.return_value = True
-
         tm1_process_obj = mocker.Mock()
         tm1_service.processes.get.return_value = tm1_process_obj
         tm1_service.processes.update.return_value = "update-result"
@@ -2149,8 +2147,6 @@ class TestProcessCRUD:
         # Act
         result = process.update_process(tm1_service, payload)
 
-        # Existence + get
-        tm1_service.processes.exists.assert_called_once_with(name_process="Proc_A")
         tm1_service.processes.get.assert_called_once_with(name_process="Proc_A")
 
         # Core fields updated
@@ -2322,7 +2318,6 @@ class TestChoreCRUD:
         )
         payload = {"new": chore_new}
 
-        tm1_service.chores.exists.return_value = True
 
         tm1_chore_obj = mocker.Mock()
         tm1_chore_obj.active = True
@@ -2349,7 +2344,6 @@ class TestChoreCRUD:
 
         result = chore.update_chore(tm1_service, payload)
 
-        tm1_service.chores.exists.assert_called_once_with(chore_name="Chore_A")
         tm1_service.chores.get.assert_called_once_with(chore_name="Chore_A")
 
         assert create_chore_task_mock.call_count == 2
@@ -2394,18 +2388,3 @@ class TestChoreCRUD:
 
         tm1_chore_obj.activate.assert_called_once()
         tm1_chore_obj.deactivate.assert_not_called()
-
-
-    def test_update_chore_raises_if_chore_does_not_exist(self, mocker):
-        tm1_service = mocker.Mock()
-
-        chore_new = make_chore(name="Missing_Chore")
-        payload = {"new": chore_new}
-        tm1_service.chores.exists.return_value = False
-
-        with pytest.raises(ValueError) as excinfo:
-            chore.update_chore(tm1_service, payload)
-
-        assert "Cannot update Chore: 'Missing_Chore'" in str(excinfo.value)
-        tm1_service.chores.get.assert_not_called()
-        tm1_service.chores.update.assert_not_called()
