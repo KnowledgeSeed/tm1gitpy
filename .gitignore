@@ -38,3 +38,5 @@ tests/*.png
 tests/config.ini
 .env
 dist/
+
+**/License.xml

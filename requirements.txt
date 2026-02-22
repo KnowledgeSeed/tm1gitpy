@@ -5,3 +5,4 @@ nuitka
 pytest-mock
 tm1-bedrock-py>=1.1.4
 requests>=2.25
+testcontainers>=4.0.0

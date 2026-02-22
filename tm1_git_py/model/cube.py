@@ -5,7 +5,7 @@ from typing import List, Any, Dict, Optional
 import TM1py
 from TM1py import TM1Service, Cube
 from TM1py.Utils import format_url
-# from TM1_bedrock_py.bedrock import data_copy_intercube
+from TM1_bedrock_py.bedrock import data_copy_intercube
 from requests import Response
 
 from tm1_git_py.model import element
