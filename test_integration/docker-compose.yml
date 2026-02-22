@@ -1,0 +1,19 @@
+version: "3.2"
+services:
+  tm1:
+    container_name: tm1-rocky9
+    image: kseed-docker1.knowledgeseed.local:3000/tm1-docker:2.1.4-rocky9
+    
+    environment:
+      - MODEL_NAME=${MODEL_NAME}
+    volumes:
+      - ${TM1MODELS_DIR}:/docker-entrypoint-initdb.d/tm1models
+      - ./cogstartup.xml:/docker-entrypoint-initdb.d/cogstartup.xml
+    healthcheck:
+      test: "curl -f http://localhost:5360/api/v1/"
+      interval: 5s
+      timeout: 2m
+      retries: 10
+    ports:
+      - 5898:5898
+      - 5360:5360
