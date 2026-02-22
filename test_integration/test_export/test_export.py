@@ -6,17 +6,20 @@ from typing import Dict
 from unittest.mock import patch
 import pytest
 
+from tm1_git_py.changeset import Changeset
+
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 TEST_INTEGRATION_DIR = PROJECT_ROOT / "test_integration"
 sys.path.insert(0, str(TEST_INTEGRATION_DIR))
 
 from test_base import tm1_environment
-from TM1py import TM1Service
+from TM1py import TM1Service, Cube
 from tm1_git_py.exporter import export
 from tm1_git_py.deserializer import deserialize_model
 from tm1_git_py.serializer import serialize_model
 from tm1_git_py.model.model import Model
 from tm1_git_py.filter import filter
+from tm1_git_py.comparator import Comparator
 
 import tempfile
 import shutil
@@ -25,23 +28,20 @@ import filecmp
 @pytest.mark.usefixtures("tm1_environment")
 class TestExportIntegration:
 
-    tm1_environment : TM1Service = None
-
     @pytest.fixture(autouse=True)
     def _tm1(self, tm1_environment):
-        self.tm1_service = tm1_environment
+        self.tm1_service : TM1Service = tm1_environment
 
     def test_export_no_error_matching_folder(self):
         
         # given
-        model, errors = export(self.tm1_service)
-        assert isinstance(model, Model)
-        for category, category_errors in errors.items():
-            assert not category_errors, f"Found errors in {category}: {category_errors}"
+        model = self.export_without_errors()
+
+        export_dir = self.tmp_dir()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             export_dir = str(Path(temp_dir) / "exported_model")
-            
+        
             # when
             serialize_model(model, export_dir)
             
@@ -52,3 +52,16 @@ class TestExportIntegration:
             assert not cmp.left_only, f"Files only in left directory: {cmp.left_only}"
             assert not cmp.right_only, f"Files only in right directory: {cmp.right_only}"
             assert not cmp.diff_files, f"Files that differ: {cmp.diff_files}"
+
+
+    def export_without_errors(self):
+        model, errors = export(self.tm1_service)
+        assert isinstance(model, Model)
+        for category, category_errors in errors.items():
+            assert not category_errors, f"Found errors in {category}: {category_errors}"
+        return model
+    
+    def load_test_model(self):
+        expected_dir = str(Path(__file__).parent / "exported_model")
+        test_model, errors = deserialize_model(expected_dir)
+        return expected_dir,test_model
