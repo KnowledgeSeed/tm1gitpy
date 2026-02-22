@@ -4,12 +4,12 @@ import shutil
 import sys
 from pathlib import Path
 from TM1py import TM1Service
-from exporter import export
-from config import TM1ServersConfig, TM1ServerConfig
-from serializer import serialize_model
-from deserializer import deserialize_model
-from model import Model
-from filter import filter
+from tm1_git_py.exporter import Chore
+from tm1_git_py.config import TM1ServersConfig, TM1ServerConfig
+from tm1_git_py.serializer import serialize_model
+from tm1_git_py.deserializer import deserialize_model
+from tm1_git_py.model import Model
+from tm1_git_py.filter import filter
 
 
 def _tm1_connection(server_name: str) -> TM1Service:
