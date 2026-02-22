@@ -1,0 +1,88 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}Cubes",
+	"Elements": [
+		{
+			"name": "mycube",
+			"type": "String"
+		},
+		{
+			"name": "}Capabilities",
+			"type": "String"
+		},
+		{
+			"name": "}ClientCAMAssociatedGroups",
+			"type": "String"
+		},
+		{
+			"name": "}ClientGroups",
+			"type": "String"
+		},
+		{
+			"name": "}ClientProperties",
+			"type": "String"
+		},
+		{
+			"name": "}ClientSettings",
+			"type": "String"
+		},
+		{
+			"name": "}CubeSecurityProperties",
+			"type": "String"
+		},
+		{
+			"name": "}DimensionProperties",
+			"type": "String"
+		},
+		{
+			"name": "}ElementAttributes_mydimension",
+			"type": "String"
+		},
+		{
+			"name": "}ElementAttributes_}Clients",
+			"type": "String"
+		},
+		{
+			"name": "}ElementAttributes_}Cultures",
+			"type": "String"
+		},
+		{
+			"name": "}ElementAttributes_}Groups",
+			"type": "String"
+		},
+		{
+			"name": "}HierarchyProperties",
+			"type": "String"
+		},
+		{
+			"name": "}StatsByChore",
+			"type": "String"
+		},
+		{
+			"name": "}StatsByClient",
+			"type": "String"
+		},
+		{
+			"name": "}StatsByCube",
+			"type": "String"
+		},
+		{
+			"name": "}StatsByCubeByClient",
+			"type": "String"
+		},
+		{
+			"name": "}StatsByProcess",
+			"type": "String"
+		},
+		{
+			"name": "}StatsByRule",
+			"type": "String"
+		},
+		{
+			"name": "}StatsForServer",
+			"type": "String"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

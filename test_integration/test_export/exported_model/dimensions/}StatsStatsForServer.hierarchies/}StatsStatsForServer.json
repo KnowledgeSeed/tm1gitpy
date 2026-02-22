@@ -1,0 +1,24 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}StatsStatsForServer",
+	"Elements": [
+		{
+			"name": "Number of Connected Clients",
+			"type": "Numeric"
+		},
+		{
+			"name": "Number of Active Threads",
+			"type": "Numeric"
+		},
+		{
+			"name": "Memory Used",
+			"type": "Numeric"
+		},
+		{
+			"name": "Memory In Garbage",
+			"type": "Numeric"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

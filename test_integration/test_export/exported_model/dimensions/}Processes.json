@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}Processes",
+	"Hierarchies@Code.links": [
+		"}Processes.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x110badbd0>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}Processes')/Hierarchies('}Processes')"
+}

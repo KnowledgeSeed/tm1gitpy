@@ -1,0 +1,11 @@
+{
+	"@type": "Process",
+	"Name": "myprocess",
+	"HasSecurityAccess": false,
+	"Code@Code.link": "myprocess.ti",
+	"DataSource": {
+		"Type": "None"
+	},
+	"Parameters": [],
+	"Variables": []
+}

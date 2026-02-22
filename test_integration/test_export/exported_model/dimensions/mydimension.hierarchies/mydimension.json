@@ -1,0 +1,20 @@
+{
+	"@type": "Hierarchy",
+	"Name": "mydimension",
+	"Elements": [
+		{
+			"name": "myelement_num",
+			"type": "Numeric"
+		},
+		{
+			"name": "myelement_string",
+			"type": "String"
+		},
+		{
+			"name": "myelement_cons",
+			"type": "Consolidated"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}
