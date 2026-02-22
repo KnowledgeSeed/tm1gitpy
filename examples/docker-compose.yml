@@ -1,4 +1,3 @@
-version: "3.2"
 services:
   tm1:
     container_name: tm1-rocky9
