@@ -6,8 +6,8 @@ import pytest
 
 # Add the tm1_git_py directory to sys.path so we can import main and its dependencies
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
-TM1_GIT_PY_DIR = PROJECT_ROOT / "tm1_git_py"
-sys.path.insert(0, str(TM1_GIT_PY_DIR))
+# TM1_GIT_PY_DIR = PROJECT_ROOT / "tm1_git_py"
+# sys.path.insert(0, str(TM1_GIT_PY_DIR))
 
 # Add test_integration to sys.path to import test_base
 TEST_INTEGRATION_DIR = PROJECT_ROOT / "test_integration"
@@ -15,10 +15,6 @@ sys.path.insert(0, str(TEST_INTEGRATION_DIR))
 
 from test_base import tm1_environment
 from TM1py import TM1Service
-
-# Set environment variables before the fixture is evaluated
-os.environ['ALLOW_DOCKER_START'] = 'true'
-os.environ['TM1MODELS_DIR'] = './export/tm1models'
 
 @pytest.mark.usefixtures("tm1_environment")
 class TestExportIntegration:

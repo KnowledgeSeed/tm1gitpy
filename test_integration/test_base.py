@@ -9,6 +9,9 @@ from testcontainers.compose import DockerCompose
 from tm1_git_py.config import TM1ServerConfig, TM1ServersConfig
 from tm1_git_py.main import _tm1_connection_from_config
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 def is_tm1_running(timeout_in_seconds: int = 1) -> bool:
     """Check if the TM1 API is currently accessible."""
@@ -40,7 +43,8 @@ def resolve_tm1models_dir(request: pytest.FixtureRequest) -> str:
     
     if tm1models_path.exists():
         return str(tm1models_path)
-    return os.getenv("TM1MODELS_DIR", "./tm1models")
+    
+    raise ValueError(f"tm1models directory not found at expected location: {tm1models_path}")
 
 
 @pytest.fixture(scope="class")
@@ -55,25 +59,21 @@ def tm1_environment(request: pytest.FixtureRequest):
     compose: Optional[DockerCompose] = None
     
     if not is_tm1_running() and allow_docker_start:
+
+        os.environ["TM1MODELS_DIR"] = resolve_tm1models_dir(request)
+        
         # Initialize Docker Compose
         compose = DockerCompose(
             context=str(test_dir),
             compose_file_name="docker-compose.yml",
             pull=False,  # Set to False to avoid arm64 manifest errors on Mac
-            env_file=None
         )
-        
-        # Set required environment variables for the containers
-        compose.env = {
-            "TM1MODELS_DIR": resolve_tm1models_dir(request),
-            "MODEL_NAME": os.getenv("MODEL_NAME", "test_model")
-        }
-        
-        print("Starting TM1 Docker containers...")
+
+        logger.info("Starting TM1 Docker containers...")
         compose.start()
         compose.wait_for("http://localhost:5360/api/v1/")
     else:
-        print("TM1 is already running or docker start is disabled.")
+        logger.info("TM1 is already running or docker start is disabled.")
         
     # Yield the TM1Service connection to the tests
     yield _tm1_connection_from_config(get_test_config(), "local")
@@ -82,3 +82,7 @@ def tm1_environment(request: pytest.FixtureRequest):
     if compose:
         print("Stopping TM1 Docker containers...")
         compose.stop()
+        
+        # Clean up the environment variable
+        if "TM1MODELS_DIR" in os.environ:
+            del os.environ["TM1MODELS_DIR"]

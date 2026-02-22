@@ -5,7 +5,7 @@ services:
     image: kseed-docker1.knowledgeseed.local:3000/tm1-docker:2.1.4-rocky9
     
     environment:
-      - MODEL_NAME=${MODEL_NAME}
+      - TM1MODELS_DIR=${TM1MODELS_DIR}
     volumes:
       - ${TM1MODELS_DIR}:/docker-entrypoint-initdb.d/tm1models
       - ./cogstartup.xml:/docker-entrypoint-initdb.d/cogstartup.xml
