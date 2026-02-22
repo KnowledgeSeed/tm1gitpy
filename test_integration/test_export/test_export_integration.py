@@ -48,7 +48,7 @@ class TestExportIntegration:
             expected_dir = str(Path(__file__).parent / "exported_model")
             cmp = filecmp.dircmp(export_dir, expected_dir)
             
-        # then 
-        assert not cmp.left_only, f"Files only in left directory: {cmp.left_only}"
-        assert not cmp.right_only, f"Files only in right directory: {cmp.right_only}"
-        assert not cmp.diff_files, f"Files that differ: {cmp.diff_files}"
+            # then 
+            assert not cmp.left_only, f"Files only in left directory: {cmp.left_only}"
+            assert not cmp.right_only, f"Files only in right directory: {cmp.right_only}"
+            assert not cmp.diff_files, f"Files that differ: {cmp.diff_files}"
