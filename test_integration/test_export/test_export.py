@@ -35,9 +35,7 @@ class TestExportIntegration:
     def test_export_no_error_matching_folder(self):
         
         # given
-        model = self.export_without_errors()
-
-        export_dir = self.tmp_dir()
+        model = self.export_check_no_errors()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             export_dir = str(Path(temp_dir) / "exported_model")
@@ -54,7 +52,7 @@ class TestExportIntegration:
             assert not cmp.diff_files, f"Files that differ: {cmp.diff_files}"
 
 
-    def export_without_errors(self):
+    def export_check_no_errors(self):
         model, errors = export(self.tm1_service)
         assert isinstance(model, Model)
         for category, category_errors in errors.items():
