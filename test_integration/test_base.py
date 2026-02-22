@@ -1,4 +1,5 @@
 import os
+import socket
 from pathlib import Path
 from typing import Optional
 
@@ -13,22 +14,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def is_tm1_running(timeout_in_seconds: int = 1) -> bool:
+def is_tm1_running(port: int = 5360, timeout_in_seconds: int = 1) -> bool:
     """Check if the TM1 API is currently accessible."""
     try:
-        response = requests.get("http://localhost:5360/api/v1/", timeout=timeout_in_seconds)
+        response = requests.get(f"http://localhost:{port}/api/v1/", timeout=timeout_in_seconds)
         return response.status_code == 200
     except requests.exceptions.RequestException:
         return False
 
 
-def get_test_config() -> TM1ServersConfig:
+def find_free_port() -> int:
+    """Find an available port on the host machine."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+
+
+def get_test_config(port: int) -> TM1ServersConfig:
     """Create TM1ServersConfig for testing."""
     config = TM1ServersConfig()
     config.servers = {
         "local": TM1ServerConfig(
             name="local",
-            base_url="http://localhost:5360/api/v1",
+            base_url=f"http://localhost:{port}/api/v1",
             user="admin",
             password=""
         )
@@ -54,35 +63,38 @@ def tm1_environment(request: pytest.FixtureRequest):
     It waits for the TM1 API to be available before yielding the connection.
     """
     test_dir = request.config.rootdir / "test_integration"
-    allow_docker_start = os.getenv("ALLOW_DOCKER_START", "True").lower() in ("true", "1", "t")
+    force_container_start = os.getenv("FORCE_CONTAINER_START", "False").lower() in ("true", "1", "t")
     
     compose: Optional[DockerCompose] = None
     
-    if not is_tm1_running() and allow_docker_start:
-
+    port=5360
+    if force_container_start or not is_tm1_running(port):
         os.environ["TM1MODELS_DIR"] = resolve_tm1models_dir(request)
+        port = find_free_port()
+        os.environ["TM1_PORT"] = str(port)
         
-        # Initialize Docker Compose
         compose = DockerCompose(
             context=str(test_dir),
             compose_file_name="docker-compose.yml",
-            pull=False,  # Set to False to avoid arm64 manifest errors on Mac
+            pull=False,
         )
 
         logger.info("Starting TM1 Docker containers...")
         compose.start()
-        compose.wait_for("http://localhost:5360/api/v1/")
+        compose.wait_for(f"http://localhost:{port}/api/v1/")
     else:
         logger.info("TM1 is already running or docker start is disabled.")
         
     # Yield the TM1Service connection to the tests
-    yield _tm1_connection_from_config(get_test_config(), "local")
+    yield _tm1_connection_from_config(get_test_config(port), "local")
 
     # Teardown
     if compose:
         print("Stopping TM1 Docker containers...")
         compose.stop()
         
-        # Clean up the environment variable
+        # Clean up the environment variables
         if "TM1MODELS_DIR" in os.environ:
             del os.environ["TM1MODELS_DIR"]
+        if "TM1_PORT" in os.environ:
+            del os.environ["TM1_PORT"]

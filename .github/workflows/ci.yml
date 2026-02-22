@@ -65,7 +65,7 @@ jobs:
     - name: Run integration tests
       env:
         PYTHONPATH: .
-        ALLOW_DOCKER_START: 'true'
+        FORCE_CONTAINER_START: 'true'
       run: pytest test_integration/ -v --tb=short
 
   lint:
