@@ -191,8 +191,8 @@ def update_cube(tm1_service: TM1Service, cube: Dict[str, Any], **kwargs) -> Resp
                 cube_object = tm1_service.cubes.get(cube_new.name)
 
     new_rule_text = cube_new.get_rule_text()
-    if cube_object.rules.body != new_rule_text:
-        cube_object.rules._text = new_rule_text
+    if not cube_object.rules or cube_object.rules.body != new_rule_text:
+        cube_object.rules = TM1py.Rules(new_rule_text)
         logger.info(f"Updated Rules for Cube: {cube_new.name}.")
 
     return tm1_service.cubes.update(cube_object)

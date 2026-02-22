@@ -65,3 +65,14 @@ class TestExportIntegration:
         expected_dir = str(Path(__file__).parent / "exported_model")
         test_model, errors = deserialize_model(expected_dir)
         return expected_dir,test_model
+
+    def verify_no_diff(self, expected_dir, model):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            export_dir = str(Path(temp_dir) / "exported_model")
+            serialize_model(model, export_dir)
+            cmp = filecmp.dircmp(export_dir, expected_dir)
+            
+            # then 
+            assert not cmp.left_only, f"Files only in left directory: {cmp.left_only}"
+            assert not cmp.right_only, f"Files only in right directory: {cmp.right_only}"
+            assert not cmp.diff_files, f"Files that differ: {cmp.diff_files}"
