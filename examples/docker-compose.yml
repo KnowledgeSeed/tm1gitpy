@@ -6,6 +6,7 @@ services:
     volumes:
       - ./tm1models:/docker-entrypoint-initdb.d/tm1models
       - ./cogstartup.xml:/docker-entrypoint-initdb.d/cogstartup.xml
+      - ./git_local_history:/git_local_history
     healthcheck:
       test: "curl -f http://localhost:5360/api/v1/"
       interval: 5s

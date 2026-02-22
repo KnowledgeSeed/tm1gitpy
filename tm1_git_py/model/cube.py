@@ -55,7 +55,7 @@ class Cube:
             "@type": self.type,
             "Name": self.name,
             "Dimensions": [{"@id": format_url("Dimensions('{}')", d.name)} for d in self.dimensions],
-            "Rules@Code.link": format_url("{}.rules", self.name),
+            "Rules@Code.link": format_url("{}.rules", self.name) if self.rules else [],
             "Views@Code.links": [format_url("{}.views/{}.json", self.name, v.name) for v in self.views],
         }, indent='\t')
 

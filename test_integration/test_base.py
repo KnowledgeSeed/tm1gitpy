@@ -14,8 +14,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def is_tm1_running(port: int = 5360, timeout_in_seconds: int = 1) -> bool:
-    """Check if the TM1 API is currently accessible."""
+def is_tm1_running(port: int, timeout_in_seconds: int = 1) -> bool:
     try:
         response = requests.get(f"http://localhost:{port}/api/v1/", timeout=timeout_in_seconds)
         return response.status_code == 200
