@@ -24,7 +24,7 @@ import shutil
 import filecmp
 
 @pytest.mark.usefixtures("tm1_environment")
-class TestExportIntegration:
+class TestChangesetApply:
 
     _f_no_meta_obj = ["-/cubes/}*", "-/dimensions/}*"]
 
@@ -46,6 +46,9 @@ class TestExportIntegration:
         model = self.export_check_no_errors(self._f_no_meta_obj)
 
         # then
+        assert len(changeset.added) == 1
+        assert changeset.added[0].__class__.__name__ == "Cube"
+        assert changeset.added[0].name == "mycube"
         self.check_no_diff(expected_dir, model)
 
     @pytest.mark.skip(reason="Ignoring test_create_cube_with_meta_objects")
@@ -63,6 +66,9 @@ class TestExportIntegration:
         model = self.export_check_no_errors([])
 
         # then
+        assert len(changeset.added) == 1
+        assert changeset.added[0].__class__.__name__ == "Cube"
+        assert changeset.added[0].name == "mycube"
         self.check_no_diff(expected_dir, model)
 
     def test_delete_cube_no_meta_objects(self):
@@ -79,6 +85,9 @@ class TestExportIntegration:
         model = self.export_check_no_errors(self._f_no_meta_obj)
 
         # then
+        assert len(changeset.removed) == 1
+        assert changeset.removed[0].__class__.__name__ == "Cube"
+        assert changeset.removed[0].name == "TestCube"
         self.check_no_diff(expected_dir, model)
 
     def test_delete_cube_with_meta_objects(self):
@@ -95,6 +104,9 @@ class TestExportIntegration:
         model = self.export_check_no_errors([])
 
         # then
+        assert len(changeset.removed) == 1
+        assert changeset.removed[0].__class__.__name__ == "Cube"
+        assert changeset.removed[0].name == "TestCube"
         self.check_no_diff(expected_dir, model)
 
     def test_delete_cube_add_only(self):
@@ -108,8 +120,9 @@ class TestExportIntegration:
         # when
         changeset = self.compare(model, test_model, mode='add_only')
         self.apply(changeset)
+        
+        # then
         assert not changeset.removed
-
         self.check_no_diff(expected_dir, model)
 
     def test_create_dimension(self):
