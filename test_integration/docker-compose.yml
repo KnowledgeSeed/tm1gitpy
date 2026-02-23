@@ -14,6 +14,6 @@ services:
       test: "curl -f http://localhost:5360/api/v1/"
       interval: 5s
       timeout: 2m
-      retries: 10
+      retries: 20
     ports:
       - "${TM1_PORT}:5360"
