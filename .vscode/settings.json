@@ -3,5 +3,6 @@
         "tests", "test_integration"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "xml.validation.enabled": false
 }

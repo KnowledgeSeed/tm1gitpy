@@ -1,5 +1,7 @@
+import logging
 import os
 import socket
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -8,11 +10,57 @@ import requests
 from testcontainers.compose import DockerCompose
 
 from tm1_git_py.config import TM1ServerConfig, TM1ServersConfig
+from tm1_git_py.deserializer import deserialize_model
+from tm1_git_py.exporter import export
 from tm1_git_py.main import _tm1_connection_from_config
-
-import logging
+from tm1_git_py.model.model import Model
+from tm1_git_py.filter import filter
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(scope="class")
+def tm1_service(request: pytest.FixtureRequest):
+    """
+    Fixture to start the TM1 environment using docker-compose.
+    It waits for the TM1 API to be available before yielding the connection.
+    """
+    test_dir = request.config.rootdir / "test_integration"
+    force_container_start = os.getenv("FORCE_CONTAINER_START", "False").lower() in ("true", "1", "t")
+    
+    compose: Optional[DockerCompose] = None
+    
+    port=5360
+    if force_container_start or not is_tm1_running(port):
+        os.environ["TM1MODELS_DIR"] = resolve_test_model_dir(request)
+        port = find_free_port()
+        os.environ["TM1_PORT"] = str(port)
+        
+        compose = DockerCompose(
+            context=str(test_dir),
+            compose_file_name="docker-compose.yml",
+            pull=False,
+        )
+
+        logger.info("Starting TM1 Docker containers...")
+        compose.start()
+        compose.wait_for(f"http://localhost:{port}/api/v1/")
+    else:
+        logger.info("TM1 is already running or docker start is disabled.")
+        
+    # Yield the TM1Service connection to the tests
+    yield _tm1_connection_from_config(get_test_config(port), "local")
+
+    # Teardown
+    if compose:
+        print("Stopping TM1 Docker containers...")
+        compose.stop()
+        
+        # Clean up the environment variables
+        if "TM1MODELS_DIR" in os.environ:
+            del os.environ["TM1MODELS_DIR"]
+        if "TM1_PORT" in os.environ:
+            del os.environ["TM1_PORT"]
 
 def is_tm1_running(port: int, timeout_in_seconds: int = 1) -> bool:
     try:
@@ -44,56 +92,34 @@ def get_test_config(port: int) -> TM1ServersConfig:
     return config
 
 
-def resolve_tm1models_dir(request: pytest.FixtureRequest) -> str:
-    """Resolve the path to the tm1models directory based on the test file location."""
+def resolve_test_model_dir(request: pytest.FixtureRequest) -> str:
+    """Resolve the path to the test_model directory based on the test file location."""
     test_file_dir = Path(request.fspath.dirname)
-    tm1models_path = test_file_dir / "tm1models"
+    test_model_path = test_file_dir / "test_model"
     
-    if tm1models_path.exists():
-        return str(tm1models_path)
+    if test_model_path.exists():
+        return str(test_model_path)
     
-    raise ValueError(f"tm1models directory not found at expected location: {tm1models_path}")
+    raise ValueError(f"test_model directory not found at expected location: {test_model_path}")
 
 
-@pytest.fixture(scope="class")
-def tm1_environment(request: pytest.FixtureRequest):
-    """
-    Fixture to start the TM1 environment using docker-compose.
-    It waits for the TM1 API to be available before yielding the connection.
-    """
-    test_dir = request.config.rootdir / "test_integration"
-    force_container_start = os.getenv("FORCE_CONTAINER_START", "False").lower() in ("true", "1", "t")
-    
-    compose: Optional[DockerCompose] = None
-    
-    port=5360
-    if force_container_start or not is_tm1_running(port):
-        os.environ["TM1MODELS_DIR"] = resolve_tm1models_dir(request)
-        port = find_free_port()
-        os.environ["TM1_PORT"] = str(port)
-        
-        compose = DockerCompose(
-            context=str(test_dir),
-            compose_file_name="docker-compose.yml",
-            pull=False,
-        )
+def load_fixture_model(obj, filter_rules: list[str] = None) -> tuple[str, Model]:
+    dir_path = get_dir(obj)
+    fixture_dir = str(Path(dir_path) / "fixture_model")
+    fixture_model, errors = deserialize_model(fixture_dir)
+    return fixture_dir, filter(fixture_model, filter_rules) if filter_rules else fixture_model
 
-        logger.info("Starting TM1 Docker containers...")
-        compose.start()
-        compose.wait_for(f"http://localhost:{port}/api/v1/")
-    else:
-        logger.info("TM1 is already running or docker start is disabled.")
-        
-    # Yield the TM1Service connection to the tests
-    yield _tm1_connection_from_config(get_test_config(port), "local")
+def get_dir(obj) -> str:
+    module = sys.modules[obj.__class__.__module__]
+    file_path = os.path.abspath(module.__file__)
+    dir_path = os.path.dirname(file_path)
+    return dir_path
 
-    # Teardown
-    if compose:
-        print("Stopping TM1 Docker containers...")
-        compose.stop()
-        
-        # Clean up the environment variables
-        if "TM1MODELS_DIR" in os.environ:
-            del os.environ["TM1MODELS_DIR"]
-        if "TM1_PORT" in os.environ:
-            del os.environ["TM1_PORT"]
+
+def export_check_no_errors(self, filter_rules: list[str] = None)  -> Model:
+    model, errors = export(self.tm1_service)
+    assert isinstance(model, Model)
+    for category, category_errors in errors.items():
+        assert not category_errors, f"Found errors in {category}: {category_errors}"
+    return filter(model, filter_rules) if filter_rules else model
+
