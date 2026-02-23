@@ -217,7 +217,7 @@ def filter_changeset(
         else:
             expanded_paths_to_remove_by_section[section] = set(paths_to_remove_by_section[section])
 
-    filtered_changeset = Changeset(baseline_model=changeset.model)
+    filtered_changeset = Changeset()
     filtered_changeset.added = [
         obj for obj in changeset.added
         if _normalize_path(obj) not in expanded_paths_to_remove_by_section["added"]

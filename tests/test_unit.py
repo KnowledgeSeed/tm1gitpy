@@ -354,11 +354,9 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
-        changes = str(changeset)
         added = [added for added in changeset.added if type(added) is Subset]
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Hierarchy]
 
-        assert changes.count('/dimensions') == 6
         assert (isinstance(added[0], Subset) and added[0].name == "}Temp_Subset_Discount")
         for hier in modified:
             assert (isinstance(hier, Hierarchy) and hier.name in expected_hierarchies )
@@ -370,12 +368,9 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
-        changes = str(changeset)
         added = [added for added in changeset.added if type(added) is MDXView]
         removed = [removed for removed in changeset.removed if type(removed) is MDXView]
         modified = [modified for modified in changeset.modified if type(modified['new']) is Cube]
-
-        assert changes.count('/cubes') == 5
 
         assert (isinstance(added[0], MDXView) and added[0].name == "tm1_bedrock_py_gp0vkg064lilmmga")
         assert (isinstance(modified[0]['new'], Cube) and modified[0]['new'].name == "testbenchSales")
@@ -389,11 +384,9 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
-        changes = str(changeset)
         removed = [removed for removed in changeset.removed if type(removed) is Process]
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Process]
 
-        assert changes.count('/processes') == 2
         assert (isinstance(removed[0], Process) and removed[0].name == "Mock Process Load Product Data")
         assert (isinstance(modified[0], Process) and modified[0].name == "Mock Process Export Dimension")
 
@@ -406,45 +399,10 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
-        changes = str(changeset)
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Chore]
 
-        assert changes.count('/chores') == 2
         for chore_new in modified:
             assert (isinstance(chore_new, Chore) and chore_new.name in expected_chores )
-
-
-
-    def test_sort_changes(self):
-        changes = Changeset()
-        fixture = self.mock_changeset_data
-        changes.added = [
-            fixture['process_added'],
-            fixture['dimension_added'],
-            fixture['subset_added']
-        ]
-        changes.removed = [fixture['cube_removed']]
-        changes.modified = [{
-            'old': fixture['hierarchy_old'],
-            'new': fixture['hierarchy_new'],
-            'changes': "Hierarchy updated"
-        }]
-        changes.sort()
-
-        expected_order = [
-            "C  /dimensions/MockDim",
-            "C  /dimensions/MockDim.hierarchies/MockHier.subsets/NewSubset",
-            "C  /processes/MockProcess",
-            "U  /dimensions/MockDim.hierarchies/MockHier",
-            "D  /cubes/MockCube"
-        ]
-
-        assert changes.lines == expected_order
-        assert [obj.name for obj in changes.added] == [
-            "MockDim",
-            "NewSubset",
-            "MockProcess"
-        ]
 
 
 
@@ -739,14 +697,12 @@ class TestChangeset:
         changeset_compared.export(file_path=export_path)
 
         changeset_imported = import_changeset(
-            base_model=model_old,
             changeset_file=str(export_path)
         )
 
         changeset_compared.sort()
         changeset_imported.sort()
 
-        assert changeset_compared.lines == changeset_imported.lines
         assert changeset_compared.added == changeset_imported.added
         assert changeset_compared.removed == changeset_imported.removed
 
@@ -755,87 +711,6 @@ class TestChangeset:
         for expected, actual in zip(changeset_compared.modified, changeset_imported.modified):
             assert expected["old"].name == actual["old"].name
             assert expected["new"].name == actual["new"].name
-
-
-    def test_import_changeset_applies_to_current_model(self, tmp_path):
-        """
-        Expected behaviour:
-            - CREATE entry for existing Process at 'processes/MockProcess.json' treated as UPDATE
-            - DELETE entry for missing Chore at 'chores/GhostChore.json' skipped
-        """
-
-        base_model = build_mock_model(include_chore=True)
-        base_dimension = base_model.dimensions[0]
-        base_process = base_model.processes[0]
-
-        added_hierarchy = make_hierarchy(dimension_name=base_dimension.name, hierarchy_name="AddedHier")
-        update_payload = {
-            "name": base_dimension.name,
-            "hierarchies": [
-                base_dimension.hierarchies[0].to_dict(),
-                added_hierarchy.to_dict()
-            ],
-            "defaultHierarchy": base_dimension.hierarchies[0].to_dict()
-        }
-
-        create_payload = base_process.to_dict()
-        create_payload["has_security_access"] = True
-
-        changeset_payload = {
-            "changeset_name": None,
-            "changes": [
-                {
-                    "action": "CREATE",
-                    "object_type": "Process",
-                    "object_name": base_process.name,
-                    "source_path": base_process.source_path,
-                    "difference": {
-                        "old_object": None,
-                        "new_object": create_payload
-                    }
-                },
-                {
-                    "action": "DELETE",
-                    "object_type": "Chore",
-                    "object_name": "GhostChore",
-                    "source_path": "chores/GhostChore.json",
-                    "difference": {
-                        "old_object": {},
-                        "new_object": None
-                    }
-                },
-                {
-                    "action": "UPDATE",
-                    "object_type": "Dimension",
-                    "object_name": base_dimension.name,
-                    "source_path": base_dimension.source_path,
-                    "difference": {
-                        "old_object": base_dimension.to_dict(),
-                        "new_object": update_payload
-                    }
-                },
-            ],
-        }
-
-        changeset_path = tmp_path / "changeset.json"
-        changeset_path.write_text(json.dumps(changeset_payload, indent=2), encoding="utf-8")
-
-        imported = import_changeset(base_model=base_model, changeset_file=str(changeset_path))
-
-        assert imported.added == []
-        assert imported.removed == []
-        assert len(imported.modified) == 2
-
-        by_name = {entry["new"].name: entry for entry in imported.modified}
-        proc_entry = by_name[base_process.name]
-        dim_entry = by_name[base_dimension.name]
-
-        assert proc_entry["old"] is base_process
-        assert proc_entry["new"].hasSecurityAccess is True
-
-        assert dim_entry["old"] is base_dimension
-        assert len(dim_entry["new"].hierarchies) == 2
-        assert dim_entry["new"].defaultHierarchy.name == base_dimension.hierarchies[0].name
 
 
 

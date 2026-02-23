@@ -48,38 +48,6 @@ def normalize_source_path(source_path: str) -> str:
     return normalized
 
 
-def _sort_change_line_key(s: str):
-    """
-    Sorting key for a single textual change line like:
-        'C  /dimensions/Account'
-        'U  /cubes/Sales'
-        'D  /dimensions/Account.hierarchies/Total'
-    """
-    changes_precedence = OBJECT_PRECEDENCE
-    flag = re.search(r'\A([UDC])', s).group(1)
-    obj_name = re.search(r'/\b(\w*)/', s).group(1)
-
-    if 'subsets' in s:
-        obj_name = 'subsets'
-    elif 'hierarchies' in s:
-        obj_name = 'hierarchies'
-    elif 'views' in s:
-        obj_name = "views"
-
-    source_path = s.split(obj_name)[1]
-
-    if flag == 'D':
-        changes_precedence = DELETE_OBJECT_PRECEDENCE
-
-    key = (
-        FLAG_PRECEDENCE.get(flag, 99),
-        changes_precedence.get(obj_name, 99),
-        source_path
-    )
-
-    return key
-
-
 def _source_path_sort_key(s: Union[T, dict[T, Any]], delete_precedence = False):
     """
     Sorting key for model objects based on their .source_path, used to sort:
@@ -150,7 +118,7 @@ class Changeset:
 
     model: Model
 
-    def __init__(self, baseline_model: Optional[Model] = None):
+    def __init__(self):
 
         self.added: list[T] = []
         self.modified: list[dict[T, Any]] = []
@@ -158,28 +126,18 @@ class Changeset:
 
         self.changes: list[str] = []
         self.last_execution_id: str = '0'
-        self.model: Optional[Model] = baseline_model
 
         self.errors: dict[str, list[Any]] = {}
+        self.sort()
 
     @property
     def all_removed(self) -> list[str]:
         return self.removed
 
-    @property
-    def lines(self) -> list[str]:
-        return self._build_changes()
-
-    def __repr__(self):
-        changes = self.lines
-        if not changes:
-            return "No changes"
-        return "Changeset:\n" + "\n".join(changes)
-
-    def add_created(self, obj: Any, *, message: Optional[str] = None) -> None:
+    def add_created(self, obj: Any) -> None:
         self.added.append(obj)
 
-    def add_deleted(self, obj: Any, *, message: Optional[str] = None) -> None:
+    def add_deleted(self, obj: Any) -> None:
         self.removed.append(obj)
 
     def add_modified(
@@ -199,33 +157,6 @@ class Changeset:
 
     def has_changes(self) -> bool:
         return any([self.added, self.modified, self.removed])
-
-
-    def _build_changes(self) -> list[str]:
-        """
-        Build the normalized, sorted 'C/U/D  path' lines from the current
-        added/modified/removed lists. No side effects.
-        """
-        lines: list[str] = []
-
-        for obj in self.added:
-            path = normalize_source_path(getattr(obj, "source_path", ""))
-            if path:
-                lines.append(f"C  /{path}")
-
-        for mod in self.modified:
-            new_obj = mod["new"]
-            path = normalize_source_path(getattr(new_obj, "source_path", ""))
-            if path:
-                lines.append(f"U  /{path}")
-
-        for obj in self.removed:
-            path = normalize_source_path(getattr(obj, "source_path", ""))
-            if path:
-                lines.append(f"D  /{path}")
-
-        lines.sort(key=_sort_change_line_key)
-        return lines
 
 
     def apply(
@@ -317,9 +248,9 @@ class Changeset:
 
         return ok_all, changes
 
+
     def sort(self):
         if self.has_changes():
-            self.changes.sort(key=_sort_change_line_key)
 
             self.added.sort(key=_source_path_sort_key)
 
@@ -449,77 +380,7 @@ class Changeset:
 # Import changeset function & helpers
 # --------------------------------------------------------------------------------
 
-def import_changeset(changeset_file: Union[str, Path], *, base_model: Optional[Model] = None) -> Changeset:
-    if base_model:
-        return import_changeset_stateful(base_model=base_model, changeset_file=changeset_file)
-    return import_changeset_stateless(changeset_file=changeset_file)
-
-
-def import_changeset_stateful(base_model: Model, changeset_file: Union[str, Path]) -> Changeset:
-    """
-    command line tool apply: export a changeset file -> import file and old model to recreate changeset -> apply it
-    """
-    try:
-        payload = _load_changeset_payload(changeset_file)
-    except Exception as exc:
-        logger.error("Failed to load changeset payload from '%s': %s", changeset_file, exc)
-        raise
-
-    entries = _iter_changeset_entries(payload)
-
-    base_index = _build_path_index(base_model)
-    changeset = Changeset(baseline_model=base_model)
-
-    for entry in entries:
-        if not isinstance(entry, dict):
-            logger.warning("Skipping malformed changeset entry: %s", entry)
-            continue
-
-        action = entry.get("action")
-        object_type = entry.get("object_type")
-        source_path = entry.get("source_path")
-        diff = entry.get("difference") or {}
-        new_payload = diff.get("new_object")
-        message = diff.get("message")
-
-        old_obj = _build_or_resolve_object(object_type, None, source_path, base_index, prefer_payload=False)
-
-        if action == "CREATE":
-            if new_payload is None:
-                raise ValueError(f"Missing new_object payload for CREATE entry {entry}")
-            if old_obj is not None:
-                logger.warning("CREATE entry for existing %s at '%s' treated as UPDATE.",
-                               object_type, source_path)
-                new_obj = _apply_payload_to_old(object_type, old_obj, new_payload, source_path)
-                message = message or f"Content of {object_type} '{getattr(old_obj, 'name', '')}' changed."
-                changeset.add_modified(old=old_obj, new=new_obj, changes=message)
-            else:
-                new_obj = _deserialize_object_from_payload(object_type, new_payload, source_path)
-                changeset.add_created(new_obj)
-        elif action == "DELETE":
-            if old_obj is None:
-                logger.warning("DELETE entry for missing %s at '%s' skipped.", object_type, source_path)
-                continue
-            changeset.add_deleted(old_obj)
-        elif action == "UPDATE":
-            if old_obj is None:
-                logger.warning("UPDATE entry for missing %s at '%s' skipped.", object_type, source_path)
-                continue
-            if new_payload is None:
-                raise ValueError(f"Missing new_object payload for UPDATE entry {entry}")
-            new_obj = _apply_payload_to_old(object_type, old_obj, new_payload, source_path)
-            if not message:
-                target_name = entry.get("object_name") or getattr(new_obj, "name", "")
-                message = f"Content of {object_type} '{target_name}' changed."
-            changeset.add_modified(old=old_obj, new=new_obj, changes=message)
-        else:
-            logger.warning("Unknown action '%s' in entry %s", action, entry)
-
-    changeset.sort()
-    return changeset
-
-
-def import_changeset_stateless(changeset_file: Union[str, Path]) -> Changeset:
+def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
     """
     Rebuild a changeset from an exported changeset file without requiring a base model.
     """
@@ -531,7 +392,7 @@ def import_changeset_stateless(changeset_file: Union[str, Path]) -> Changeset:
 
     entries = _iter_changeset_entries(payload)
 
-    changeset = Changeset(baseline_model=None)
+    changeset = Changeset()
 
     for entry in entries:
         if not isinstance(entry, dict):
@@ -584,15 +445,6 @@ def _load_changeset_payload(changeset_file) -> dict[str, Any]:
 
     with open(changeset_file, "r", encoding="utf-8") as handle:
         return json.load(handle)
-
-
-def _build_path_index(model: Model) -> dict[str, Any]:
-    index: dict[str, Any] = {}
-    for collection in (model.cubes, model.dimensions, model.processes, model.chores):
-        for obj in collection:
-            _index_object_paths(index, obj)
-
-    return index
 
 
 def _resolve_path(path: str, index: dict[str, Any]) -> Any:
@@ -687,23 +539,6 @@ def _deserialize_object_from_payload(object_type: Optional[str],
     return builder(payload, source_path)
 
 
-def _build_or_resolve_object(object_type: Optional[str],
-                             payload: Optional[dict[str, Any]],
-                             source_path: Optional[str],
-                             index: dict[str, Any],
-                             prefer_payload: bool = True) -> Optional[Any]:
-    obj = None
-    if prefer_payload:
-        obj = _deserialize_object_from_payload(object_type, payload, source_path)
-    if obj is None and source_path:
-        rel_path = normalize_source_path(source_path)
-        if rel_path:
-            obj = _resolve_path(rel_path, index)
-    if obj is None and not prefer_payload:
-        obj = _deserialize_object_from_payload(object_type, payload, source_path)
-    return obj
-
-
 def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(base)
     for key, value in patch.items():
@@ -712,18 +547,6 @@ def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, A
         else:
             result[key] = copy.deepcopy(value)
     return result
-
-
-def _apply_payload_to_old(object_type: Optional[str],
-                          old_obj: Any,
-                          new_payload: dict[str, Any],
-                          source_path: Optional[str]) -> Any:
-    if object_type is None:
-        raise ValueError("Object type is required to apply payload.")
-    base_dict = old_obj.to_dict()
-    merged = _deep_merge_dict(base_dict, new_payload)
-    merged["name"] = merged.get("name") or getattr(old_obj, "name", None)
-    return _deserialize_object_from_payload(object_type, merged, source_path)
 
 
 # --------------------------------------------------------------------------------

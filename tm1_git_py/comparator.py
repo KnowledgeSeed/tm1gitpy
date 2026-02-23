@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Iterable, Mapping, Optional, Literal
+from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
 
 from tm1_git_py.changeset import Changeset
 from tm1_git_py.model import Hierarchy, MDXView, Subset
@@ -8,6 +8,7 @@ from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
+from tm1_git_py.filter import filter
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,30 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
         return False
 
 
+def _normalize_filter(
+        filter_rules: Optional[Union[list[str], dict]] = None
+) -> list[str]:
+    def ensure_prefix(string_list):
+        return [s if s.startswith('-/') else '-/' + s for s in string_list]
+
+    filter_rules_lines = []
+    if isinstance(filter_rules, list):
+        filter_rules_lines = ensure_prefix(filter_rules)
+        return filter_rules_lines
+
+    if isinstance(filter_rules, dict):
+        if filter_rules.get("added"):
+            filter_rules_lines += [ensure_prefix(f) for f in filter_rules.get("added")]
+        if filter_rules.get("modified"):
+            filter_rules_lines += [ensure_prefix(f) for f in filter_rules.get("modified")]
+        if filter_rules.get("removed"):
+            filter_rules_lines += [ensure_prefix(f) for f in filter_rules.get("removed")]
+        return filter_rules_lines
+
+    else:
+        raise ValueError("Invalid filter format for Comparator.")
+
+
 class Comparator:
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
@@ -99,7 +124,13 @@ class Comparator:
         Cube: _cubes_equal_shallow
     }
 
-    def compare(self, model1: Model, model2: Model, mode: Literal['full', 'add_only'] = 'full') -> Changeset:
+    def compare(
+            self,
+            model1: Model,
+            model2: Model,
+            mode: Literal['full', 'add_only'] = 'full',
+            filter_rules: Optional[Union[list[str], dict]] = None
+    ) -> Changeset:
         """
         Comparison:
             model1: Old model.
@@ -108,7 +139,12 @@ class Comparator:
                   or 'add_only' ( only stores the added and modified objects)
         """
 
-        changeset = Changeset(baseline_model=model1)
+        if filter_rules:
+            filter_rules = _normalize_filter(filter_rules)
+            model1 = filter(model1, filter_rules)
+            model2 = filter(model2, filter_rules)
+
+        changeset = Changeset()
 
         self._compare_with_children(model1.cubes, model2.cubes, Cube, changeset, mode)
         self._compare_with_children(model1.dimensions, model2.dimensions, Dimension, changeset, mode)
