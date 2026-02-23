@@ -90,12 +90,12 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
 def _normalize_filter(
         filter_rules: Optional[Union[list[str], dict]] = None
 ) -> list[str]:
-    def ensure_prefix(string_list):
-        return [s if s.startswith('-/') else '-/' + s for s in string_list]
+    def ensure_prefix(s):
+        return s if s.startswith('-/') else '-/' + s
 
     filter_rules_lines = []
     if isinstance(filter_rules, list):
-        filter_rules_lines = ensure_prefix(filter_rules)
+        filter_rules_lines += [ensure_prefix(f) for f in filter_rules]
         return filter_rules_lines
 
     if isinstance(filter_rules, dict):
@@ -129,7 +129,7 @@ class Comparator:
             model1: Model,
             model2: Model,
             mode: Literal['full', 'add_only'] = 'full',
-            filter_rules: Optional[Union[list[str], dict]] = None
+            filter_rules: Optional[Union[list[str], list[dict]]] = None
     ) -> Changeset:
         """
         Comparison:
@@ -140,9 +140,15 @@ class Comparator:
         """
 
         if filter_rules:
-            filter_rules = _normalize_filter(filter_rules)
-            model1 = filter(model1, filter_rules)
-            model2 = filter(model2, filter_rules)
+            if isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules):
+                filter_rule = _normalize_filter(filter_rules)
+                model1 = filter(model1, filter_rule)
+                model2 = filter(model2, filter_rule)
+            else:
+                for filter_rule in filter_rules:
+                    filter_rule = _normalize_filter(filter_rule)
+                    model1 = filter(model1, filter_rule)
+                    model2 = filter(model2, filter_rule)
 
         changeset = Changeset()
 
