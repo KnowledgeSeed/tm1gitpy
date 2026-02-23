@@ -28,7 +28,7 @@ class TestChangesetApply:
     def _tm1_service(self, tm1_service):
         self.tm1_service : TM1Service = tm1_service
 
-    def test_create_cube_no_meta_objects(self):
+    def test_create_cube_full_no_meta_objects(self):
         
         # given
         fixture_dir, fixture_model = load_fixture_model(self, self._f_no_meta_obj)
@@ -47,8 +47,8 @@ class TestChangesetApply:
         assert changeset.added[0].name == "mycube"
         self.check_no_diff(fixture_dir, model)
 
-    @pytest.mark.skip(reason="Ignoring test_create_cube_with_meta_objects")
-    def test_create_cube_with_meta_objects(self):
+    @pytest.mark.skip(reason="Ignoring failing due to meta objects")
+    def test_create_cube_full_with_meta_objects(self):
         
         # given
         fixture_dir, fixture_model = load_fixture_model(self, [])
@@ -67,12 +67,52 @@ class TestChangesetApply:
         assert changeset.added[0].name == "mycube"
         self.check_no_diff(fixture_dir, model)
 
-    def test_delete_cube_no_meta_objects(self):
+
+    def test_create_cube_add_only_no_meta_objects(self):
+        
+        # given
+        fixture_dir, fixture_model = load_fixture_model(self, self._f_no_meta_obj)
+
+        self.tm1_service.cubes.delete("mycube")
+        model = export_check_no_errors(self, self._f_no_meta_obj)
+        
+        # when
+        changeset = self.compare(model, fixture_model, mode='add_only')
+        self.apply(changeset)
+        model = export_check_no_errors(self, self._f_no_meta_obj)
+
+        # then
+        assert len(changeset.added) == 1
+        assert changeset.added[0].__class__.__name__ == "Cube"
+        assert changeset.added[0].name == "mycube"
+        self.check_no_diff(fixture_dir, model)
+
+    @pytest.mark.skip(reason="Ignoring failing due to meta objects")
+    def test_create_cube_add_only_with_meta_objects(self):
+        
+        # given
+        fixture_dir, fixture_model = load_fixture_model(self, [])
+
+        self.tm1_service.cubes.delete("mycube")
+        model = export_check_no_errors(self, [])
+        
+        # when
+        changeset = self.compare(model, fixture_model, mode='add_only')
+        self.apply(changeset)
+        model = export_check_no_errors(self, [])
+
+        # then
+        assert len(changeset.added) == 1
+        assert changeset.added[0].__class__.__name__ == "Cube"
+        assert changeset.added[0].name == "mycube"
+        self.check_no_diff(fixture_dir, model)
+
+    def test_delete_cube_full_no_meta_objects(self):
         
         # given
         fixture_dir, fixture_model = load_fixture_model(self, self._f_no_meta_obj)
         
-        self.tm1_service.cubes.create(Cube("TestCube", dimensions=["mydimension", "mydimension2"]))
+        self.tm1_service.cubes.create(Cube("TestCube1", dimensions=["mydimension", "mydimension2"]))
         model = export_check_no_errors(self, self._f_no_meta_obj)
         
         # when
@@ -83,15 +123,15 @@ class TestChangesetApply:
         # then
         assert len(changeset.removed) == 1
         assert changeset.removed[0].__class__.__name__ == "Cube"
-        assert changeset.removed[0].name == "TestCube"
+        assert changeset.removed[0].name == "TestCube1"
         self.check_no_diff(fixture_dir, model)
 
-    def test_delete_cube_with_meta_objects(self):
+    def test_delete_cube_full_with_meta_objects(self):
         
         # given
         fixture_dir, fixture_model = load_fixture_model(self, [])
         
-        self.tm1_service.cubes.create(Cube("TestCube", dimensions=["mydimension", "mydimension2"]))
+        self.tm1_service.cubes.create(Cube("TestCube2", dimensions=["mydimension", "mydimension2"]))
         model = export_check_no_errors(self, [])
         
         # when
@@ -102,15 +142,31 @@ class TestChangesetApply:
         # then
         assert len(changeset.removed) == 1
         assert changeset.removed[0].__class__.__name__ == "Cube"
-        assert changeset.removed[0].name == "TestCube"
+        assert changeset.removed[0].name == "TestCube2"
         self.check_no_diff(fixture_dir, model)
 
-    def test_delete_cube_add_only(self):
+    def test_delete_cube_add_only_no_meta_objects(self):
+        
+        # given
+        fixture_dir, fixture_model = load_fixture_model(self, self._f_no_meta_obj)
+        
+        self.tm1_service.cubes.create(Cube("TestCube3", dimensions=["mydimension", "mydimension2"]))
+        model = export_check_no_errors(self, self._f_no_meta_obj)
+        
+        # when
+        changeset = self.compare(model, fixture_model, mode='add_only')
+        self.apply(changeset)
+        
+        # then
+        assert not changeset.removed
+        self.check_no_diff(fixture_dir, model)
+
+    def test_delete_cube_add_only_with_meta_objects(self):
         
         # given
         fixture_dir, fixture_model = load_fixture_model(self)
         
-        self.tm1_service.cubes.create(Cube("TestCube", dimensions=["mydimension", "mydimension2"]))
+        self.tm1_service.cubes.create(Cube("TestCube4", dimensions=["mydimension", "mydimension2"]))
         model = export_check_no_errors(self)
         
         # when
@@ -137,7 +193,7 @@ class TestChangesetApply:
 
         self.check_no_diff(fixture_dir, model)
 
-    @pytest.mark.skip(reason="Ignoring test_create_dimension_with_meta_objects")
+    @pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_create_dimension_with_meta_objects(self):
         
         # given
@@ -170,7 +226,7 @@ class TestChangesetApply:
 
         self.check_no_diff(fixture_dir, model)
 
-    @pytest.mark.skip(reason="Ignoring test_delete_dimension_with_meta_objects")
+    @pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_delete_dimension_with_meta_objects(self):
         
         # given
