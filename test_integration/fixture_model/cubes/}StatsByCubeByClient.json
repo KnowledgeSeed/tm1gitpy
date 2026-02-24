@@ -1,0 +1,23 @@
+{
+	"@type": "Cube",
+	"Name": "}StatsByCubeByClient",
+	"Dimensions": [
+		{
+			"@id": "Dimensions('}PerfClients')"
+		},
+		{
+			"@id": "Dimensions('}PerfCubes')"
+		},
+		{
+			"@id": "Dimensions('}Cube Functions')"
+		},
+		{
+			"@id": "Dimensions('}StatsStatsByCubeByClient')"
+		},
+		{
+			"@id": "Dimensions('}TimeIntervals')"
+		}
+	],
+	"Rules@Code.link": [],
+	"Views@Code.links": []
+}

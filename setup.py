@@ -28,5 +28,12 @@ setup(
         "requests>=2.25",
         "tm1_bedrock_py==1.1.4",
     ],
+    extras_require={
+        "dev": [
+            "pytest>=7.0",
+            "pytest-mock",
+            "testcontainers>=4.0.0",
+        ],
+    },
     python_requires=">=3.10",
 )

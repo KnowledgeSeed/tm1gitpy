@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}Cultures",
+	"Hierarchies@Code.links": [
+		"}Cultures.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x110c573d0>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}Cultures')/Hierarchies('}Cultures')"
+}

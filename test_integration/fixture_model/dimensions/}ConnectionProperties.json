@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}ConnectionProperties",
+	"Hierarchies@Code.links": [
+		"}ConnectionProperties.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x110ad6410>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}ConnectionProperties')/Hierarchies('}ConnectionProperties')"
+}

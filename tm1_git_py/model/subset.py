@@ -78,8 +78,8 @@ class Subset:
 logger = logging.getLogger(__name__)
 
 def _subset_context_from_path(source_path: str) -> Tuple[str, str]:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path).group(1)
-    hierarchy_name = re.search(r'/(\w*)(.subsets)', source_path).group(1)
+    dimension_name = re.search(r'/([\w}]*)(.hierarchies)', source_path).group(1)
+    hierarchy_name = re.search(r'/([\w}]*)(.subsets)', source_path).group(1)
     return dimension_name, hierarchy_name
 
 

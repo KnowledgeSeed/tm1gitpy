@@ -1,0 +1,14 @@
+{
+	"@type": "Cube",
+	"Name": "}ElementAttributes_mydimension",
+	"Dimensions": [
+		{
+			"@id": "Dimensions('mydimension')"
+		},
+		{
+			"@id": "Dimensions('}ElementAttributes_mydimension')"
+		}
+	],
+	"Rules@Code.link": [],
+	"Views@Code.links": []
+}
