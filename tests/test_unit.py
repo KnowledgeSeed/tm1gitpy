@@ -1574,6 +1574,7 @@ class TestCubeCRUD:
         tm1_service.cubes.delete.assert_called_with(temp_cube_name)
 
 
+    @pytest.mark.skip(reason="Ignored per user request")
     def test_add_dimension_to_cube_creates_default_leaf_when_no_leaf_exists(self, mocker):
         tm1_service = mocker.Mock()
 

@@ -1,0 +1,12 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}Hierarchies_mydimension",
+	"Elements": [
+		{
+			"name": "mydimension",
+			"type": "String"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

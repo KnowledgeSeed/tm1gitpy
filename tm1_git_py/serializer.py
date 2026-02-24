@@ -31,19 +31,23 @@ def serialize_model(model: Model, dir):
     dir = _handle_long_path(dir)
 
     dim_dir = dir + '/dimensions'
-    os.makedirs(dim_dir, exist_ok=True)
+    if (model.dimensions):
+        os.makedirs(dim_dir, exist_ok=True)
     serialize_dimensions(model.dimensions, dim_dir)
 
     cubes_dir = dir + '/cubes'
-    os.makedirs(cubes_dir, exist_ok=True)
+    if (model.cubes):
+        os.makedirs(cubes_dir, exist_ok=True)
     serialize_cubes(model.cubes, cubes_dir)
 
     processes_dir = dir + '/processes'
-    os.makedirs(processes_dir, exist_ok=True)
+    if (model.processes):
+        os.makedirs(processes_dir, exist_ok=True)
     serialize_processes(model.processes, processes_dir)
 
     chores_dir = dir + '/chores'
-    os.makedirs(chores_dir, exist_ok=True)
+    if (model.chores):
+        os.makedirs(chores_dir, exist_ok=True)
     serialize_chores(model.chores, chores_dir)
 
 

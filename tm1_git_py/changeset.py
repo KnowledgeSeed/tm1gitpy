@@ -206,10 +206,16 @@ class Changeset:
             try:
                 if action == "CREATE":
                     resp = create_object(tm1_service=tm1_service, object_instance=obj)
+                    if isinstance(resp, list) or isinstance(resp, tuple):
+                        resp = resp[0]
                 elif action == "UPDATE":
                     resp = update_object(tm1_service=tm1_service, object_instance=obj, **kwargs)
+                    if isinstance(resp, list) or isinstance(resp, tuple):
+                        resp = resp[0]
                 elif action == "DELETE":
                     resp = delete_object(tm1_service=tm1_service, object_instance=obj)
+                    if isinstance(resp, list) or isinstance(resp, tuple):
+                        resp = resp[0]
                 else:
                     raise ValueError(f"Unknown action: {action}")
 

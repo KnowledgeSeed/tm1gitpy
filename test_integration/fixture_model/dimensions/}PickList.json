@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}PickList",
+	"Hierarchies@Code.links": [
+		"}PickList.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x110bad950>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}PickList')/Hierarchies('}PickList')"
+}

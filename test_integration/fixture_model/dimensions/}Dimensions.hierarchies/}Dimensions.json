@@ -1,0 +1,188 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}Dimensions",
+	"Elements": [
+		{
+			"name": "mydimension",
+			"type": "String"
+		},
+		{
+			"name": "mydimension2",
+			"type": "String"
+		},
+		{
+			"name": "}ApplicationEntries",
+			"type": "String"
+		},
+		{
+			"name": "}CAMAssociatedGroups",
+			"type": "String"
+		},
+		{
+			"name": "}Chores",
+			"type": "String"
+		},
+		{
+			"name": "}ClientProperties",
+			"type": "String"
+		},
+		{
+			"name": "}Clients",
+			"type": "String"
+		},
+		{
+			"name": "}ClientSettings",
+			"type": "String"
+		},
+		{
+			"name": "}ConnectionProperties",
+			"type": "String"
+		},
+		{
+			"name": "}Connections",
+			"type": "String"
+		},
+		{
+			"name": "}Cube Functions",
+			"type": "String"
+		},
+		{
+			"name": "}CubeProperties",
+			"type": "String"
+		},
+		{
+			"name": "}Cubes",
+			"type": "String"
+		},
+		{
+			"name": "}CubeSecurityProperties",
+			"type": "String"
+		},
+		{
+			"name": "}Cultures",
+			"type": "String"
+		},
+		{
+			"name": "}DimensionFormatAttributes",
+			"type": "String"
+		},
+		{
+			"name": "}DimensionFormatItems",
+			"type": "String"
+		},
+		{
+			"name": "}DimensionProperties",
+			"type": "String"
+		},
+		{
+			"name": "}Dimensions",
+			"type": "String"
+		},
+		{
+			"name": "}ElementAttributes_mydimension",
+			"type": "String"
+		},
+		{
+			"name": "}ElementAttributes_}Clients",
+			"type": "String"
+		},
+		{
+			"name": "}ElementAttributes_}Cultures",
+			"type": "String"
+		},
+		{
+			"name": "}ElementAttributes_}Groups",
+			"type": "String"
+		},
+		{
+			"name": "}ElementProperties",
+			"type": "String"
+		},
+		{
+			"name": "}Features",
+			"type": "String"
+		},
+		{
+			"name": "}Groups",
+			"type": "String"
+		},
+		{
+			"name": "}Hierarchies",
+			"type": "String"
+		},
+		{
+			"name": "}Hierarchies_mydimension",
+			"type": "String"
+		},
+		{
+			"name": "}Hierarchies_mydimension2",
+			"type": "String"
+		},
+		{
+			"name": "}HierarchyProperties",
+			"type": "String"
+		},
+		{
+			"name": "}Hold",
+			"type": "String"
+		},
+		{
+			"name": "}LineNumber",
+			"type": "String"
+		},
+		{
+			"name": "}PerfClients",
+			"type": "String"
+		},
+		{
+			"name": "}PerfCubes",
+			"type": "String"
+		},
+		{
+			"name": "}Permissions",
+			"type": "String"
+		},
+		{
+			"name": "}PickList",
+			"type": "String"
+		},
+		{
+			"name": "}Processes",
+			"type": "String"
+		},
+		{
+			"name": "}RuleStats",
+			"type": "String"
+		},
+		{
+			"name": "}SecurityOverlay",
+			"type": "String"
+		},
+		{
+			"name": "}StatsByProcess",
+			"type": "String"
+		},
+		{
+			"name": "}StatsStatsByClient",
+			"type": "String"
+		},
+		{
+			"name": "}StatsStatsByCube",
+			"type": "String"
+		},
+		{
+			"name": "}StatsStatsByCubeByClient",
+			"type": "String"
+		},
+		{
+			"name": "}StatsStatsForServer",
+			"type": "String"
+		},
+		{
+			"name": "}TimeIntervals",
+			"type": "String"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

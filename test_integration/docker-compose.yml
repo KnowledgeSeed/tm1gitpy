@@ -1,0 +1,19 @@
+services:
+  tm1:
+    image: kseed-docker1.knowledgeseed.local:3000/tm1-docker:2.1.4-rocky9
+    # The purpose of this is to make sure the container doesn't write back to the host bind mount,
+    entrypoint: >
+      bash -c "cp -r /tm1models /docker-entrypoint-initdb.d/ && /docker-entrypoint.sh"
+    environment:
+      - TM1MODELS_DIR=${TM1MODELS_DIR}
+      - TM1_PORT=${TM1_PORT:-5360}
+    volumes:
+      - ${TM1MODELS_DIR}:/tm1models
+      - ./cogstartup.xml:/docker-entrypoint-initdb.d/cogstartup.xml
+    healthcheck:
+      test: "curl -f http://localhost:5360/api/v1/"
+      interval: 5s
+      timeout: 2m
+      retries: 20
+    ports:
+      - "${TM1_PORT}:5360"

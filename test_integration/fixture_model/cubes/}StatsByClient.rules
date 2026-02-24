@@ -1,0 +1,5 @@
+skipcheck;
+
+['Bytes/Message']=['Message Bytes']/['Message Count'];
+
+['Message Bytes']=>['Bytes/Message'];

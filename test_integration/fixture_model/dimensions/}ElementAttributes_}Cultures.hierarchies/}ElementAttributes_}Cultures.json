@@ -1,0 +1,24 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}ElementAttributes_}Cultures",
+	"Elements": [
+		{
+			"name": "Region",
+			"type": "String"
+		},
+		{
+			"name": "Language",
+			"type": "String"
+		},
+		{
+			"name": "LCID",
+			"type": "String"
+		},
+		{
+			"name": "BaseCulture",
+			"type": "String"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

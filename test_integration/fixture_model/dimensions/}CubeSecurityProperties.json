@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}CubeSecurityProperties",
+	"Hierarchies@Code.links": [
+		"}CubeSecurityProperties.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x110bac450>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}CubeSecurityProperties')/Hierarchies('}CubeSecurityProperties')"
+}
