@@ -74,7 +74,7 @@ class MDXView:
 logger = logging.getLogger(__name__)
 
 def _view_context_from_path(source_path: str) -> Tuple[str, str]:
-    cube_name = re.search(r'/(\w*)(.views)', source_path).group(1)
+    cube_name = re.search(r'/([\w}]*)(.views)', source_path).group(1)
     view_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
     return cube_name, view_name
 

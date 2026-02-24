@@ -1,0 +1,17 @@
+{
+	"@type": "Cube",
+	"Name": "}StatsByChore",
+	"Dimensions": [
+		{
+			"@id": "Dimensions('}TimeIntervals')"
+		},
+		{
+			"@id": "Dimensions('}Chores')"
+		},
+		{
+			"@id": "Dimensions('}StatsByProcess')"
+		}
+	],
+	"Rules@Code.link": [],
+	"Views@Code.links": []
+}

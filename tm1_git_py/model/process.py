@@ -107,6 +107,7 @@ class Process:
             'has_security_access': self.hasSecurityAccess,
             #'data_source_type': self.data_source_type,
             #'data_source_name': self.data_source_name,
+            "code_link": self.code_link,
             'datasource' : self.datasource,
             'parameters': self.parameters,
             'variables': self.variables,
@@ -163,7 +164,7 @@ def create_process(tm1_service: TM1Service, process: Process) -> Response:
     process_object = TM1py.Process(
         name=process.name,
         has_security_access=process.hasSecurityAccess,
-        datasource_type=process.datasource,
+        datasource_type=process.datasource or "None",
         parameters=process.parameters,
         variables=process.variables
     )

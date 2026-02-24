@@ -62,25 +62,19 @@ class Element:
 
 logger = logging.getLogger(__name__)
 
-def _element_context_from_path(source_path: str) -> Tuple[str, str]:
-    dimension_name = re.search(r'/(\w*)(.hierarchies)', source_path).group(1)
-    hierarchy_name = re.search(r'/(\w*)(.elements)', source_path).group(1)
-    return dimension_name, hierarchy_name
-
-
 def create_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element: Element) -> Response:
     element_object = TM1py.Element(name=element.name, element_type=element.type)
     logger.debug(f"Creating Element: {element.name} in Hierarchy: {hierarchy_name}.")
-    return tm1_service.elements.create(hierarchy_name, dimension_name, element_object)
+    return tm1_service.elements.create(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element=element_object)
 
 
 def update_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element: Element) -> Response:
     element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name)
     element_object.element_type = element.type
     logger.debug(f"Updating Element: {element.name} in Hierarchy: {hierarchy_name}.")
-    return tm1_service.elements.update(element_object)
+    return tm1_service.elements.update(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element=element_object)
 
 
 def delete_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element_name: str) -> Response:
     logger.debug(f"Deleting Element: {element_name} of Hierarchy: {hierarchy_name}.")
-    return tm1_service.elements.delete(hierarchy_name, dimension_name, element_name)
+    return tm1_service.elements.delete(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element_name=element_name)

@@ -1,0 +1,40 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}Features",
+	"Elements": [
+		{
+			"name": "RunServerExplorer",
+			"type": "String"
+		},
+		{
+			"name": "UsePersonalWorkspaceWritebackMode",
+			"type": "String"
+		},
+		{
+			"name": "UseSandbox",
+			"type": "String"
+		},
+		{
+			"name": "ManageDataReservation",
+			"type": "String"
+		},
+		{
+			"name": "DataReservationOverride",
+			"type": "String"
+		},
+		{
+			"name": "Consolidation TypeIn Spreading",
+			"type": "String"
+		},
+		{
+			"name": "Allow Spreading",
+			"type": "String"
+		},
+		{
+			"name": "Allow Export as Text",
+			"type": "String"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

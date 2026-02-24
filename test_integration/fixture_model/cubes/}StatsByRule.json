@@ -1,0 +1,17 @@
+{
+	"@type": "Cube",
+	"Name": "}StatsByRule",
+	"Dimensions": [
+		{
+			"@id": "Dimensions('}Cubes')"
+		},
+		{
+			"@id": "Dimensions('}LineNumber')"
+		},
+		{
+			"@id": "Dimensions('}RuleStats')"
+		}
+	],
+	"Rules@Code.link": [],
+	"Views@Code.links": []
+}

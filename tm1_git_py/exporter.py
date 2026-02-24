@@ -18,19 +18,6 @@ from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 
-def tm1_connection() -> TM1Service:
-    """Creates a TM1 connection before tests and closes it after all tests."""
-    # load_dotenv()
-    tm1 = TM1Service(
-        address=os.environ.get("TM1_ADDRESS"),
-        port=os.environ.get("TM1_PORT"),
-        user=os.environ.get("TM1_USER"),
-        password="",
-        ssl=os.environ.get("TM1_SSL")
-    )
-    # basic_logger.debug("Successfully connected to TM1.")
-    return tm1
-
 
 def export(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
     _dimensions, _dim_errors = dimensions_to_model(tm1_conn)
@@ -185,9 +172,10 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
     _dimensions: Dict[str, Dimension] = {}
     for dim_name in all_dims:
         dim = tm1_conn.dimensions.get(dimension_name=dim_name)
+        default_hierarchy = Hierarchy.from_dict(dim.default_hierarchy.body_as_dict, dimension_name=dim_name)
 
         _dimension = Dimension(name=dim.name, hierarchies=[],
-                               defaultHierarchy=dim.default_hierarchy,
+                               defaultHierarchy=default_hierarchy,
                                source_path=os.path.join('dimensions', f"{dim_name}.json").replace('\\', '/'))
         _dimensions[dim.name] = _dimension
 

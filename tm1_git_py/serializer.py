@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List
 
 from tm1_git_py.model.chore import Chore
@@ -8,23 +9,45 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
 
 
+
+def _handle_long_path(file_path) -> str:
+    file_path = os.path.abspath(file_path)
+
+    if os.name == 'nt' and not file_path.startswith("\\\\?\\"):
+        if file_path.startswith("\\\\"):
+            file_path = Path(file_path[2:])
+            file_path = "\\\\?\\UNC\\" /file_path
+            return str(file_path)
+        else:
+            file_path = Path(file_path)
+            file_path = "\\\\?\\" / file_path
+            return str(file_path)
+    return file_path
+
+
 def serialize_model(model: Model, dir):
     os.makedirs(dir, exist_ok=True)
 
+    dir = _handle_long_path(dir)
+
     dim_dir = dir + '/dimensions'
-    os.makedirs(dim_dir, exist_ok=True)
+    if (model.dimensions):
+        os.makedirs(dim_dir, exist_ok=True)
     serialize_dimensions(model.dimensions, dim_dir)
 
     cubes_dir = dir + '/cubes'
-    os.makedirs(cubes_dir, exist_ok=True)
+    if (model.cubes):
+        os.makedirs(cubes_dir, exist_ok=True)
     serialize_cubes(model.cubes, cubes_dir)
 
     processes_dir = dir + '/processes'
-    os.makedirs(processes_dir, exist_ok=True)
+    if (model.processes):
+        os.makedirs(processes_dir, exist_ok=True)
     serialize_processes(model.processes, processes_dir)
 
     chores_dir = dir + '/chores'
-    os.makedirs(chores_dir, exist_ok=True)
+    if (model.chores):
+        os.makedirs(chores_dir, exist_ok=True)
     serialize_chores(model.chores, chores_dir)
 
 
@@ -70,7 +93,7 @@ def serialize_cubes(cubes: List[Cube], cubes_dir):
 
 def serialize_processes(processes: List[Process], process_dir):
     for process in processes:
-        with open(process_dir + '/' + process.name + '.ti', 'w', encoding='utf-8') as processti_file:
+        with open(process_dir + '/' + process.name + '.ti', 'w', encoding='utf-8', newline='\n') as processti_file:
             processti_file.write(process.ti.ti_as_string())
 
         with open(process_dir + '/' + process.name + '.json', 'w', encoding='utf-8') as processjson_file:

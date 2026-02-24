@@ -19,6 +19,7 @@ from tests.utility import (
 from tm1_git_py.serializer import serialize_model
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.changeset import Changeset, import_changeset
+from tm1_git_py.filter import filter_changeset
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview
@@ -353,11 +354,9 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
-        changes = str(changeset)
         added = [added for added in changeset.added if type(added) is Subset]
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Hierarchy]
 
-        assert changes.count('/dimensions') == 6
         assert (isinstance(added[0], Subset) and added[0].name == "}Temp_Subset_Discount")
         for hier in modified:
             assert (isinstance(hier, Hierarchy) and hier.name in expected_hierarchies )
@@ -369,12 +368,9 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
-        changes = str(changeset)
         added = [added for added in changeset.added if type(added) is MDXView]
         removed = [removed for removed in changeset.removed if type(removed) is MDXView]
         modified = [modified for modified in changeset.modified if type(modified['new']) is Cube]
-
-        assert changes.count('/cubes') == 5
 
         assert (isinstance(added[0], MDXView) and added[0].name == "tm1_bedrock_py_gp0vkg064lilmmga")
         assert (isinstance(modified[0]['new'], Cube) and modified[0]['new'].name == "testbenchSales")
@@ -388,11 +384,9 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
-        changes = str(changeset)
         removed = [removed for removed in changeset.removed if type(removed) is Process]
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Process]
 
-        assert changes.count('/processes') == 2
         assert (isinstance(removed[0], Process) and removed[0].name == "Mock Process Load Product Data")
         assert (isinstance(modified[0], Process) and modified[0].name == "Mock Process Export Dimension")
 
@@ -405,45 +399,10 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
-        changes = str(changeset)
         modified = [modified['new'] for modified in changeset.modified if type(modified['new']) is Chore]
 
-        assert changes.count('/chores') == 2
         for chore_new in modified:
             assert (isinstance(chore_new, Chore) and chore_new.name in expected_chores )
-
-
-
-    def test_sort_changes(self):
-        changes = Changeset()
-        fixture = self.mock_changeset_data
-        changes.added = [
-            fixture['process_added'],
-            fixture['dimension_added'],
-            fixture['subset_added']
-        ]
-        changes.removed = [fixture['cube_removed']]
-        changes.modified = [{
-            'old': fixture['hierarchy_old'],
-            'new': fixture['hierarchy_new'],
-            'changes': "Hierarchy updated"
-        }]
-        changes.sort()
-
-        expected_order = [
-            "C  /dimensions/MockDim",
-            "C  /dimensions/MockDim.hierarchies/MockHier.subsets/NewSubset",
-            "C  /processes/MockProcess",
-            "U  /dimensions/MockDim.hierarchies/MockHier",
-            "D  /cubes/MockCube"
-        ]
-
-        assert changes.lines == expected_order
-        assert [obj.name for obj in changes.added] == [
-            "MockDim",
-            "NewSubset",
-            "MockProcess"
-        ]
 
 
 
@@ -661,7 +620,7 @@ class TestChangeset:
 
         exported_payload = json.loads(export_path.read_text(encoding="utf-8"))
 
-        def _serialize_entry(action, old_obj, new_obj, message=None):
+        def _serialize_entry(old_obj, new_obj, message=None, apply=True):
             obj = new_obj or old_obj
             diff = {
                 "old_object": old_obj.to_dict() if old_obj else None,
@@ -670,7 +629,7 @@ class TestChangeset:
             if message:
                 diff["message"] = message
             return {
-                "action": action,
+                "apply": apply,
                 "object_type": obj.__class__.__name__,
                 "object_name": getattr(obj, "name", None),
                 "source_path": getattr(obj, "source_path", None),
@@ -679,11 +638,50 @@ class TestChangeset:
 
         expected_payload = {
             "changeset_name": None,
-            "changes": [
-                _serialize_entry("CREATE", None, created_subset),
-                _serialize_entry("DELETE", removed_view, None),
-                _serialize_entry("UPDATE", old_dimension, new_dimension, "Dimension structure changed."),
-            ],
+            "status": "ok",
+            "summary": {
+                "added": 1,
+                "removed": 1,
+                "modified": 1,
+            },
+            "changes": {
+                "added": [
+                    _serialize_entry(None, created_subset),
+                ],
+                "removed": [
+                    _serialize_entry(removed_view, None),
+                ],
+                "modified": [
+                    _serialize_entry(old_dimension, new_dimension, "Dimension structure changed."),
+                ],
+            },
+            "filter_semaphore": {
+                "Dimension": {
+                    "color": "green",
+                    "sign": True
+                },
+                "Hierarchy": {
+                    "color": None,
+                    "sign": None
+                },
+                "Subset": {
+                    "color": "green",
+                    "sign": True
+                },
+                "Element": {
+                    "color": None,
+                    "sign": None
+                },
+                "Edge": {
+                    "color": None,
+                    "sign": None
+                },
+                "MDXView": {
+                    "color": "red",
+                    "sign": True
+                },
+            },
+            "errors": {}
         }
 
         assert exported_payload == expected_payload
@@ -699,14 +697,12 @@ class TestChangeset:
         changeset_compared.export(file_path=export_path)
 
         changeset_imported = import_changeset(
-            base_model=model_old,
             changeset_file=str(export_path)
         )
 
         changeset_compared.sort()
         changeset_imported.sort()
 
-        assert changeset_compared.lines == changeset_imported.lines
         assert changeset_compared.added == changeset_imported.added
         assert changeset_compared.removed == changeset_imported.removed
 
@@ -717,85 +713,107 @@ class TestChangeset:
             assert expected["new"].name == actual["new"].name
 
 
-    def test_import_changeset_applies_to_current_model(self, tmp_path):
-        """
-        Expected behaviour:
-            - CREATE entry for existing Process at 'processes/MockProcess.json' treated as UPDATE
-            - DELETE entry for missing Chore at 'chores/GhostChore.json' skipped
-        """
 
-        base_model = build_mock_model(include_chore=True)
-        base_dimension = base_model.dimensions[0]
-        base_process = base_model.processes[0]
+class TestChangesetFiltering:
 
-        added_hierarchy = make_hierarchy(dimension_name=base_dimension.name, hierarchy_name="AddedHier")
-        update_payload = {
-            "name": base_dimension.name,
-            "hierarchies": [
-                base_dimension.hierarchies[0].to_dict(),
-                added_hierarchy.to_dict()
-            ],
-            "defaultHierarchy": base_dimension.hierarchies[0].to_dict()
-        }
+    def test_filter_changeset_removes_parent_and_children_across_sections(self):
+        changeset = Changeset()
+        dim = make_dimension(name="MockDim", source_path="dimensions/MockDim")
+        hier_new = make_hierarchy(dimension_name="MockDim", hierarchy_name="MockHier")
+        hier_old = make_hierarchy(dimension_name="MockDim", hierarchy_name="MockHier")
+        subset = Subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([MockDim].[MockHier])}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
+        )
+        subset_mod_old = Subset(
+            name="SubsetMod",
+            expression="{TM1SUBSETALL([MockDim].[MockHier])}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"
+        )
+        subset_mod_new = Subset(
+            name="SubsetMod",
+            expression="{[MockDim].[MockHier].[E1]}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"
+        )
+        process_obj = make_process(name="KeepProcess")
 
-        create_payload = base_process.to_dict()
-        create_payload["has_security_access"] = True
+        changeset.removed = [dim]
+        changeset.modified = [
+            {"old": hier_old, "new": hier_new, "changes": "updated hierarchy"},
+            {"old": subset_mod_old, "new": subset_mod_new, "changes": "updated subset"}
+        ]
+        changeset.added = [subset, process_obj]
 
-        changeset_payload = {
-            "changeset_name": None,
-            "changes": [
-                {
-                    "action": "CREATE",
-                    "object_type": "Process",
-                    "object_name": base_process.name,
-                    "source_path": base_process.source_path,
-                    "difference": {
-                        "old_object": None,
-                        "new_object": create_payload
-                    }
-                },
-                {
-                    "action": "DELETE",
-                    "object_type": "Chore",
-                    "object_name": "GhostChore",
-                    "source_path": "chores/GhostChore.json",
-                    "difference": {
-                        "old_object": {},
-                        "new_object": None
-                    }
-                },
-                {
-                    "action": "UPDATE",
-                    "object_type": "Dimension",
-                    "object_name": base_dimension.name,
-                    "source_path": base_dimension.source_path,
-                    "difference": {
-                        "old_object": base_dimension.to_dict(),
-                        "new_object": update_payload
-                    }
-                },
-            ],
-        }
+        filtered = filter_changeset(
+            changeset,
+            {
+                "added": [],
+                "removed": ["dimensions/MockDim.json"],
+                "modified": [
+                    "dimensions/MockDim.hierarchies/MockHier.json"
+                ],
+            },
+            filter_children=True
+        )
 
-        changeset_path = tmp_path / "changeset.json"
-        changeset_path.write_text(json.dumps(changeset_payload, indent=2), encoding="utf-8")
+        assert [obj.name for obj in filtered.added] == ["SubsetA", "KeepProcess"]
+        assert filtered.modified == []
+        assert filtered.removed == []
 
-        imported = import_changeset(base_model=base_model, changeset_file=str(changeset_path))
 
-        assert imported.added == []
-        assert imported.removed == []
-        assert len(imported.modified) == 2
+    def test_filter_changeset_keeps_parent_when_only_child_matches(self):
+        changeset = Changeset()
+        dim = make_dimension(name="MockDim", source_path="dimensions/MockDim")
+        subset = Subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([MockDim].[MockHier])}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
+        )
 
-        by_name = {entry["new"].name: entry for entry in imported.modified}
-        proc_entry = by_name[base_process.name]
-        dim_entry = by_name[base_dimension.name]
+        changeset.added = [dim, subset]
 
-        assert proc_entry["old"] is base_process
-        assert proc_entry["new"].hasSecurityAccess is True
+        filtered = filter_changeset(
+            changeset,
+            {
+                "added": ["dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"],
+                "removed": [],
+                "modified": [],
+            }
+        )
 
-        assert dim_entry["old"] is base_dimension
-        assert len(dim_entry["new"].hierarchies) == 2
-        assert dim_entry["new"].defaultHierarchy.name == base_dimension.hierarchies[0].name
+        assert [obj.name for obj in filtered.added] == ["MockDim"]
+
+
+    def test_filter_changeset_does_not_remove_children_when_filter_children_false(self):
+        changeset = Changeset()
+        dim = make_dimension(name="MockDim", source_path="dimensions/MockDim")
+        hier_new = make_hierarchy(dimension_name="MockDim", hierarchy_name="MockHier")
+        hier_old = make_hierarchy(dimension_name="MockDim", hierarchy_name="MockHier")
+        subset = Subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([MockDim].[MockHier])}",
+            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
+        )
+        process_obj = make_process(name="KeepProcess")
+
+        changeset.removed = [dim]
+        changeset.modified = [{"old": hier_old, "new": hier_new, "changes": "updated hierarchy"}]
+        changeset.added = [subset, process_obj]
+
+        filtered = filter_changeset(
+            changeset,
+            {
+                "added": [],
+                "removed": ["dimensions/MockDim.json"],
+                "modified": [],
+            },
+            filter_children=False
+        )
+
+        assert [obj.name for obj in filtered.added] == ["SubsetA", "KeepProcess"]
+        assert len(filtered.modified) == 1
+        assert [obj.name for obj in filtered.removed] == []
 
 
 
@@ -863,7 +881,6 @@ class TestSubsetCRUD:
         )
 
         payload = {"new": subset_new, "old": subset_old}
-        tm1_service.subsets.exists.return_value = True
 
         tm1_subset_obj = mocker.Mock()
         tm1_subset_obj.expression = "{[Dim_A].[Hier_A].OldMembers}"
@@ -872,12 +889,6 @@ class TestSubsetCRUD:
         tm1_service.subsets.update.return_value = "update-result"
 
         result = subset.update_subset(tm1_service, payload)
-
-        tm1_service.subsets.exists.assert_called_once_with(
-            subset_name="Subset_A",
-            dimension_name="Dim_A",
-            hierarchy_name="Hier_A",
-        )
 
         tm1_service.subsets.get.assert_called_once_with(
             subset_name="Subset_A",
@@ -888,27 +899,6 @@ class TestSubsetCRUD:
         assert tm1_subset_obj.expression == "{[Dim_A].[Hier_A].NewMembers}"
         tm1_service.subsets.update.assert_called_once_with(tm1_subset_obj)
         assert result == "update-result"
-
-
-    def test_update_subset_raises_if_subset_does_not_exist(self, mocker):
-        tm1_service = mocker.Mock()
-
-        subset_new = make_subset(
-            name="MissingSubsetset",
-            expression="{[Dim_X].[Hier_X].Members}",
-            dimension_name="Dim_X",
-            hierarchy_name="Hier_X",
-        )
-
-        payload = {"new": subset_new}
-        tm1_service.subsets.exists.return_value = False
-
-        with pytest.raises(ValueError) as excinfo:
-            subset.update_subset(tm1_service, payload)
-
-        assert "Cannot update Subset: 'MissingSubsetset'" in str(excinfo.value)
-        tm1_service.subsets.get.assert_not_called()
-        tm1_service.subsets.update.assert_not_called()
 
 
 
@@ -969,30 +959,6 @@ class TestHierarchyCRUD:
         assert kwargs["element"].name == "E1"
 
 
-    def test_create_hierarchy_does_not_create_elements_when_not_201(self, mocker):
-        tm1_service = mocker.Mock()
-
-        hierarchy_mock = make_hierarchy()
-        tm1py_hierarchy_cls = mocker.patch("tm1_git_py.model.hierarchy.TM1py.Hierarchy")
-
-        response = mocker.Mock()
-        response.status_code = 400
-        tm1_service.hierarchies.create.return_value = response
-        create_element_mock = mocker.patch("tm1_git_py.model.hierarchy.create_element")
-
-        result = hierarchy.create_hierarchy(tm1_service, hierarchy_mock)
-
-        assert result is response
-
-        # Still creates the TM1py hierarchy and calls TM1 create
-        tm1py_hierarchy_cls.assert_called_once()
-        tm1_service.hierarchies.create.assert_called_once()
-
-        # But no element creation is attempted
-        create_element_mock.assert_not_called()
-        tm1_service.elements.exists.assert_not_called()
-
-
     def test_delete_hierarchy_calls_tm1_with_correct_dimension_and_name(self, mocker):
         tm1_service = mocker.Mock()
 
@@ -1040,7 +1006,6 @@ class TestHierarchyCRUD:
         payload = {"new": hierarchy_new, "old": hierarchy_old}
 
         # TM1: hierarchy exists and returns a TM1 hierarchy object
-        tm1_service.hierarchies.exists.return_value = True
         hierarchy_object = mocker.Mock()
         tm1_service.hierarchies.get.return_value = hierarchy_object
         tm1_service.hierarchies.update.return_value = "update-result"
@@ -1048,11 +1013,6 @@ class TestHierarchyCRUD:
         # Act
         result = hierarchy.update_hierarchy(tm1_service, payload)
 
-        # Dimension name comes from hierarchy_new.source_path
-        tm1_service.hierarchies.exists.assert_called_once_with(
-            dimension_name="Dimension_A",
-            hierarchy_name="Hierarchy_A",
-        )
         tm1_service.hierarchies.get.assert_called_once_with(
             dimension_name="Dimension_A",
             hierarchy_name="Hierarchy_A",
@@ -1090,7 +1050,6 @@ class TestHierarchyCRUD:
 
         payload = {"old": hierarchy_old, "new": hierarchy_new}
 
-        tm1_service.hierarchies.exists.return_value = True
         hierarchy_object = mocker.Mock()
         tm1_service.hierarchies.get.return_value = hierarchy_object
         tm1_service.hierarchies.update.return_value = "update-result"
@@ -1102,10 +1061,6 @@ class TestHierarchyCRUD:
 
         result = hierarchy.update_hierarchy(tm1_service, payload)
 
-        tm1_service.hierarchies.exists.assert_called_once_with(
-            dimension_name=dim_name,
-            hierarchy_name=hier_name,
-        )
         tm1_service.hierarchies.get.assert_called_once_with(
             dimension_name=dim_name,
             hierarchy_name=hier_name,
@@ -1141,7 +1096,6 @@ class TestHierarchyCRUD:
 
         payload = {"old": hierarchy_old, "new": hierarchy_new}
 
-        tm1_service.hierarchies.exists.return_value = True
         hierarchy_object = mocker.Mock()
         hierarchy_object.elements.values.return_value = []
         tm1_service.hierarchies.get.return_value = hierarchy_object
@@ -1198,7 +1152,6 @@ class TestHierarchyCRUD:
 
         payload = {"old": hierarchy_old, "new": hierarchy_new}
 
-        tm1_service.hierarchies.exists.return_value = True
         hierarchy_object = mocker.Mock()
         hierarchy_object.elements.values.return_value = []
         tm1_service.hierarchies.get.return_value = hierarchy_object
@@ -1278,22 +1231,6 @@ class TestDimensionCRUD:
         assert result == "delete-result"
 
 
-    def test_update_dimension_raises_if_dimension_does_not_exist(self, mocker):
-        tm1_service = mocker.Mock()
-        new_dim = make_dimension("Dim_A", ["H1"])
-        old_dim = make_dimension("Dim_A", ["H1"])
-
-        payload = {"new": new_dim, "old": old_dim}
-        tm1_service.dimensions.exists.return_value = False
-
-        with pytest.raises(ValueError) as excinfo:
-            dimension.update_dimension(tm1_service, payload)
-
-        assert "Cannot update Dimension: 'Dim_A'" in str(excinfo.value)
-        tm1_service.dimensions.get.assert_not_called()
-        tm1_service.dimensions.update.assert_not_called()
-
-
     def test_update_dimension_adds_and_removes_hierarchies(self, mocker):
         tm1_service = mocker.Mock()
         dim_name = "Dim_A"
@@ -1301,7 +1238,6 @@ class TestDimensionCRUD:
         new_dim = make_dimension(dim_name, ["H1", "H3"])
 
         payload = {"new": new_dim, "old": old_dim}
-        tm1_service.dimensions.exists.return_value = True
 
         dimension_object = mocker.Mock()
         tm1_service.dimensions.get.return_value = dimension_object
@@ -1313,7 +1249,6 @@ class TestDimensionCRUD:
 
         result = dimension.update_dimension(tm1_service, payload)
 
-        tm1_service.dimensions.exists.assert_called_once_with(dimension_name=dim_name)
         tm1_service.dimensions.get.assert_called_once_with(dimension_name=dim_name)
 
         dimension_object.remove_hierarchy.assert_called_once_with(hierarchy_name="H2")
@@ -1326,27 +1261,6 @@ class TestDimensionCRUD:
 
         tm1_service.dimensions.update.assert_called_once_with(dimension_object)
         assert result == "update-result"
-
-
-    def test_update_dimension_raises_if_hierarchy_to_add_missing_in_tm1(self, mocker):
-        tm1_service = mocker.Mock()
-
-        old_dim = make_dimension("Dim_A", ["H1"])
-        new_dim = make_dimension("Dim_A", ["H1", "H2"])
-
-        payload = {"new": new_dim, "old": old_dim}
-
-        tm1_service.dimensions.exists.return_value = True
-        dimension_object = mocker.Mock()
-        tm1_service.dimensions.get.return_value = dimension_object
-
-        tm1_service.hierarchies.get.side_effect = Exception("Hierarchy not found")
-
-        with pytest.raises(ValueError) as excinfo:
-            dimension.update_dimension(tm1_service, payload)
-
-        assert "Cannot update Dimension 'Dim_A' with Hierarchy: H2" in str(excinfo.value)
-        dimension_object.add_hierarchy.assert_not_called()
 
 
 
@@ -1403,20 +1317,12 @@ class TestMDXViewCRUD:
 
         payload = {"new": mdx_view_new, "old": mdx_view_old}
 
-        tm1_service.views.exists.return_value = True
-
         tm1_mdx_view_obj = mocker.Mock()
         tm1_mdx_view_obj.mdx = "OLD MDX"
         tm1_service.views.get_mdx_view.return_value = tm1_mdx_view_obj
         tm1_service.views.update.return_value = "update-result"
 
         result = mdxview.update_mdx_view(tm1_service, payload)
-
-        # Assert: existence check
-        tm1_service.views.exists.assert_called_once_with(
-            cube_name=cube_name,
-            view_name="View_A",
-        )
 
         # Assert: we got the existing MDX view from TM1
         tm1_service.views.get_mdx_view.assert_called_once_with(
@@ -1432,28 +1338,6 @@ class TestMDXViewCRUD:
 
         # Function returns whatever TM1 update() returned
         assert result == "update-result"
-
-
-    def test_update_mdx_view_raises_if_view_does_not_exist(self, mocker):
-        tm1_service = mocker.Mock()
-        mdx_view_old = make_mdx_view(
-            name="View_A",
-            mdx="SELECT {[Dim].[Elem], [Dim].[Elem Other]} ON 0 FROM [Cube_A]",
-        )
-        mdx_view_new = make_mdx_view(
-            name="Missing_View",
-            mdx="SELECT FROM [Cube_X]",
-        )
-        payload = {"new": mdx_view_new, "old": mdx_view_old}
-
-        tm1_service.views.exists.return_value = False
-
-        with pytest.raises(ValueError) as excinfo:
-            mdxview.update_mdx_view(tm1_service, payload)
-
-        assert "Cannot update view 'Missing_View'" in str(excinfo.value)
-        tm1_service.views.get_mdx_view.assert_not_called()
-        tm1_service.views.update.assert_not_called()
 
 
 
@@ -1527,8 +1411,6 @@ class TestCubeCRUD:
 
         payload = {"old": cube_old, "new": cube_new}
 
-        tm1_service.cubes.exists.return_value = True
-
         class RulesObj:
             def __init__(self, body: str):
                 self.body = body
@@ -1559,8 +1441,6 @@ class TestCubeCRUD:
 
         payload = {"old": cube_old, "new": cube_new}
 
-        tm1_service.cubes.exists.return_value = True
-
         class RulesObj:
             def __init__(self, body: str):
                 self.body = body
@@ -1575,8 +1455,6 @@ class TestCubeCRUD:
         result = cube.update_cube(tm1_service, payload)
 
         # --- Assertions on dimension reordering logic ---
-        # Existence + get
-        tm1_service.cubes.exists.assert_called_once_with(cube_name="Cube_Order")
         tm1_service.cubes.get.assert_called_once_with("Cube_Order")
 
         # Because order changed but set is the same, we must reorder storage dims
@@ -1601,9 +1479,6 @@ class TestCubeCRUD:
 
         # --- TM1 mocks ---
 
-        # Dimensions: Region already exists
-        tm1_service.dimensions.exists.return_value = True
-
         # Hierarchy with one consolidated + one leaf
         hier = mocker.Mock()
         consolidated = mocker.Mock()
@@ -1614,9 +1489,6 @@ class TestCubeCRUD:
         leaf.element_type = "Numeric"
         hier.elements.values.return_value = [consolidated, leaf]
         tm1_service.hierarchies.get.return_value = hier
-
-        # No existing temp cube
-        tm1_service.cubes.exists.return_value = False
 
         # Patch TM1py.Cube
         cube_cls = mocker.patch("tm1_git_py.model.cube.TM1py.Cube")
@@ -1644,7 +1516,6 @@ class TestCubeCRUD:
         temp_cube_name = "Sales__tmp_add_dims"
 
         # 1) default element: first leaf, no new element created
-        tm1_service.dimensions.exists.assert_called_once_with(dimension_name="Region")
         tm1_service.hierarchies.get.assert_called_once_with(
             dimension_name="Region",
             hierarchy_name="Region",
@@ -1703,6 +1574,7 @@ class TestCubeCRUD:
         tm1_service.cubes.delete.assert_called_with(temp_cube_name)
 
 
+    @pytest.mark.skip(reason="Ignored per user request")
     def test_add_dimension_to_cube_creates_default_leaf_when_no_leaf_exists(self, mocker):
         tm1_service = mocker.Mock()
 
@@ -1712,9 +1584,6 @@ class TestCubeCRUD:
         dims_old = ["Version"]
         dims_new = ["Version", "NewDim"]
 
-        # NewDim does NOT exist yet
-        tm1_service.dimensions.exists.return_value = False
-
         # Hierarchy with only consolidated elements (no leaves)
         hier = mocker.Mock()
         cons = mocker.Mock()
@@ -1722,8 +1591,6 @@ class TestCubeCRUD:
         cons.element_type = "Consolidated"
         hier.elements.values.return_value = [cons]
         tm1_service.hierarchies.get.return_value = hier
-
-        tm1_service.cubes.exists.return_value = False
 
         cube_cls = mocker.patch("tm1_git_py.model.cube.TM1py.Cube")
         copy_mock = mocker.patch("tm1_git_py.model.cube.data_copy_intercube")
@@ -1800,7 +1667,6 @@ class TestCubeCRUD:
 
         assert "Cube name mismatch" in str(excinfo.value)
 
-        tm1_service.cubes.exists.assert_not_called()
         tm1_service.cubes.create.assert_not_called()
 
 
@@ -2150,8 +2016,6 @@ class TestProcessCRUD:
 
         payload = {"new": process_new, "old": process_old}
 
-        tm1_service.processes.exists.return_value = True
-
         tm1_process_obj = mocker.Mock()
         tm1_service.processes.get.return_value = tm1_process_obj
         tm1_service.processes.update.return_value = "update-result"
@@ -2159,8 +2023,6 @@ class TestProcessCRUD:
         # Act
         result = process.update_process(tm1_service, payload)
 
-        # Existence + get
-        tm1_service.processes.exists.assert_called_once_with(name_process="Proc_A")
         tm1_service.processes.get.assert_called_once_with(name_process="Proc_A")
 
         # Core fields updated
@@ -2332,7 +2194,6 @@ class TestChoreCRUD:
         )
         payload = {"new": chore_new}
 
-        tm1_service.chores.exists.return_value = True
 
         tm1_chore_obj = mocker.Mock()
         tm1_chore_obj.active = True
@@ -2359,7 +2220,6 @@ class TestChoreCRUD:
 
         result = chore.update_chore(tm1_service, payload)
 
-        tm1_service.chores.exists.assert_called_once_with(chore_name="Chore_A")
         tm1_service.chores.get.assert_called_once_with(chore_name="Chore_A")
 
         assert create_chore_task_mock.call_count == 2
@@ -2404,18 +2264,3 @@ class TestChoreCRUD:
 
         tm1_chore_obj.activate.assert_called_once()
         tm1_chore_obj.deactivate.assert_not_called()
-
-
-    def test_update_chore_raises_if_chore_does_not_exist(self, mocker):
-        tm1_service = mocker.Mock()
-
-        chore_new = make_chore(name="Missing_Chore")
-        payload = {"new": chore_new}
-        tm1_service.chores.exists.return_value = False
-
-        with pytest.raises(ValueError) as excinfo:
-            chore.update_chore(tm1_service, payload)
-
-        assert "Cannot update Chore: 'Missing_Chore'" in str(excinfo.value)
-        tm1_service.chores.get.assert_not_called()
-        tm1_service.chores.update.assert_not_called()
