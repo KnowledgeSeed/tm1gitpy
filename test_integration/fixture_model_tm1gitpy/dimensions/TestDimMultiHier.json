@@ -1,0 +1,11 @@
+{
+	"@type": "Dimension",
+	"Name": "TestDimMultiHier",
+	"Hierarchies@Code.links": [
+		"TestDimMultiHier.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c521c50>.json",
+		"TestDimMultiHier.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c723e30>.json",
+		"TestDimMultiHier.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c723f20>.json",
+		"TestDimMultiHier.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c5b0050>.json"
+	],
+	"DefaultHierarchy": "Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')"
+}

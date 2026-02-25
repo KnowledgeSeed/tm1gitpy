@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}Permissions",
+	"Hierarchies@Code.links":
+	[
+		"}Permissions.hierarchies/}Permissions.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Permissions')/Hierarchies('}Permissions')"
+	}
+}

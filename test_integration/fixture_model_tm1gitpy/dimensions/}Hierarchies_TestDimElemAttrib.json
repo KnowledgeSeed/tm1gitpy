@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}Hierarchies_TestDimElemAttrib",
+	"Hierarchies@Code.links": [
+		"}Hierarchies_TestDimElemAttrib.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c7e0e50>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}Hierarchies_TestDimElemAttrib')/Hierarchies('}Hierarchies_TestDimElemAttrib')"
+}

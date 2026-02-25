@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}StatsStatsByCube",
+	"Hierarchies@Code.links": [
+		"}StatsStatsByCube.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c89e4d0>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}StatsStatsByCube')/Hierarchies('}StatsStatsByCube')"
+}

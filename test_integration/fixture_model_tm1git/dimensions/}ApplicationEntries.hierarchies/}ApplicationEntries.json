@@ -1,0 +1,12 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}ApplicationEntries",
+	"Elements":
+	[
+		{
+			"Name":"}applications",
+			"Type":"Consolidated"
+		}
+	],
+	"Subsets@Code.links":[]
+}

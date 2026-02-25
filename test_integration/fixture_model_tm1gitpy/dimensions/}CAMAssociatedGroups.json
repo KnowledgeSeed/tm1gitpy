@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}CAMAssociatedGroups",
+	"Hierarchies@Code.links": [
+		"}CAMAssociatedGroups.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c52c950>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}CAMAssociatedGroups')/Hierarchies('}CAMAssociatedGroups')"
+}

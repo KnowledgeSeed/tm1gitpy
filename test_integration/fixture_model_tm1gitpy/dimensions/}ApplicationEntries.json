@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}ApplicationEntries",
+	"Hierarchies@Code.links": [
+		"}ApplicationEntries.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c4fbba0>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}ApplicationEntries')/Hierarchies('}ApplicationEntries')"
+}

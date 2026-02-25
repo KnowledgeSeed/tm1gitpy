@@ -1,0 +1,17 @@
+{
+	"@type":"Cube",
+	"Name":"}StatsByCube",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('}StatsStatsByCube')"
+		},
+		{
+			"@id":"Dimensions('}PerfCubes')"
+		},
+		{
+			"@id":"Dimensions('}TimeIntervals')"
+		}
+	],
+	"Views@Code.links":[]
+}

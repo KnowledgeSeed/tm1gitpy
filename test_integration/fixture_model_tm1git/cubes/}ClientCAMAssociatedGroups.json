@@ -1,0 +1,14 @@
+{
+	"@type":"Cube",
+	"Name":"}ClientCAMAssociatedGroups",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('}CAMAssociatedGroups')"
+		},
+		{
+			"@id":"Dimensions('}Groups')"
+		}
+	],
+	"Views@Code.links":[]
+}

@@ -1,0 +1,28 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}StatsStatsByClient",
+	"Elements":
+	[
+		{
+			"Name":"Message Count",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Message Bytes",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Request Count",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Elapse Time (ms)",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Bytes/Message",
+			"Type":"Numeric"
+		}
+	],
+	"Subsets@Code.links":[]
+}
