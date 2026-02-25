@@ -1,0 +1,36 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}RuleStats",
+	"Elements":
+	[
+		{
+			"Name":"Rule Text",
+			"Type":"String"
+		},
+		{
+			"Name":"Total Run Count",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Min Time (ms)",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Max Time (ms)",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Avg Time (ms)",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Total Time (ms)",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Last Run Time",
+			"Type":"Numeric"
+		}
+	],
+	"Subsets@Code.links":[]
+}

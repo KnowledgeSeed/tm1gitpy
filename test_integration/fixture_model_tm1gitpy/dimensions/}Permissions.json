@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}Permissions",
+	"Hierarchies@Code.links": [
+		"}Permissions.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c89fa50>.json"
+	],
+	"DefaultHierarchy": "Dimensions('}Permissions')/Hierarchies('}Permissions')"
+}

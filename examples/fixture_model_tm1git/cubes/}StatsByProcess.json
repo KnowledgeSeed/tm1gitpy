@@ -1,0 +1,17 @@
+{
+	"@type":"Cube",
+	"Name":"}StatsByProcess",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('}TimeIntervals')"
+		},
+		{
+			"@id":"Dimensions('}Processes')"
+		},
+		{
+			"@id":"Dimensions('}StatsByProcess')"
+		}
+	],
+	"Views@Code.links":[]
+}

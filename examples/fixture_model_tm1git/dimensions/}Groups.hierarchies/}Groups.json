@@ -1,0 +1,24 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}Groups",
+	"Elements":
+	[
+		{
+			"Name":"ADMIN",
+			"Type":"String"
+		},
+		{
+			"Name":"SecurityAdmin",
+			"Type":"String"
+		},
+		{
+			"Name":"DataAdmin",
+			"Type":"String"
+		},
+		{
+			"Name":"OperationsAdmin",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}

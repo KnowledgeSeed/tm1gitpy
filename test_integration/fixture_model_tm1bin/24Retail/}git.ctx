@@ -1,0 +1,293 @@
+﻿1500,0
+1501,"file:///git_local_history"
+1502,"local"
+1503,2851
+{
+    "Version": "1.0",
+    "Files": [
+        "/data_csv/*.*",
+        "/data_source/*.*"
+    ],
+    "Ignore": [
+        "!Cubes('}Capabilities')",
+        "!Cubes('}ClientCAMAssociatedGroups')",
+        "!Cubes('}ClientGroups')",
+        "!Cubes('}ClientProperties')",
+        "!Cubes('}ClientSettings')",
+        "!Cubes('}CubeSecurityProperties')",
+        "!Cubes('}DimensionProperties')",
+        "!Cubes('}ElementAttributes_mydimension')",
+        "!Cubes('}ElementAttributes_}Clients')",
+        "!Cubes('}ElementAttributes_}Cultures')",
+        "!Cubes('}ElementAttributes_}Groups')",
+        "!Cubes('}HierarchyProperties')",
+        "!Cubes('}StatsByChore')",
+        "!Cubes('}StatsByClient')",
+        "!Cubes('}StatsByCube')",
+        "!Cubes('}StatsByCubeByClient')",
+        "!Cubes('}StatsByProcess')",
+        "!Cubes('}StatsByRule')",
+        "!Cubes('}StatsForServer')",
+        "!Dimensions('}ApplicationEntries')",
+        "!Dimensions('}CAMAssociatedGroups')",
+        "!Dimensions('}Chores')",
+        "!Dimensions('}ClientProperties')",
+        "!Dimensions('}Clients')",
+        "!Dimensions('}ClientSettings')",
+        "!Dimensions('}ConnectionProperties')",
+        "!Dimensions('}Connections')",
+        "!Dimensions('}Cube Functions')",
+        "!Dimensions('}CubeProperties')",
+        "!Dimensions('}Cubes')",
+        "!Dimensions('}CubeSecurityProperties')",
+        "!Dimensions('}Cultures')",
+        "!Dimensions('}DimensionFormatAttributes')",
+        "!Dimensions('}DimensionFormatItems')",
+        "!Dimensions('}DimensionProperties')",
+        "!Dimensions('}Dimensions')",
+        "!Dimensions('}ElementAttributes_}Clients')",
+        "!Dimensions('}ElementAttributes_}Cultures')",
+        "!Dimensions('}ElementAttributes_}Groups')",
+        "!Dimensions('}ElementProperties')",
+        "!Dimensions('}Features')",
+        "!Dimensions('}Groups')",
+        "!Dimensions('}Hierarchies')",
+        "!Dimensions('}Hierarchies_TestDim1')",
+        "!Dimensions('}Hierarchies_TestDim2')",
+        "!Dimensions('}Hierarchies_TestDim3')",
+        "!Dimensions('}Hierarchies_TestDimElemAttrib')",
+        "!Dimensions('}Hierarchies_TestDimMultiHier')",
+        "!Dimensions('}HierarchyProperties')",
+        "!Dimensions('}Hold')",
+        "!Dimensions('}LineNumber')",
+        "!Dimensions('}PerfClients')",
+        "!Dimensions('}PerfCubes')",
+        "!Dimensions('}Permissions')",
+        "!Dimensions('}PickList')",
+        "!Dimensions('}Processes')",
+        "!Dimensions('}RuleStats')",
+        "!Dimensions('}SecurityOverlay')",
+        "!Dimensions('}StatsByProcess')",
+        "!Dimensions('}StatsStatsByClient')",
+        "!Dimensions('}StatsStatsByCube')",
+        "!Dimensions('}StatsStatsByCubeByClient')",
+        "!Dimensions('}StatsStatsForServer')",
+        "!Dimensions('}TimeIntervals')"
+    ]
+}
+1505,0
+1506,74
+"Cubes('TestCube1')","cf773d08edd9c07fef5d7684de0adc46146de94a"
+"Cubes('TestCube2WithRule')","a46d5b3aa4423dcae4335794a4d2a16761a47dd7"
+"Cubes('TestCube3WithView')","2e9f9710649496701806f0abed817d5e985befe5"
+"Cubes('}Capabilities')","4fa7c6bb06a7d5765cc887ca57dac2c07dbe29af"
+"Cubes('}ClientCAMAssociatedGroups')","beba80c5f0380d018af1f5b12341db1b3b3767fd"
+"Cubes('}ClientGroups')","19fb2aee60d36b1c59c7e0c9acde41f7530b0481"
+"Cubes('}ClientProperties')","d0a15f4b4b8dbc7096e0c1e810b9286ed261344a"
+"Cubes('}ClientSettings')","22a230e796367659692f20608cc255ed4aa4e744"
+"Cubes('}CubeSecurityProperties')","999b81f52f7d82a86a93a3fc02264cd596ebbf4b"
+"Cubes('}DimensionProperties')","cc0b5eee307ef185ad034c2098c743b5ce9ad57c"
+"Cubes('}ElementAttributes_}Clients')","210441da92812dd227b54a64cf0dcb7b292e325d"
+"Cubes('}ElementAttributes_}Cultures')","82e389c21dbb1062f39c4e70791e2c892e606e08"
+"Cubes('}ElementAttributes_}Groups')","47f847bd4d51ad11ebbd6f37f1e006e819f726ef"
+"Cubes('}HierarchyProperties')","0d3d28e03a4d9ba3c116978c0d9ca57a9caedda3"
+"Cubes('}StatsByChore')","71fae54292bbbb6c17df91a86c0d2476e0edb765"
+"Cubes('}StatsByClient')","0ed576b6376b461f670f610b89a19a02eae82b7b"
+"Cubes('}StatsByCube')","445b4c7cd4e76cc1057907efe8073259220f81c8"
+"Cubes('}StatsByCubeByClient')","7f85e760c635ecd7a28790536b6962fea785e62c"
+"Cubes('}StatsByProcess')","7e328db39fa04eca321afd83b731f92a4584e1f4"
+"Cubes('}StatsByRule')","5b62ffe6f0dfc6f1b893939b07f720f495027e88"
+"Cubes('}StatsForServer')","c1890b7966c8ea2aae9b187738c7cd84e309e202"
+"Dimensions('TestDim1')","0cd629d799c7341fc6670b46893a5a3138028e55"
+"Dimensions('TestDim2')","6fc7b3b217090a7e2d54cb9d939bfad14728751c"
+"Dimensions('TestDim3')","15c12192312f9c841530ae4268af08cb5e78a59e"
+"Dimensions('TestDimElemAttrib')","cc425ef87d1904ca87d3ea15fa7080e856af95a6"
+"Dimensions('TestDimMultiHier')","dfa0ab8b1225038b52d5a18d6cc813c0c8f759ff"
+"Dimensions('}ApplicationEntries')","fdb3691d4fe60dbaefb6b8c983a343b1837b8aa1"
+"Dimensions('}CAMAssociatedGroups')","b66a753ae41e3446e199dcca0c031fab424ef39e"
+"Dimensions('}Chores')","331688e8c491d0cf775c6f6e275c57ad55f9305e"
+"Dimensions('}ClientProperties')","8d7caeaa39f3d02b7e82b18ac37c0cada50969be"
+"Dimensions('}ClientSettings')","942ff6313d6be0be881a4f35049f7432fb5f62be"
+"Dimensions('}Clients')","b6ab48d5f3d6edc489849a94eea445f23f23267f"
+"Dimensions('}ConnectionProperties')","97bf347d945b473b74a1a1767a5d31954815664b"
+"Dimensions('}Connections')","9be02289f05816c9e80dc200e585fcef86d0b48d"
+"Dimensions('}Cube Functions')","31d621b2664a73daf4c7dc9ec29c5a6d706f29a4"
+"Dimensions('}CubeProperties')","171d5ae694d73082a1a660a37a1ae606010c43ca"
+"Dimensions('}CubeSecurityProperties')","fdd66cb08f3f57e1ba0dae9d58c65d07b8c04800"
+"Dimensions('}Cubes')","a8f29f7111d6395dd1570c997aca1592f2453576"
+"Dimensions('}Cultures')","e226df1799833c9cbde7a1048e09b5de773410b0"
+"Dimensions('}DimensionFormatAttributes')","c6ad6de74de62ef4a8f548d21f0bbb7e0b58bc2f"
+"Dimensions('}DimensionFormatItems')","ad6ce37abc79977ee13e6dd747cdcc307a446111"
+"Dimensions('}DimensionProperties')","9a3c0a9a6f784f71548d441f63d7d47a76459267"
+"Dimensions('}Dimensions')","219ce40c51afc4e2d3d9e511982221fecc753d48"
+"Dimensions('}ElementAttributes_}Clients')","d2a39b2c8d00bb666557401c75d37e18dea4fed8"
+"Dimensions('}ElementAttributes_}Cultures')","6672e64ad35cc6f8518c803eff5d442029fb6eda"
+"Dimensions('}ElementAttributes_}Groups')","b023371641b77468402b454598c7d50bdd975521"
+"Dimensions('}ElementProperties')","ec0c1cc56ca737521b609722a9758d62d5964654"
+"Dimensions('}Features')","0e25bac684d752bc3d842438c0de737f5247522c"
+"Dimensions('}Groups')","e2432d863824cd95dc731c0e755a3ddf6ab7ea14"
+"Dimensions('}Hierarchies')","18ced95b5e46283df4d32e65234f81731a552156"
+"Dimensions('}Hierarchies_TestDim1')","3ca00983c7c7d171e0bf47c686ddba501e106ce7"
+"Dimensions('}Hierarchies_TestDim2')","2b6e925d09bee71da54402533fe1e5c49feba3fc"
+"Dimensions('}Hierarchies_TestDim3')","045b5e9ce49f96050d962314f84fdcd3a0680296"
+"Dimensions('}Hierarchies_TestDimElemAttrib')","d9191b22cd0456a53042112b026b14b1bc1c8800"
+"Dimensions('}Hierarchies_TestDimMultiHier')","51935cffbe49b0c4638779adc2b439b738907477"
+"Dimensions('}HierarchyProperties')","55281ac35734cf9bb39d26787b58ee9aa589b774"
+"Dimensions('}Hold')","c7e3b73f672f946c1aa709bb1cf3c8c164b70af4"
+"Dimensions('}LineNumber')","d308e67495c396d28f71944fb40864238675acd5"
+"Dimensions('}PerfClients')","011e8a7031f2c46231d2da409ca666aada8f8969"
+"Dimensions('}PerfCubes')","6056239350d8c25aedb7be09790e4da1faf9c9b4"
+"Dimensions('}Permissions')","161daf745b73f067b8fab92a5a119cef94695ddb"
+"Dimensions('}PickList')","02e7c5271b5029ce11faf0d669ffb8ef52f7b5a8"
+"Dimensions('}Processes')","f566f7d794a50ed4b8c9501946c065b546f02a39"
+"Dimensions('}RuleStats')","e998cfb5643b7c41d3e101e00a41ece053395572"
+"Dimensions('}SecurityOverlay')","51e88579842c62068db83bfa932d015e11401d3a"
+"Dimensions('}StatsByProcess')","504fb9c9654eb4eea2182a81d987fb65baf36dab"
+"Dimensions('}StatsStatsByClient')","0c6d3bca1f97e4ac311f973fa8d1446bc32c60d5"
+"Dimensions('}StatsStatsByCube')","0ae1b750bfd4e015c8e4c5d5ee2ffc9f2c7df6e2"
+"Dimensions('}StatsStatsByCubeByClient')","ad5b6c5f32ba981dbd099724bd4d02b314e838f7"
+"Dimensions('}StatsStatsForServer')","6bbe459458c1fc1f70005f49c4af9c25c246f62f"
+"Dimensions('}TimeIntervals')","339ce4ec222b991f6454f38fabddaca2e45c3e7b"
+"Processes('myprocess')","035324ff00a22e32cf22f18dcd163669ec4a3d43"
+"Processes('myprocess2')","079e364e587888f3bbc0fc63766b5aaef81ecef6"
+"Processes('myprocess3')","1f8f37cb6e66b81a731285068ba7ca6368697e18"
+1507,135
+"/cubes/TestCube1.json","feb45870d2eff1f3b9e31c0eda601e365b37df39"
+"/cubes/TestCube2WithRule.json","f3b4341b6b4e38d71170b1159b2e83ed1d87bfb5"
+"/cubes/TestCube2WithRule.rules","08d0c71ad460ca96d07a2e8b8fc697ccddd6b802"
+"/cubes/TestCube3WithView.json","f78a4dd3d34f435c411e12135b13e272df89076e"
+"/cubes/TestCube3WithView.views/TestCube3WithView_view1.json","941234cf8df87577569a7ae7cb2b8ac5335e973a"
+"/cubes/TestCube3WithView.views/TestCube3WithView_view1.mdx","4353117906014cc39004419d0c2ac595a6726b8f"
+"/cubes/TestCube3WithView.views/TestCube3WithView_view2.json","dda567550ee145b9fe3bc18048d8d181396e0817"
+"/cubes/}Capabilities.json","f3b0a6282ae8c2e8f77caa5654892b79de63fd32"
+"/cubes/}ClientCAMAssociatedGroups.json","b5a38eb20cdf85123f77e0097381071e674f8c18"
+"/cubes/}ClientGroups.json","04950e49cdfb7425cb4f37aff16e30379772781c"
+"/cubes/}ClientProperties.json","079e9320deb4d096d6bebc4002627bebf74cdd04"
+"/cubes/}ClientSettings.json","9897ee29afeb1e64bcb7c9b79f34e055a1a003cf"
+"/cubes/}CubeSecurityProperties.json","2d27af3bc0fa486316ee9e606b4fe51e78dcf242"
+"/cubes/}DimensionProperties.json","6e4e18173e4d4371d0a35fd263e21ea6fafe2452"
+"/cubes/}ElementAttributes_}Clients.json","db7854a6e42903864f04d5432a52d7a4fa79bac9"
+"/cubes/}ElementAttributes_}Cultures.json","001594c00131dca3dfcf247381ca1704ab80caa4"
+"/cubes/}ElementAttributes_}Groups.json","be83ebd1c82fe22caf8e832d551c7b2730dd48c5"
+"/cubes/}HierarchyProperties.json","34574cc6f3e206edb0e937585c79ac6e4e2f4fca"
+"/cubes/}StatsByChore.json","a74b15263f714606061bcad32e10278fe8d82823"
+"/cubes/}StatsByClient.json","a7147b9586d6f28a8e9549ed21a5f80154f2be62"
+"/cubes/}StatsByClient.rules","c7f867b5974106e26c98dfabe8ebc3bfde301226"
+"/cubes/}StatsByCube.json","740ad8d28d8733485ad9b774c42a0c1009cf57e7"
+"/cubes/}StatsByCubeByClient.json","c190cd031fc545d0311389ec38b57873e7accc37"
+"/cubes/}StatsByProcess.json","5afffba0992c7f2c7aaecbdadec6f2e7254b155c"
+"/cubes/}StatsByRule.json","63d7d635084479c2aa1104629c41dff8d9d8d784"
+"/cubes/}StatsForServer.json","4694272e088e6e67e05431f1893afde91b86b909"
+"/dimensions/TestDim1.hierarchies/TestDim1.json","f63df4f3b3431d7d897b2c7ff9dfda707341fc8b"
+"/dimensions/TestDim1.json","54075c4b8c78af52a6ead2ae31f1d16b77986c83"
+"/dimensions/TestDim2.hierarchies/TestDim2.json","ca58c854baff26b7841f4560357d40673457db8c"
+"/dimensions/TestDim2.json","cfa57ff6f1994315cd969d94c83892458787e8a8"
+"/dimensions/TestDim3.hierarchies/TestDim3.json","64fcc642ddcbf9fb517af77d9ab1e869120118b3"
+"/dimensions/TestDim3.json","a21e441416fdbf6975f93858ef31a32e0eccfc75"
+"/dimensions/TestDimElemAttrib.hierarchies/TestDimElemAttrib.json","37e4eadaf84b83a3569a3aa00d644da2458be268"
+"/dimensions/TestDimElemAttrib.json","36b5923fa276340461ea3e9f0b9044cf03291067"
+"/dimensions/TestDimMultiHier.hierarchies/Hier1.json","4ec65d1fa5368d3e3ba1e740826fc401fbf453bd"
+"/dimensions/TestDimMultiHier.hierarchies/Hier2.json","3d1169b1dfc324a6424fde26ce871328719b12d2"
+"/dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json","71f1c0dcf339df986727af1af623d6709ce799a8"
+"/dimensions/TestDimMultiHier.json","14a4f334d2d484cfca316ea7cf33bc803830fc86"
+"/dimensions/}ApplicationEntries.hierarchies/}ApplicationEntries.json","90c4b83ab338fe96d0fd96a026e256fed22d4ac8"
+"/dimensions/}ApplicationEntries.json","cb6b23ae0dfc9f7edc60e4f8a4846a48d2083266"
+"/dimensions/}CAMAssociatedGroups.hierarchies/}CAMAssociatedGroups.json","ea9aa9edcf252008f2083804fa3a3973e5d93070"
+"/dimensions/}CAMAssociatedGroups.json","da12665671cda37dccfee3db55a86754d8f581f5"
+"/dimensions/}Chores.hierarchies/}Chores.json","a1aa3c1147381f4dfd8746ae54f6dddbed658c71"
+"/dimensions/}Chores.json","f7f998a05d23ad7fb7275090d130ddfb01336bda"
+"/dimensions/}ClientProperties.hierarchies/}ClientProperties.json","1ce4e24f590390d576d4c0a71ba667b52f715ddd"
+"/dimensions/}ClientProperties.json","2a94c8b2c3db01781c68b103acf7ff086e341537"
+"/dimensions/}ClientSettings.hierarchies/}ClientSettings.json","a8384de384d5186be612bc5e55d3398b7542509e"
+"/dimensions/}ClientSettings.json","e68b8612a9b1e51886066e4027f862ae2784bf65"
+"/dimensions/}Clients.hierarchies/}Clients.json","cdc0c48bf3785fc7a1fbb41368a72376cffd5d73"
+"/dimensions/}Clients.json","007642c4ad01ee4d39c442d59ea65ae3ddffb9de"
+"/dimensions/}ConnectionProperties.hierarchies/}ConnectionProperties.json","a1fc715009b04047698ac64dbc20ceec79a634e2"
+"/dimensions/}ConnectionProperties.json","3967f6dd197eed7df3a23f5b3bdedd41a09ad112"
+"/dimensions/}Connections.hierarchies/}Connections.json","0f6bf2565f4f469646d17db5aae4fe8ab07d86c7"
+"/dimensions/}Connections.json","dacb760bd60512941f46007e1e9573a8725bca28"
+"/dimensions/}Cube Functions.hierarchies/}Cube Functions.json","330e482ea0567e76d08e6001f4083a28f4318fa3"
+"/dimensions/}Cube Functions.json","eb047209e1b6748347f2b510474dcec713196861"
+"/dimensions/}CubeProperties.hierarchies/}CubeProperties.json","ddaaf6f58ea97a199da30cd594208e1cb0293103"
+"/dimensions/}CubeProperties.json","d19f12b2cfeaa6f445a85fea316edef2db7ba76c"
+"/dimensions/}CubeSecurityProperties.hierarchies/}CubeSecurityProperties.json","708e86dc3ec96407d76c2a7f3d7d0d8dc0333331"
+"/dimensions/}CubeSecurityProperties.json","b779e77d692847a69c764a42470321155134c67e"
+"/dimensions/}Cubes.hierarchies/}Cubes.json","fe89e320900b2dacb098112b0bd653c8d4679f4a"
+"/dimensions/}Cubes.json","2ae0260daa38be9541613acefeb75f6efdfb3c07"
+"/dimensions/}Cultures.hierarchies/}Cultures.json","90783056a3dfcddb6a527262a3491621e240db47"
+"/dimensions/}Cultures.json","6e387c7735b4ba4d92e182324403463fa1fff947"
+"/dimensions/}DimensionFormatAttributes.hierarchies/}DimensionFormatAttributes.json","d4312c3233e90d62c431ae1cd03594db3c267d44"
+"/dimensions/}DimensionFormatAttributes.json","685e186910065a3d42af8f9869c281fb90debff4"
+"/dimensions/}DimensionFormatItems.hierarchies/}DimensionFormatItems.json","066efe57fbca0d32b949103dd5bd42e6e46916b6"
+"/dimensions/}DimensionFormatItems.json","6ef85999b68ff1cdf1ee6531fb40540551556d77"
+"/dimensions/}DimensionProperties.hierarchies/}DimensionProperties.json","3d622a9eed28a142ea714206ec13d6bdc5d6e76c"
+"/dimensions/}DimensionProperties.json","8ab65f5ff2a03cce5c1c781882ea3503f582e74e"
+"/dimensions/}Dimensions.hierarchies/}Dimensions.json","9cbbddd73345b1729d769880a80229f3af320484"
+"/dimensions/}Dimensions.json","10664a8c60def1a63202685c0d1ecbeeb154b11b"
+"/dimensions/}ElementAttributes_}Clients.hierarchies/}ElementAttributes_}Clients.json","92ca63873935403f64fc373c63e7b01b93e87226"
+"/dimensions/}ElementAttributes_}Clients.json","1627145bb3d0e0a14560b407169d41f957f8998f"
+"/dimensions/}ElementAttributes_}Cultures.hierarchies/}ElementAttributes_}Cultures.json","6aaa06e333f3502176df50adeeef66d483ec02a1"
+"/dimensions/}ElementAttributes_}Cultures.json","c236f07ce80d38c4fb601945fc9877bdebd369e2"
+"/dimensions/}ElementAttributes_}Groups.hierarchies/}ElementAttributes_}Groups.json","fd6264eb18af04a409c4131e8faaba4e717fbe57"
+"/dimensions/}ElementAttributes_}Groups.json","b6e04a1f73c762124e6d73015f139b041a458ad0"
+"/dimensions/}ElementProperties.hierarchies/}ElementProperties.json","6f235153539f8990dd2b0e334036ddc02a12c488"
+"/dimensions/}ElementProperties.json","46c93c385e0a522795f0f8784203ac6dc55515d8"
+"/dimensions/}Features.hierarchies/}Features.json","cdd6bbd89f91d9c363c94081582fa6b62b6e0603"
+"/dimensions/}Features.json","3015adc826bf397acd9d27d9c2baf5c01269cfb5"
+"/dimensions/}Groups.hierarchies/}Groups.json","178fa308be44683a580a694a7a6f6750a3f10943"
+"/dimensions/}Groups.json","a86038ce9000434e13e6add177dbf2d7fcf71cff"
+"/dimensions/}Hierarchies.hierarchies/}Hierarchies.json","444f2c6bc0c81ba71c40f883c84e55363cb50e97"
+"/dimensions/}Hierarchies.json","ba15d3749b56ed3ed9d2cc7d532c7bec13b5c65b"
+"/dimensions/}Hierarchies_TestDim1.hierarchies/}Hierarchies_TestDim1.json","e3cab54788528a81232a83d203ca4eb3b24ff194"
+"/dimensions/}Hierarchies_TestDim1.json","331e6bccf4b7b5bdda90898a6ec7e8ee521e4ce8"
+"/dimensions/}Hierarchies_TestDim2.hierarchies/}Hierarchies_TestDim2.json","f88ec3e42b6ac2d03b352a84a40f2c668e0cf9c9"
+"/dimensions/}Hierarchies_TestDim2.json","9a8f0472a79ea510f15236c17c405d44e0c7cd79"
+"/dimensions/}Hierarchies_TestDim3.hierarchies/}Hierarchies_TestDim3.json","a9d27ea2269cdbabd750b13245a6f05e720bb266"
+"/dimensions/}Hierarchies_TestDim3.json","e7fc15aaec4a93752d96f76d86f9cbd32afc73fd"
+"/dimensions/}Hierarchies_TestDimElemAttrib.hierarchies/}Hierarchies_TestDimElemAttrib.json","d8dc9080d051c72872200e702f71d222e1deb6fd"
+"/dimensions/}Hierarchies_TestDimElemAttrib.json","2ab81f50bf2f5c113202c43b15c57d47584559b1"
+"/dimensions/}Hierarchies_TestDimMultiHier.hierarchies/}Hierarchies_TestDimMultiHier.json","49d8287e2be15c97314430ba179b006651c041ca"
+"/dimensions/}Hierarchies_TestDimMultiHier.json","93845d5282fc84d69b34889d01a864c411610dae"
+"/dimensions/}HierarchyProperties.hierarchies/}HierarchyProperties.json","d3691b6b454244a1bb30b93e63438e4fef191638"
+"/dimensions/}HierarchyProperties.json","091889c7d495268b80c23de9a02abef9910f7ced"
+"/dimensions/}Hold.hierarchies/}Hold.json","703a681802b1fb086cfd0fdb38defe53ff735c13"
+"/dimensions/}Hold.json","1fd03d14fde2f376bae236a3aef57ba5fbc275ef"
+"/dimensions/}LineNumber.hierarchies/}LineNumber.json","cd65184f65e9d9323f1bc6ccb7c37335c43bd72e"
+"/dimensions/}LineNumber.json","e640aef1b4679951c798095b18c6950b64688763"
+"/dimensions/}PerfClients.hierarchies/}PerfClients.json","8a2d64593b7e95d281425dc4b49c472bf144b1e1"
+"/dimensions/}PerfClients.json","3116d2086da8af01512a00f2f6a057fd16da75e6"
+"/dimensions/}PerfCubes.hierarchies/}PerfCubes.json","494aa6fc81733b5b741df06521960f78fd40b5f5"
+"/dimensions/}PerfCubes.json","674424aa31840f08dd8cbbbea250ed54d06982fa"
+"/dimensions/}Permissions.hierarchies/}Permissions.json","d99b24806a9caf5eaa73e947dfed36030b797a14"
+"/dimensions/}Permissions.json","5ca06b1d6b40ccd0876615d27f391d557eb276fd"
+"/dimensions/}PickList.hierarchies/}PickList.json","cd50be007937ecd6d7b26a15da2f2acd6ecaa53e"
+"/dimensions/}PickList.json","f7ed97fd187bb83d2411a1e181233d086073a9b5"
+"/dimensions/}Processes.hierarchies/}Processes.json","ddabcf7e428a58aa7817cf2048c8e22074344db3"
+"/dimensions/}Processes.json","0ff9f6bb61bbf3863518eec08606ec80d8fb50c5"
+"/dimensions/}RuleStats.hierarchies/}RuleStats.json","0b311887ef9fbace8ae65411667697edec676af3"
+"/dimensions/}RuleStats.json","a5c0a0103934fa59bf3c4133f81891301278d8e9"
+"/dimensions/}SecurityOverlay.hierarchies/}SecurityOverlay.json","0834a7cbff5c13981f08f0a84a2bcd7784d5513a"
+"/dimensions/}SecurityOverlay.json","bb7117682d91bfc2daeda99f92aef060702290a1"
+"/dimensions/}StatsByProcess.hierarchies/}StatsByProcess.json","913d72d659692980b8b47e1288f65e93879814c7"
+"/dimensions/}StatsByProcess.json","4ed18c4deb280b9277bfd8be498aedc4716b58cc"
+"/dimensions/}StatsStatsByClient.hierarchies/}StatsStatsByClient.json","f9d99508a41315a15fb3fcb109c0ba4943071fcb"
+"/dimensions/}StatsStatsByClient.json","209848e6ee07de043693295afdaf966efa927cc7"
+"/dimensions/}StatsStatsByCube.hierarchies/}StatsStatsByCube.json","d6c8b09ab4235a5dfa4a730c0f7ec34ae066fdb2"
+"/dimensions/}StatsStatsByCube.json","e71241f9c3f903d2b43117340a955db5e0de4d99"
+"/dimensions/}StatsStatsByCubeByClient.hierarchies/}StatsStatsByCubeByClient.json","0118021c1c6fe3256efb5b61d70f7ecd5f07f9b7"
+"/dimensions/}StatsStatsByCubeByClient.json","714a37345deaa448928458c1fc641e8b501cb70c"
+"/dimensions/}StatsStatsForServer.hierarchies/}StatsStatsForServer.json","cf36f272e334e6357c10de31af325c3941d923a8"
+"/dimensions/}StatsStatsForServer.json","e28da77336ea18991da6c4d0aecacfa0f580c690"
+"/dimensions/}TimeIntervals.hierarchies/}TimeIntervals.json","2f560967e5933d91ce7b093c3f26133081454aba"
+"/dimensions/}TimeIntervals.json","7c4a8ba73d1a79c94365dc28a64d266fcc0617e4"
+"/processes/myprocess.json","0928df2db8fd8409c475d569dddbeb8e857ccbb5"
+"/processes/myprocess.ti","515d74c4e8810aa646ab8a89de5a8861adde7b15"
+"/processes/myprocess2.json","2db3b7f987a3d4c178cb2e8b1748e500d0c23c13"
+"/processes/myprocess2.ti","3126e6f98a3ad6325043fcfe2a757dab29b431df"
+"/processes/myprocess3.json","37c8c7d81cf484a06a049c287067d6e367d50f4b"
+"/processes/myprocess3.ti","515d74c4e8810aa646ab8a89de5a8861adde7b15"
+"/tm1project.json","67fd096b2ffb3abce449d80e8bb7b61f52f8965e"
+1508,"6d27eee0fd35e77d801e828514c008c91d323406"
+1509,"Pushing tm1 server to git"
+1510,"Akos Nagy"
+1511,""

@@ -1,0 +1,14 @@
+{
+	"@type":"Cube",
+	"Name":"}StatsForServer",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('}StatsStatsForServer')"
+		},
+		{
+			"@id":"Dimensions('}TimeIntervals')"
+		}
+	],
+	"Views@Code.links":[]
+}

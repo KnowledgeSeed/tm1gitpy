@@ -1,0 +1,21 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}Processes",
+	"ElementsSortType":"ByName",
+	"Elements":
+	[
+		{
+			"Name":"myprocess",
+			"Type":"String"
+		},
+		{
+			"Name":"myprocess2",
+			"Type":"String"
+		},
+		{
+			"Name":"myprocess3",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}

@@ -1,0 +1,18 @@
+{
+	"@type":"Cube",
+	"Name":"TestCube3WithView",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('TestDim1')"
+		},
+		{
+			"@id":"Dimensions('TestDim2')"
+		}
+	],
+	"Views@Code.links":
+	[
+		"TestCube3WithView.views/TestCube3WithView_view2.json",
+		"TestCube3WithView.views/TestCube3WithView_view1.json"
+	]
+}

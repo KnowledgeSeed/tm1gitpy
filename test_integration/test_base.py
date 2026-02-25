@@ -95,7 +95,7 @@ def get_test_config(port: int) -> TM1ServersConfig:
 def resolve_test_model_dir(request: pytest.FixtureRequest) -> str:
     """Resolve the path to the test_model directory based on the test file location."""
     test_file_dir = Path(request.fspath.dirname)
-    test_model_path = test_file_dir / "test_model"
+    test_model_path = test_file_dir / "fixture_model_tm1bin"
     
     if test_model_path.exists():
         return str(test_model_path)
@@ -103,11 +103,19 @@ def resolve_test_model_dir(request: pytest.FixtureRequest) -> str:
     raise ValueError(f"test_model directory not found at expected location: {test_model_path}")
 
 
-def load_fixture_model(obj, filter_rules: list[str] = None) -> tuple[str, Model]:
+def load_fixture_model_tm1gitpy(obj, filter_rules: list[str] = None) -> tuple[str, Model]:
     dir_path = get_dir(obj)
-    fixture_dir = str(Path(dir_path) / "fixture_model")
+    fixture_dir = str(Path(dir_path) / "fixture_model_tm1gitpy")
     fixture_model, errors = deserialize_model(fixture_dir)
     return fixture_dir, filter(fixture_model, filter_rules) if filter_rules else fixture_model
+
+
+def load_fixture_changeset(obj) -> tuple[str, Model]:
+    dir_path = get_dir(obj)
+    fixture_dir = str(Path(dir_path) / "fixture_changeset")
+    fixture_model, errors = deserialize_model(fixture_dir)
+    return fixture_dir, filter(fixture_model, filter_rules) if filter_rules else fixture_model
+
 
 def get_dir(obj) -> str:
     module = sys.modules[obj.__class__.__module__]

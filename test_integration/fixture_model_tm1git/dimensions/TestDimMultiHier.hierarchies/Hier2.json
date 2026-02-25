@@ -1,0 +1,12 @@
+{
+	"@type":"Hierarchy",
+	"Name":"Hier2",
+	"Elements":
+	[
+		{
+			"Name":"Hier2Elem1",
+			"Type":"Numeric"
+		}
+	],
+	"Subsets@Code.links":[]
+}

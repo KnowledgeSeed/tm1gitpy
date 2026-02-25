@@ -1,0 +1,14 @@
+{
+	"@type":"Cube",
+	"Name":"}ElementAttributes_}Cultures",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('}Cultures')"
+		},
+		{
+			"@id":"Dimensions('}ElementAttributes_}Cultures')"
+		}
+	],
+	"Views@Code.links":[]
+}

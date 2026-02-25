@@ -1,0 +1,24 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}Hierarchies_TestDimMultiHier",
+	"Elements":
+	[
+		{
+			"Name":"TestDimMultiHier",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimMultiHier:Leaves",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimMultiHier:Hier2",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimMultiHier:Hier1",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}
