@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}Cubes",
+	"Hierarchies@Code.links":
+	[
+		"}Cubes.hierarchies/}Cubes.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Cubes')/Hierarchies('}Cubes')"
+	}
+}

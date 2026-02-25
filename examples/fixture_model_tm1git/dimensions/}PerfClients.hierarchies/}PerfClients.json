@@ -1,0 +1,24 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}PerfClients",
+	"Elements":
+	[
+		{
+			"Name":"Admin",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Clients Total",
+			"Type":"Consolidated"
+		}
+	],
+	"Edges":
+	[
+		{
+			"ParentName":"Clients Total",
+			"ComponentName":"Admin",
+			"Weight":1
+		}
+	],
+	"Subsets@Code.links":[]
+}

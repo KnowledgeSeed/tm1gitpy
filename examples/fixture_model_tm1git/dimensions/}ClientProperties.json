@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}ClientProperties",
+	"Hierarchies@Code.links":
+	[
+		"}ClientProperties.hierarchies/}ClientProperties.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}ClientProperties')/Hierarchies('}ClientProperties')"
+	}
+}

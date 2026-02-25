@@ -1,0 +1,28 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}Permissions",
+	"Elements":
+	[
+		{
+			"Name":"READ",
+			"Type":"String"
+		},
+		{
+			"Name":"WRITE",
+			"Type":"String"
+		},
+		{
+			"Name":"EXECUTE",
+			"Type":"String"
+		},
+		{
+			"Name":"SET POLICY",
+			"Type":"String"
+		},
+		{
+			"Name":"TRAVERSE",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}
