@@ -91,6 +91,8 @@ class NativeView:
             self.format_string,
         ))
 
+def __repr__(self):
+        return f"{self.type}('{self.name}')"
 
 def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
     if isinstance(axis_selection, dict):

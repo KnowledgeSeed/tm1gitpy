@@ -60,6 +60,9 @@ class Dimension:
             self.defaultHierarchy.name,
             frozenset(self.hierarchies)
         ))
+    
+    def __repr__(self):
+        return f"{self.type}('{self.name}')"
 
     def to_dict(self):
         return {
