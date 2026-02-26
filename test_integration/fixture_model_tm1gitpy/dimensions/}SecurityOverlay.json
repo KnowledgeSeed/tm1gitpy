@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}SecurityOverlay",
 	"Hierarchies@Code.links": [
-		"}SecurityOverlay.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c89f9d0>.json"
+		"}SecurityOverlay.hierarchies/}SecurityOverlay.json"
 	],
 	"DefaultHierarchy": "Dimensions('}SecurityOverlay')/Hierarchies('}SecurityOverlay')"
 }

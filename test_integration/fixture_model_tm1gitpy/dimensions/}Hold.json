@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}Hold",
 	"Hierarchies@Code.links": [
-		"}Hold.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c7e06d0>.json"
+		"}Hold.hierarchies/}Hold.json"
 	],
 	"DefaultHierarchy": "Dimensions('}Hold')/Hierarchies('}Hold')"
 }

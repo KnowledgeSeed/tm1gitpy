@@ -35,7 +35,7 @@ class Dimension:
         return json.dumps({
             "@type": self.type,
             "Name": self.name,
-            "Hierarchies@Code.links": [format_url("{}.hierarchies/{}.json", self.name, h) for h in self.hierarchies],
+            "Hierarchies@Code.links": [format_url("{}.hierarchies/{}.json", self.name, h.name) for h in self.hierarchies],
             "DefaultHierarchy": format_url("Dimensions('{}')/Hierarchies('{}')", self.name, self.defaultHierarchy.name)
         }, indent='\t')
     
@@ -60,6 +60,9 @@ class Dimension:
             self.defaultHierarchy.name,
             frozenset(self.hierarchies)
         ))
+    
+    def __repr__(self):
+        return f"{self.type}('{self.name}')"
 
     def to_dict(self):
         return {

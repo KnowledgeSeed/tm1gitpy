@@ -249,6 +249,9 @@ class Chore:
         return hash((self.name, self.start_time, self.dst_sensitive, self.active,
                      self.execution_mode, self.frequency, frozenset(self.tasks)))
 
+    def __repr__(self):
+        return f"{self.type}('{self.name}')"
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             'name': self.name,

@@ -1,13 +1,13 @@
 {
 	"@type": "Hierarchy",
-	"Name": "}Views_TestCube3WithView",
+	"Name": "}Views_testcube3withview",
 	"Elements": [
 		{
-			"name": "TestCube3WithView_view1",
+			"name": "testcube3withview_view1",
 			"type": "String"
 		},
 		{
-			"name": "TestCube3WithView_view2",
+			"name": "testcube3withview_view2",
 			"type": "String"
 		}
 	],

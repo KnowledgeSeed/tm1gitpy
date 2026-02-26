@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "TestDim3",
 	"Hierarchies@Code.links": [
-		"TestDim3.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c72ca70>.json"
+		"TestDim3.hierarchies/TestDim3.json"
 	],
 	"DefaultHierarchy": "Dimensions('TestDim3')/Hierarchies('TestDim3')"
 }
