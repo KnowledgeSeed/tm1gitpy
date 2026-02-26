@@ -51,7 +51,7 @@ jobs:
 
   integration-test:
     name: Integration Tests
-    runs-on: kseed-docker1
+    runs-on: [self-hosted, linux, kseed-docker1]
     defaults:
       run:
         shell: bash
@@ -88,11 +88,17 @@ jobs:
 
   lint:
     name: Lint and Code Quality
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, kseed-docker1]
+    defaults:
+      run:
+        shell: bash
+        working-directory: repo
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        path: repo
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -124,12 +130,18 @@ jobs:
 
   build:
     name: Build Package
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, kseed-docker1]
     needs: [test, integration-test, lint]
+    defaults:
+      run:
+        shell: bash
+        working-directory: repo
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        path: repo
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -150,7 +162,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: python-package-distributions
-        path: dist/
+        path: repo/dist/
         retention-days: 7
 
   # build-executable:
@@ -212,11 +224,17 @@ jobs:
 
   coverage:
     name: Code Coverage
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, kseed-docker1]
+    defaults:
+      run:
+        shell: bash
+        working-directory: repo
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        path: repo
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -239,7 +257,7 @@ jobs:
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
-        file: ./coverage.xml
+        file: ./repo/coverage.xml
         fail_ci_if_error: false
       continue-on-error: true
     
@@ -247,5 +265,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: coverage-report
-        path: htmlcov/
+        path: repo/htmlcov/
         retention-days: 7
