@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}PerfCubes",
 	"Hierarchies@Code.links": [
-		"}PerfCubes.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c89ed50>.json"
+		"}PerfCubes.hierarchies/}PerfCubes.json"
 	],
 	"DefaultHierarchy": "Dimensions('}PerfCubes')/Hierarchies('}PerfCubes')"
 }

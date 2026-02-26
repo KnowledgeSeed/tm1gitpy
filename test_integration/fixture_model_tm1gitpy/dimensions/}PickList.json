@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}PickList",
 	"Hierarchies@Code.links": [
-		"}PickList.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c89eb50>.json"
+		"}PickList.hierarchies/}PickList.json"
 	],
 	"DefaultHierarchy": "Dimensions('}PickList')/Hierarchies('}PickList')"
 }

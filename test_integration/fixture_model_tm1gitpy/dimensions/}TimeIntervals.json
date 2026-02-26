@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}TimeIntervals",
 	"Hierarchies@Code.links": [
-		"}TimeIntervals.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c7cddd0>.json"
+		"}TimeIntervals.hierarchies/}TimeIntervals.json"
 	],
 	"DefaultHierarchy": "Dimensions('}TimeIntervals')/Hierarchies('}TimeIntervals')"
 }

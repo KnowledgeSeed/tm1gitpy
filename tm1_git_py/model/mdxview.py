@@ -16,17 +16,21 @@ from requests import Response
 
 
 class MDXView:
-    def __init__(self, name, mdx, source_path: str):
+    def __init__(self, name, mdx, format_string = "0.#########",meta={"Aliases" : {},"ContextSets" : {},"ExpandAboves" : {}}, source_path: str = None):
         self.type = 'MDXView'
         self.name = name
         self.mdx = mdx
+        self.format_string = format_string
+        self.meta = meta
         self.source_path = source_path
 
     def as_json(self):
         return json.dumps({
             "@type": self.type,
             "Name": self.name,
-            "MDX@Code.link": self.name + '.mdx'
+            "MDX@Code.link": self.name + '.mdx',
+            "FormatString": self.format_string,
+            "Meta": self.meta
         }, indent='\t')
 
     def __eq__(self, other: Any) -> bool:
