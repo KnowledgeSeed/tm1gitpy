@@ -1,0 +1,17 @@
+{
+	"@type":"Cube",
+	"Name":"}HierarchyProperties",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('}Dimensions')"
+		},
+		{
+			"@id":"Dimensions('}Hierarchies')"
+		},
+		{
+			"@id":"Dimensions('}HierarchyProperties')"
+		}
+	],
+	"Views@Code.links":[]
+}

@@ -1,0 +1,16 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}DimensionFormatItems",
+	"Elements":
+	[
+		{
+			"Name":"HEADER",
+			"Type":"String"
+		},
+		{
+			"Name":"BODY",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}

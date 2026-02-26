@@ -1,0 +1,56 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}StatsStatsByCube",
+	"Elements":
+	[
+		{
+			"Name":"Memory Used for Views",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Number of Stored Views",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Number of Stored Calculated Cells",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Number of Populated String Cells",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Number of Populated Numeric Cells",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Number of Fed Cells",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Memory Used for Calculations",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Memory Used for Feeders",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Memory Used for Input Data",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Steps of Average Calculation",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Rule calculation cache miss rate",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"Total Memory Used",
+			"Type":"Numeric"
+		}
+	],
+	"Subsets@Code.links":[]
+}

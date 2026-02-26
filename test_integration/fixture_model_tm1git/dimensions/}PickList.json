@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}PickList",
+	"Hierarchies@Code.links":
+	[
+		"}PickList.hierarchies/}PickList.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}PickList')/Hierarchies('}PickList')"
+	}
+}

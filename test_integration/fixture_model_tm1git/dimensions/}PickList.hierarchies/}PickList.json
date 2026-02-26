@@ -1,0 +1,12 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}PickList",
+	"Elements":
+	[
+		{
+			"Name":"Value",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}

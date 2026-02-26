@@ -1,0 +1,12 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}Hierarchies_TestDim3",
+	"Elements":
+	[
+		{
+			"Name":"TestDim3",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}
