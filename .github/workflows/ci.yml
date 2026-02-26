@@ -16,6 +16,7 @@ jobs:
         shell: bash
     container:
       image: python:${{ matrix.python-version }}-bookworm
+      options: --user 1103:1103
     
     strategy:
       fail-fast: false
