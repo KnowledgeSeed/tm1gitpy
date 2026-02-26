@@ -58,10 +58,12 @@ jobs:
         working-directory: repo
     container:
       image: python:3.13-bookworm
-      options: --user 1103:1103 --volume /var/run/docker.sock:/var/run/docker.sock
+      options: --volume /var/run/docker.sock:/var/run/docker.sock
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
+      TM1MODELS_DIR: /tmp/tm1models
+      TM1_PORT: "5360"
     
     steps:
     - name: Checkout code
@@ -110,6 +112,9 @@ jobs:
         PY
         echo "${GITHUB_WORKSPACE}/repo/.tools/bin" >> "$GITHUB_PATH"
 
+    - name: Prepare compose defaults
+      run: mkdir -p "$TM1MODELS_DIR"
+
     - name: Cleanup stale integration containers
       run: docker compose -f test_integration/docker-compose.yml down --remove-orphans || true
 
@@ -143,6 +148,10 @@ jobs:
     - name: Cleanup integration containers
       if: always()
       run: docker compose -f test_integration/docker-compose.yml down --remove-orphans || true
+
+    - name: Restore workspace ownership
+      if: always()
+      run: chown -R 1103:1103 "${GITHUB_WORKSPACE}/repo" "${GITHUB_WORKSPACE}/.home" "${GITHUB_WORKSPACE}/.pip-cache" || true
 
   lint:
     name: Lint and Code Quality
