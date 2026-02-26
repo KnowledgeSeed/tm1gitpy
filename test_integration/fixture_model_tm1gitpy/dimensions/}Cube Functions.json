@@ -1,8 +1,0 @@
-{
-	"@type": "Dimension",
-	"Name": "}Cube Functions",
-	"Hierarchies@Code.links": [
-		"}Cube Functions.hierarchies/}Cube Functions.json"
-	],
-	"DefaultHierarchy": "Dimensions('}Cube Functions')/Hierarchies('}Cube Functions')"
-}

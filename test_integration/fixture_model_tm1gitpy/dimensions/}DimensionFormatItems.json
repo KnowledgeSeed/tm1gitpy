@@ -1,8 +1,0 @@
-{
-	"@type": "Dimension",
-	"Name": "}DimensionFormatItems",
-	"Hierarchies@Code.links": [
-		"}DimensionFormatItems.hierarchies/}DimensionFormatItems.json"
-	],
-	"DefaultHierarchy": "Dimensions('}DimensionFormatItems')/Hierarchies('}DimensionFormatItems')"
-}

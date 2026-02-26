@@ -1,8 +1,0 @@
-{
-	"@type": "Dimension",
-	"Name": "TestDimElemAttrib",
-	"Hierarchies@Code.links": [
-		"TestDimElemAttrib.hierarchies/TestDimElemAttrib.json"
-	],
-	"DefaultHierarchy": "Dimensions('TestDimElemAttrib')/Hierarchies('TestDimElemAttrib')"
-}

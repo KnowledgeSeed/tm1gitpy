@@ -1,8 +1,0 @@
-{
-	"@type": "Dimension",
-	"Name": "}RuleStats",
-	"Hierarchies@Code.links": [
-		"}RuleStats.hierarchies/}RuleStats.json"
-	],
-	"DefaultHierarchy": "Dimensions('}RuleStats')/Hierarchies('}RuleStats')"
-}

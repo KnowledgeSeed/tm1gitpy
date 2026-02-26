@@ -1,8 +1,0 @@
-{
-	"@type": "Dimension",
-	"Name": "}HierarchyProperties",
-	"Hierarchies@Code.links": [
-		"}HierarchyProperties.hierarchies/}HierarchyProperties.json"
-	],
-	"DefaultHierarchy": "Dimensions('}HierarchyProperties')/Hierarchies('}HierarchyProperties')"
-}
