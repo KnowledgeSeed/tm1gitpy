@@ -1,0 +1,16 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}Views_testcube3withview",
+	"Elements": [
+		{
+			"name": "testcube3withview_view1",
+			"type": "String"
+		},
+		{
+			"name": "testcube3withview_view2",
+			"type": "String"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}
