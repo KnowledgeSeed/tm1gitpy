@@ -56,6 +56,9 @@ jobs:
       run:
         shell: bash
         working-directory: repo
+    container:
+      image: python:3.13-bookworm
+      options: --user 1103:1103 --volume /var/run/docker.sock:/var/run/docker.sock
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
@@ -66,12 +69,6 @@ jobs:
       with:
         path: repo
     
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.13'
-        cache: 'pip'
-    
     - name: Install dependencies
       run: |
         mkdir -p "$HOME" "$PIP_CACHE_DIR"
@@ -79,12 +76,73 @@ jobs:
         ./.venv/bin/python -m pip install --upgrade pip
         ./.venv/bin/python -m pip install -r requirements.txt
         ./.venv/bin/python -m pip install pytest testcontainers
-    
-    - name: Run integration tests
+
+    - name: Install docker cli and compose plugin
+      env:
+        DOCKER_VERSION: "27.5.1"
+        COMPOSE_VERSION: "v2.33.1"
+      run: |
+        mkdir -p .tools/bin "$HOME/.docker/cli-plugins"
+        ./.venv/bin/python - <<'PY'
+        import io
+        import os
+        import tarfile
+        import urllib.request
+
+        docker_url = f"https://download.docker.com/linux/static/stable/x86_64/docker-{os.environ['DOCKER_VERSION']}.tgz"
+        compose_url = f"https://github.com/docker/compose/releases/download/{os.environ['COMPOSE_VERSION']}/docker-compose-linux-x86_64"
+
+        with urllib.request.urlopen(docker_url) as resp:
+            docker_tgz = resp.read()
+        with tarfile.open(fileobj=io.BytesIO(docker_tgz), mode="r:gz") as archive:
+            member = archive.getmember("docker/docker")
+            target = os.path.join(".tools", "bin", "docker")
+            with archive.extractfile(member) as src, open(target, "wb") as dst:
+                dst.write(src.read())
+        os.chmod(os.path.join(".tools", "bin", "docker"), 0o755)
+
+        with urllib.request.urlopen(compose_url) as resp:
+            compose_bin = resp.read()
+        compose_target = os.path.join(os.environ["HOME"], ".docker", "cli-plugins", "docker-compose")
+        with open(compose_target, "wb") as dst:
+            dst.write(compose_bin)
+        os.chmod(compose_target, 0o755)
+        PY
+        echo "${GITHUB_WORKSPACE}/repo/.tools/bin" >> "$GITHUB_PATH"
+
+    - name: Cleanup stale integration containers
+      run: docker compose -f test_integration/docker-compose.yml down --remove-orphans || true
+
+    - name: Run integration tests with retry
       env:
         PYTHONPATH: .
         FORCE_CONTAINER_START: 'true'
-      run: ./.venv/bin/python -m pytest test_integration/ -v --tb=short
+      run: |
+        set -euo pipefail
+        attempts=2
+        for attempt in $(seq 1 "$attempts"); do
+          echo "Integration test attempt ${attempt}/${attempts}"
+          if ./.venv/bin/python -m pytest test_integration/ -v --tb=short; then
+            exit 0
+          fi
+          docker compose -f test_integration/docker-compose.yml ps -a || true
+          docker compose -f test_integration/docker-compose.yml logs --no-color tm1 arc || true
+          docker compose -f test_integration/docker-compose.yml down --remove-orphans || true
+          if [ "$attempt" -lt "$attempts" ]; then
+            sleep 5
+          fi
+        done
+        exit 1
+
+    - name: Dump integration compose logs on failure
+      if: failure()
+      run: |
+        docker compose -f test_integration/docker-compose.yml ps -a || true
+        docker compose -f test_integration/docker-compose.yml logs --no-color tm1 arc || true
+
+    - name: Cleanup integration containers
+      if: always()
+      run: docker compose -f test_integration/docker-compose.yml down --remove-orphans || true
 
   lint:
     name: Lint and Code Quality
@@ -93,6 +151,12 @@ jobs:
       run:
         shell: bash
         working-directory: repo
+    container:
+      image: python:3.11-bookworm
+      options: --user 1103:1103
+    env:
+      HOME: ${{ github.workspace }}/.home
+      PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
     
     steps:
     - name: Checkout code
@@ -100,32 +164,28 @@ jobs:
       with:
         path: repo
     
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
-    
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install flake8 black isort mypy
-        pip install -r requirements.txt
+        mkdir -p "$HOME" "$PIP_CACHE_DIR"
+        python -m venv .venv
+        ./.venv/bin/python -m pip install --upgrade pip
+        ./.venv/bin/python -m pip install flake8 black isort mypy
+        ./.venv/bin/python -m pip install -r requirements.txt
     
     - name: Run flake8
       run: |
-        flake8 tm1_git_py/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 tm1_git_py/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        ./.venv/bin/python -m flake8 tm1_git_py/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        ./.venv/bin/python -m flake8 tm1_git_py/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
       continue-on-error: true
     
     - name: Check code formatting with black
       run: |
-        black --check tm1_git_py/
+        ./.venv/bin/python -m black --check tm1_git_py/
       continue-on-error: true
     
     - name: Check import sorting with isort
       run: |
-        isort --check-only tm1_git_py/
+        ./.venv/bin/python -m isort --check-only tm1_git_py/
       continue-on-error: true
 
   build:
@@ -136,6 +196,12 @@ jobs:
       run:
         shell: bash
         working-directory: repo
+    container:
+      image: python:3.11-bookworm
+      options: --user 1103:1103
+    env:
+      HOME: ${{ github.workspace }}/.home
+      PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
     
     steps:
     - name: Checkout code
@@ -143,20 +209,16 @@ jobs:
       with:
         path: repo
     
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
-    
     - name: Install build dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install build setuptools wheel
+        mkdir -p "$HOME" "$PIP_CACHE_DIR"
+        python -m venv .venv
+        ./.venv/bin/python -m pip install --upgrade pip
+        ./.venv/bin/python -m pip install build setuptools wheel
     
     - name: Build package
       run: |
-        python -m build
+        ./.venv/bin/python -m build
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
@@ -229,6 +291,12 @@ jobs:
       run:
         shell: bash
         working-directory: repo
+    container:
+      image: python:3.11-bookworm
+      options: --user 1103:1103
+    env:
+      HOME: ${{ github.workspace }}/.home
+      PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
     
     steps:
     - name: Checkout code
@@ -236,23 +304,19 @@ jobs:
       with:
         path: repo
     
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
-    
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install pytest pytest-cov
-        pip install -r requirements.txt
+        mkdir -p "$HOME" "$PIP_CACHE_DIR"
+        python -m venv .venv
+        ./.venv/bin/python -m pip install --upgrade pip
+        ./.venv/bin/python -m pip install pytest pytest-cov
+        ./.venv/bin/python -m pip install -r requirements.txt
     
     - name: Run tests with coverage
       env:
         PYTHONPATH: .
       run: |
-        pytest tests/ --cov=tm1_git_py --cov-report=xml --cov-report=html --cov-report=term
+        ./.venv/bin/python -m pytest tests/ --cov=tm1_git_py --cov-report=xml --cov-report=html --cov-report=term
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
