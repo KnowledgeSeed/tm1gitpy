@@ -21,7 +21,7 @@ services:
   arc:
     image: kseed-docker1.knowledgeseed.local:3000/arc-docker:5.2.0-linux64-v1
     ports:
-      - 7070:7070
+      - 7071:7070
     volumes:
       - ./settings.yml:/settings.yml
       - ./License:/License
