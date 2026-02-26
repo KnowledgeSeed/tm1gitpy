@@ -9,20 +9,21 @@ from TM1py.Services import TM1Service
 from requests import Response
 
 from tm1_git_py.changeset_status import ChangeSetStatusStore
-from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, Model, Process, Subset, hierarchy, subset, \
+from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, NativeView, Model, Process, Subset, hierarchy, subset, \
     mdxview
 from tm1_git_py.model.chore import create_chore, delete_chore, update_chore
 from tm1_git_py.model.cube import create_cube, delete_cube, update_cube
 from tm1_git_py.model.dimension import create_dimension, delete_dimension, update_dimension
 from tm1_git_py.model.hierarchy import create_hierarchy, delete_hierarchy, update_hierarchy
 from tm1_git_py.model.mdxview import create_mdx_view, delete_mdx_view, update_mdx_view
+from tm1_git_py.model.nativeview import create_native_view, delete_native_view, update_native_view
 from tm1_git_py.model.process import create_process, delete_process, update_process
 from tm1_git_py.model.subset import create_subset, delete_subset, update_subset
 
 logger = logging.getLogger(__name__)
 
 
-T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore)
+T = TypeVar('T', Cube, MDXView, NativeView, Dimension, Hierarchy, Subset, Process, Chore)
 
 _CHILD_RELATIONS: dict[type, list[str]] = {
     Dimension: ["hierarchies"],
@@ -34,7 +35,7 @@ FLAG_PRECEDENCE = {"C": 0, "U": 1, "D": 2}
 OBJECT_PRECEDENCE = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'views': 4, 'processes': 5, 'chores': 6}
 DELETE_OBJECT_PRECEDENCE = {'views': 0, 'cubes': 1, 'subsets': 2, 'hierarchies': 3, 'dimensions': 4, 'chores': 5, 'processes': 6}
 
-FILTER_SEMAPHORE_OBJECT_TYPES = ("Dimension", "Hierarchy", "Subset", "Element", "Edge", "MDXView")
+FILTER_SEMAPHORE_OBJECT_TYPES = ("Dimension", "Hierarchy", "Subset", "Element", "Edge", "MDXView", "NativeView")
 
 
 def normalize_source_path(source_path: str) -> str:
@@ -55,7 +56,7 @@ def _source_path_sort_key(s: Union[T, dict[T, Any]], delete_precedence = False):
       - removed
       - modified (by new object)
     """
-    if isinstance(s, (Cube, MDXView, Dimension, Hierarchy, Subset, Chore, Process)):
+    if isinstance(s, (Cube, MDXView, NativeView, Dimension, Hierarchy, Subset, Chore, Process)):
         s = s.source_path
     else:
         raise ValueError(f"Cannot sort object type for source path '{s}'")
@@ -509,10 +510,21 @@ def _build_cube_from_payload(payload: dict[str, Any], source_path: Optional[str]
 
 
 def _build_mdx_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> MDXView:
-    cube_name, _ = mdxview._view_context_from_path(source_path)
+    cube_name = None
+    if source_path:
+        cube_name, _ = mdxview._view_context_from_path(source_path)
     if not source_path and not cube_name:
         raise ValueError("MDXView payload missing cube context.")
     return MDXView.from_dict(payload, source_path=source_path, cube_name=cube_name)
+
+
+def _build_native_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> NativeView:
+    cube_name = None
+    if source_path:
+        cube_name, _ = mdxview._view_context_from_path(source_path)
+    if not source_path and not cube_name:
+        raise ValueError("NativeView payload missing cube context.")
+    return NativeView.from_dict(payload, source_path=source_path, cube_name=cube_name)
 
 
 def _build_process_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Process:
@@ -529,6 +541,7 @@ _OBJECT_BUILDERS: dict[str, Any] = {
     "Subset": _build_subset_from_payload,
     "Cube": _build_cube_from_payload,
     "MDXView": _build_mdx_view_from_payload,
+    "NativeView": _build_native_view_from_payload,
     "Process": _build_process_from_payload,
     "Chore": _build_chore_from_payload
 }
@@ -575,6 +588,9 @@ def create_object(tm1_service: TM1Service, object_instance: T) -> Response:
     elif isinstance(object_instance, MDXView):
         return create_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
 
+    elif isinstance(object_instance, NativeView):
+        return create_native_view(tm1_service=tm1_service, native_view=object_instance)
+
     elif isinstance(object_instance, Process):
         return create_process(tm1_service=tm1_service, process=object_instance)
 
@@ -588,6 +604,9 @@ def create_object(tm1_service: TM1Service, object_instance: T) -> Response:
 def delete_object(tm1_service: TM1Service, object_instance: T) -> Response:
     if isinstance(object_instance, MDXView):
         return delete_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
+
+    elif isinstance(object_instance, NativeView):
+        return delete_native_view(tm1_service=tm1_service, native_view=object_instance)
 
     elif isinstance(object_instance, Cube):
         return delete_cube(tm1_service=tm1_service, cube_name=object_instance.name)
@@ -626,6 +645,9 @@ def update_object(tm1_service: TM1Service, object_instance: dict[T, Any], **kwar
 
     elif isinstance(object_instance['new'], MDXView):
         return update_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
+
+    elif isinstance(object_instance['new'], NativeView):
+        return update_native_view(tm1_service=tm1_service, native_view=object_instance)
 
     elif isinstance(object_instance['new'], Process):
         return update_process(tm1_service=tm1_service, process=object_instance)

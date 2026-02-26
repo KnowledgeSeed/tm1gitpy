@@ -16,12 +16,23 @@ from requests import Response
 
 
 class MDXView:
-    def __init__(self, name, mdx, format_string = "0.#########",meta={"Aliases" : {},"ContextSets" : {},"ExpandAboves" : {}}, source_path: str = None):
+    def __init__(
+        self,
+        name,
+        mdx,
+        format_string="0.#########",
+        meta: Optional[dict] = None,
+        source_path: str = None,
+    ):
         self.type = 'MDXView'
         self.name = name
         self.mdx = mdx
         self.format_string = format_string
-        self.meta = meta
+        self.meta = meta if meta is not None else {
+            "Aliases": {},
+            "ContextSets": {},
+            "ExpandAboves": {},
+        }
         self.source_path = source_path
 
     def as_json(self):
