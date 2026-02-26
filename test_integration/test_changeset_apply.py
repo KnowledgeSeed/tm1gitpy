@@ -117,7 +117,6 @@ class TestChangesetApply:
         assert changeset.removed[0].name == "TestCubeRemovable1"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
-    @pytest.mark.skip(reason="Failing on github runner for unknown reason, ignoring for now")
     def test_delete_cube_full_with_meta_objects(self):
         
         # given
