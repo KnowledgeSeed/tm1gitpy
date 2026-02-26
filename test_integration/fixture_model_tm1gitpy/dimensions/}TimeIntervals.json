@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}TimeIntervals",
+	"Hierarchies@Code.links": [
+		"}TimeIntervals.hierarchies/}TimeIntervals.json"
+	],
+	"DefaultHierarchy": "Dimensions('}TimeIntervals')/Hierarchies('}TimeIntervals')"
+}

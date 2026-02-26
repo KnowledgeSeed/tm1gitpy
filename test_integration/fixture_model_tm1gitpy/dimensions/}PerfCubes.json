@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}PerfCubes",
+	"Hierarchies@Code.links": [
+		"}PerfCubes.hierarchies/}PerfCubes.json"
+	],
+	"DefaultHierarchy": "Dimensions('}PerfCubes')/Hierarchies('}PerfCubes')"
+}

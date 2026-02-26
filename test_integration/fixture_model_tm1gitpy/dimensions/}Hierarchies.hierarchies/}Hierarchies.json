@@ -1,0 +1,12 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}Hierarchies",
+	"Elements": [
+		{
+			"name": "hierarchy0",
+			"type": "String"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

@@ -1,0 +1,28 @@
+{
+	"@type": "NativeView",
+	"Name": "TestCube3WithView_view2",
+	"Columns": [
+		{
+			"Subset": {
+				"Expression": "{[TestDim2].[TestDim2].Members}",
+				"Hierarchy": {
+					"@id": "Dimensions('TestDim2')/Hierarchies('TestDim2')"
+				}
+			}
+		}
+	],
+	"Rows": [
+		{
+			"Subset": {
+				"Expression": "{[TestDim1].[TestDim1].Members}",
+				"Hierarchy": {
+					"@id": "Dimensions('TestDim1')/Hierarchies('TestDim1')"
+				}
+			}
+		}
+	],
+	"Titles": [],
+	"SuppressEmptyColumns": true,
+	"SuppressEmptyRows": true,
+	"FormatString": "0.#########"
+}

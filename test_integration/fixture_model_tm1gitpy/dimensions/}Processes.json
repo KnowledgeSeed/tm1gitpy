@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}Processes",
+	"Hierarchies@Code.links": [
+		"}Processes.hierarchies/}Processes.json"
+	],
+	"DefaultHierarchy": "Dimensions('}Processes')/Hierarchies('}Processes')"
+}

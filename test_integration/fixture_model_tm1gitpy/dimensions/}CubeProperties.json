@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}CubeProperties",
+	"Hierarchies@Code.links": [
+		"}CubeProperties.hierarchies/}CubeProperties.json"
+	],
+	"DefaultHierarchy": "Dimensions('}CubeProperties')/Hierarchies('}CubeProperties')"
+}

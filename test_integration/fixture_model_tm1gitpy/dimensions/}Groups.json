@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}Groups",
+	"Hierarchies@Code.links": [
+		"}Groups.hierarchies/}Groups.json"
+	],
+	"DefaultHierarchy": "Dimensions('}Groups')/Hierarchies('}Groups')"
+}

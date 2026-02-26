@@ -1,0 +1,11 @@
+{
+	"@type": "Dimension",
+	"Name": "TestDimMultiHier",
+	"Hierarchies@Code.links": [
+		"TestDimMultiHier.hierarchies/TestDimMultiHier.json",
+		"TestDimMultiHier.hierarchies/Hier1.json",
+		"TestDimMultiHier.hierarchies/Hier2.json",
+		"TestDimMultiHier.hierarchies/Leaves.json"
+	],
+	"DefaultHierarchy": "Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')"
+}
