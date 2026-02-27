@@ -11,6 +11,7 @@ jobs:
   test:
     name: Test on Python ${{ matrix.python-version }} (ubuntu)
     runs-on: [self-hosted, linux, kseed-docker1]
+    needs: [integration-test]
     defaults:
       run:
         shell: bash
@@ -64,7 +65,6 @@ jobs:
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
       TM1_HOST: host.docker.internal
       TM1MODELS_DIR: /tmp/tm1-ci/models
-      TM1_PORT: "5360"
       TM1_COMPOSE_FILE: docker-compose.generated.yml
     
     steps:
@@ -114,6 +114,12 @@ jobs:
         PY
         echo "${GITHUB_WORKSPACE}/repo/.tools/bin" >> "$GITHUB_PATH"
 
+    - name: Select TM1 host port
+      run: |
+        tm1_port=$((20000 + (GITHUB_RUN_ID % 20000) + GITHUB_RUN_ATTEMPT))
+        echo "TM1_PORT=${tm1_port}" >> "$GITHUB_ENV"
+        echo "Using TM1_PORT=${tm1_port}"
+
     - name: Prepare compose defaults
       run: |
         mkdir -p /host-tmp/tm1-ci/models /host-tmp/tm1-ci/license
@@ -134,6 +140,7 @@ jobs:
             volumes:
               - /tmp/tm1-ci/settings.yml:/settings.yml
               - /tmp/tm1-ci/license:/License
+            ports: []
         YAML
         docker compose \
           -f test_integration/docker-compose.yml \
@@ -181,6 +188,7 @@ jobs:
   lint:
     name: Lint and Code Quality
     runs-on: [self-hosted, linux, kseed-docker1]
+    needs: [integration-test]
     defaults:
       run:
         shell: bash
@@ -321,6 +329,7 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: [self-hosted, linux, kseed-docker1]
+    needs: [integration-test]
     defaults:
       run:
         shell: bash
