@@ -11,7 +11,6 @@ jobs:
   test:
     name: Test on Python ${{ matrix.python-version }} (ubuntu)
     runs-on: [self-hosted, linux, kseed-docker1]
-    needs: [integration-test]
     defaults:
       run:
         shell: bash
@@ -221,7 +220,6 @@ jobs:
   lint:
     name: Lint and Code Quality
     runs-on: [self-hosted, linux, kseed-docker1]
-    needs: [integration-test]
     defaults:
       run:
         shell: bash
@@ -362,7 +360,6 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: [self-hosted, linux, kseed-docker1]
-    needs: [integration-test]
     defaults:
       run:
         shell: bash
