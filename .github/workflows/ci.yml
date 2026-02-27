@@ -64,7 +64,6 @@ jobs:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
       TM1_HOST: host.docker.internal
-      TM1MODELS_DIR: /tmp/tm1-ci/models
       TM1_COMPOSE_FILE: docker-compose.generated.yml
     
     steps:
@@ -116,30 +115,57 @@ jobs:
 
     - name: Select TM1 host port
       run: |
-        tm1_port=$((20000 + (GITHUB_RUN_ID % 20000) + GITHUB_RUN_ATTEMPT))
-        echo "TM1_PORT=${tm1_port}" >> "$GITHUB_ENV"
-        echo "Using TM1_PORT=${tm1_port}"
+        set -euo pipefail
+        base_port=$((20000 + (GITHUB_RUN_ID % 20000)))
+        max_tries=40
+        for i in $(seq 0 $((max_tries - 1))); do
+          candidate=$((base_port + i))
+          if [ "$candidate" -gt 59999 ]; then
+            candidate=$((20000 + candidate - 60000))
+          fi
+          if docker ps --format '{{.Ports}}' | grep -Eq "(^|, )0\\.0\\.0\\.0:${candidate}->|\\[::\\]:${candidate}->"; then
+            echo "TM1 port ${candidate} is busy, waiting..."
+            sleep 2
+            continue
+          fi
+          echo "TM1_PORT=${candidate}" >> "$GITHUB_ENV"
+          echo "Using TM1_PORT=${candidate}"
+          exit 0
+        done
+        echo "Could not find a free TM1 host port after ${max_tries} attempts" >&2
+        exit 1
+
+    - name: Select integration temp paths
+      run: |
+        tm1_tmp_base="/tmp/tm1-ci/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
+        echo "TM1_TMP_BASE=${tm1_tmp_base}" >> "$GITHUB_ENV"
+        echo "TM1MODELS_DIR=${tm1_tmp_base}/models" >> "$GITHUB_ENV"
+        echo "TM1_COGSTARTUP_FILE=${tm1_tmp_base}/cogstartup.xml" >> "$GITHUB_ENV"
+        echo "ARC_SETTINGS_FILE=${tm1_tmp_base}/settings.yml" >> "$GITHUB_ENV"
+        echo "ARC_LICENSE_DIR=${tm1_tmp_base}/license" >> "$GITHUB_ENV"
+        echo "Using TM1 temp base: ${tm1_tmp_base}"
 
     - name: Prepare compose defaults
       run: |
-        mkdir -p /host-tmp/tm1-ci/models /host-tmp/tm1-ci/license
-        cp -a test_integration/fixture_model_tm1bin/. /host-tmp/tm1-ci/models/
-        cp test_integration/cogstartup.xml /host-tmp/tm1-ci/cogstartup.xml
+        host_tmp_base="/host-tmp${TM1_TMP_BASE#/tmp}"
+        mkdir -p "${host_tmp_base}/models" "${host_tmp_base}/license"
+        cp -a test_integration/fixture_model_tm1bin/. "${host_tmp_base}/models/"
+        cp test_integration/cogstartup.xml "${host_tmp_base}/cogstartup.xml"
         if [ -f test_integration/settings.yml ]; then
-          cp test_integration/settings.yml /host-tmp/tm1-ci/settings.yml
+          cp test_integration/settings.yml "${host_tmp_base}/settings.yml"
         else
-          : > /host-tmp/tm1-ci/settings.yml
+          : > "${host_tmp_base}/settings.yml"
         fi
         cat > test_integration/docker-compose.ci.yml <<'YAML'
         services:
           tm1:
             volumes:
-              - /tmp/tm1-ci/models:/tm1models
-              - /tmp/tm1-ci/cogstartup.xml:/docker-entrypoint-initdb.d/cogstartup.xml
+              - ${TM1MODELS_DIR}:/tm1models
+              - ${TM1_COGSTARTUP_FILE}:/docker-entrypoint-initdb.d/cogstartup.xml
           arc:
             volumes:
-              - /tmp/tm1-ci/settings.yml:/settings.yml
-              - /tmp/tm1-ci/license:/License
+              - ${ARC_SETTINGS_FILE}:/settings.yml
+              - ${ARC_LICENSE_DIR}:/License
             ports: []
         YAML
         docker compose \
@@ -149,6 +175,9 @@ jobs:
 
     - name: Cleanup stale integration containers
       run: docker compose -f test_integration/${TM1_COMPOSE_FILE} down --remove-orphans || true
+
+    - name: Wait before integration startup
+      run: sleep 8
 
     - name: Run integration tests with retry
       env:
@@ -166,7 +195,7 @@ jobs:
           docker compose -f test_integration/${TM1_COMPOSE_FILE} logs --no-color tm1 arc || true
           docker compose -f test_integration/${TM1_COMPOSE_FILE} down --remove-orphans || true
           if [ "$attempt" -lt "$attempts" ]; then
-            sleep 5
+            sleep 12
           fi
         done
         exit 1
@@ -184,6 +213,10 @@ jobs:
     - name: Restore workspace ownership
       if: always()
       run: chown -R 1103:1103 "${GITHUB_WORKSPACE}/repo" "${GITHUB_WORKSPACE}/.home" "${GITHUB_WORKSPACE}/.pip-cache" || true
+
+    - name: Cleanup integration temp files
+      if: always()
+      run: rm -rf "/host-tmp${TM1_TMP_BASE#/tmp}" || true
 
   lint:
     name: Lint and Code Quality
