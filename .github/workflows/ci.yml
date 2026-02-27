@@ -58,12 +58,14 @@ jobs:
         working-directory: repo
     container:
       image: python:3.13-bookworm
-      options: --volume /var/run/docker.sock:/var/run/docker.sock
+      options: --volume /var/run/docker.sock:/var/run/docker.sock --volume /tmp:/host-tmp --add-host=host.docker.internal:host-gateway
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
-      TM1MODELS_DIR: /tmp/tm1models
+      TM1_HOST: host.docker.internal
+      TM1MODELS_DIR: /tmp/tm1-ci/models
       TM1_PORT: "5360"
+      TM1_COMPOSE_FILE: docker-compose.generated.yml
     
     steps:
     - name: Checkout code
@@ -113,10 +115,33 @@ jobs:
         echo "${GITHUB_WORKSPACE}/repo/.tools/bin" >> "$GITHUB_PATH"
 
     - name: Prepare compose defaults
-      run: mkdir -p "$TM1MODELS_DIR"
+      run: |
+        mkdir -p /host-tmp/tm1-ci/models /host-tmp/tm1-ci/license
+        cp -a test_integration/fixture_model_tm1bin/. /host-tmp/tm1-ci/models/
+        cp test_integration/cogstartup.xml /host-tmp/tm1-ci/cogstartup.xml
+        if [ -f test_integration/settings.yml ]; then
+          cp test_integration/settings.yml /host-tmp/tm1-ci/settings.yml
+        else
+          : > /host-tmp/tm1-ci/settings.yml
+        fi
+        cat > test_integration/docker-compose.ci.yml <<'YAML'
+        services:
+          tm1:
+            volumes:
+              - /tmp/tm1-ci/models:/tm1models
+              - /tmp/tm1-ci/cogstartup.xml:/docker-entrypoint-initdb.d/cogstartup.xml
+          arc:
+            volumes:
+              - /tmp/tm1-ci/settings.yml:/settings.yml
+              - /tmp/tm1-ci/license:/License
+        YAML
+        docker compose \
+          -f test_integration/docker-compose.yml \
+          -f test_integration/docker-compose.ci.yml \
+          config > test_integration/docker-compose.generated.yml
 
     - name: Cleanup stale integration containers
-      run: docker compose -f test_integration/docker-compose.yml down --remove-orphans || true
+      run: docker compose -f test_integration/${TM1_COMPOSE_FILE} down --remove-orphans || true
 
     - name: Run integration tests with retry
       env:
@@ -130,9 +155,9 @@ jobs:
           if ./.venv/bin/python -m pytest test_integration/ -v --tb=short; then
             exit 0
           fi
-          docker compose -f test_integration/docker-compose.yml ps -a || true
-          docker compose -f test_integration/docker-compose.yml logs --no-color tm1 arc || true
-          docker compose -f test_integration/docker-compose.yml down --remove-orphans || true
+          docker compose -f test_integration/${TM1_COMPOSE_FILE} ps -a || true
+          docker compose -f test_integration/${TM1_COMPOSE_FILE} logs --no-color tm1 arc || true
+          docker compose -f test_integration/${TM1_COMPOSE_FILE} down --remove-orphans || true
           if [ "$attempt" -lt "$attempts" ]; then
             sleep 5
           fi
@@ -142,12 +167,12 @@ jobs:
     - name: Dump integration compose logs on failure
       if: failure()
       run: |
-        docker compose -f test_integration/docker-compose.yml ps -a || true
-        docker compose -f test_integration/docker-compose.yml logs --no-color tm1 arc || true
+        docker compose -f test_integration/${TM1_COMPOSE_FILE} ps -a || true
+        docker compose -f test_integration/${TM1_COMPOSE_FILE} logs --no-color tm1 arc || true
 
     - name: Cleanup integration containers
       if: always()
-      run: docker compose -f test_integration/docker-compose.yml down --remove-orphans || true
+      run: docker compose -f test_integration/${TM1_COMPOSE_FILE} down --remove-orphans || true
 
     - name: Restore workspace ownership
       if: always()

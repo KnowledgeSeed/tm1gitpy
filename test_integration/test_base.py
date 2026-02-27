@@ -27,29 +27,34 @@ def tm1_service(request: pytest.FixtureRequest):
     """
     test_dir = request.config.rootdir / "test_integration"
     force_container_start = os.getenv("FORCE_CONTAINER_START", "False").lower() in ("true", "1", "t")
+    compose_file_name = os.getenv("TM1_COMPOSE_FILE", "docker-compose.yml")
     
     compose: Optional[DockerCompose] = None
-    
-    port=5360
+    tm1_host = os.getenv("TM1_HOST", "localhost")
+    preconfigured_models_dir = os.getenv("TM1MODELS_DIR")
+    preconfigured_port = os.getenv("TM1_PORT")
+    port = int(preconfigured_port or "5360")
     if force_container_start or not is_tm1_running(port):
-        os.environ["TM1MODELS_DIR"] = resolve_test_model_dir(request)
-        port = find_free_port()
-        os.environ["TM1_PORT"] = str(port)
+        if not preconfigured_models_dir:
+            os.environ["TM1MODELS_DIR"] = resolve_test_model_dir(request)
+        if not preconfigured_port:
+            port = find_free_port()
+            os.environ["TM1_PORT"] = str(port)
         
         compose = DockerCompose(
             context=str(test_dir),
-            compose_file_name="docker-compose.yml",
+            compose_file_name=compose_file_name,
             pull=False,
         )
 
         logger.info("Starting TM1 Docker containers...")
         compose.start()
-        compose.wait_for(f"http://localhost:{port}/api/v1/")
+        compose.wait_for(f"http://{tm1_host}:{port}/api/v1/")
     else:
         logger.info("TM1 is already running or docker start is disabled.")
         
     # Yield the TM1Service connection to the tests
-    yield _tm1_connection_from_config(get_test_config(port), "local")
+    yield _tm1_connection_from_config(get_test_config(port, tm1_host), "local")
 
     # Teardown
     if compose:
@@ -57,14 +62,15 @@ def tm1_service(request: pytest.FixtureRequest):
         compose.stop()
         
         # Clean up the environment variables
-        if "TM1MODELS_DIR" in os.environ:
+        if not preconfigured_models_dir and "TM1MODELS_DIR" in os.environ:
             del os.environ["TM1MODELS_DIR"]
-        if "TM1_PORT" in os.environ:
+        if not preconfigured_port and "TM1_PORT" in os.environ:
             del os.environ["TM1_PORT"]
 
 def is_tm1_running(port: int, timeout_in_seconds: int = 1) -> bool:
+    host = os.getenv("TM1_HOST", "localhost")
     try:
-        response = requests.get(f"http://localhost:{port}/api/v1/", timeout=timeout_in_seconds)
+        response = requests.get(f"http://{host}:{port}/api/v1/", timeout=timeout_in_seconds)
         return response.status_code == 200
     except requests.exceptions.RequestException:
         return False
@@ -78,13 +84,13 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def get_test_config(port: int) -> TM1ServersConfig:
+def get_test_config(port: int, host: str = "localhost") -> TM1ServersConfig:
     """Create TM1ServersConfig for testing."""
     config = TM1ServersConfig()
     config.servers = {
         "local": TM1ServerConfig(
             name="local",
-            base_url=f"http://localhost:{port}/api/v1",
+            base_url=f"http://{host}:{port}/api/v1",
             user="admin",
             password=""
         )
