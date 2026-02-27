@@ -97,7 +97,8 @@ class Dimension:
         if default_hierarchy is None and hierarchies:
             default_hierarchy = hierarchies[0]
         if default_hierarchy is None:
-            raise ValueError(f"Cannot build Dimension '{name}': missing hierarchy definitions.")
+            hierarchy_path = f"{cls.as_link(name)}.hierarchies/{name}.json"
+            default_hierarchy = Hierarchy(name=name, elements=[], edges=[], subsets=[], source_path=hierarchy_path)
 
         return cls(name=name, hierarchies=hierarchies, defaultHierarchy=default_hierarchy, source_path=resolved_path)
 

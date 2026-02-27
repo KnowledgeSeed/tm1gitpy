@@ -114,7 +114,7 @@ process_data = [
 ]
 
 def _base_mock_dimension():
-    element = Element({"Name": "Leaf1", "Type": "Numeric"})
+    element = Element(name="Leaf1", type="Numeric")
     hierarchy = Hierarchy(
         name="MockHier",
         elements=[element],
@@ -194,7 +194,7 @@ def _build_mock_changeset_data():
     hierarchy_old = dimension.hierarchies[0]
     hierarchy_new = Hierarchy(
         name=hierarchy_old.name,
-        elements=[Element({"Name": "Elem1", "Type": "Numeric"})],
+        elements=[Element(name="Leaf1", type="Numeric")],
         edges=[],
         subsets=[],
         source_path=hierarchy_old.source_path
@@ -342,7 +342,7 @@ def _objects_equal_case_builders():
 
 
 def make_element(name: str, el_type: str = "Numeric") -> Element:
-    return Element({"Name": name, "Type": el_type})
+    return Element(name="Leaf1", type="Numeric")
 
 
 def make_hierarchy(

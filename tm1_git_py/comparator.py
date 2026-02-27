@@ -1,8 +1,8 @@
 import logging
 from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
 
-from tm1_git_py.changeset import Changeset
-from tm1_git_py.model import Hierarchy, MDXView, Subset
+from tm1_git_py.changeset import Changeset, Change, ChangeType, ObjectType
+from tm1_git_py.model import Hierarchy, MDXView, Subset, Element, Edge
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -114,7 +114,7 @@ def _normalize_filter(
 class Comparator:
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
-        Hierarchy: [("subsets", Subset)],
+        Hierarchy: [("subsets", Subset), ("elements", Element), ("edges", Edge)],
         Cube: [("views", MDXView)],
     }
 
@@ -132,11 +132,9 @@ class Comparator:
             filter_rules: Optional[Union[list[str], list[dict]]] = None
     ) -> Changeset:
         """
-        Comparison:
-            model1: Old model.
-            model2: New model.
-            mode: The mode of the comparison 'full' (stores every change)
-                  or 'add_only' ( only stores the added and modified objects)
+        Compare two models and build a Changeset of Change entries.
+        mode='full' emits add/remove/modify changes.
+        mode='add_only' emits add/modify changes.
         """
 
         if filter_rules:
@@ -160,6 +158,22 @@ class Comparator:
         changeset.sort()
 
         return changeset
+
+    @staticmethod
+    def _append_change(
+            changeset: Changeset,
+            *,
+            change_type: ChangeType,
+            obj: Any,
+    ) -> None:
+        changeset.changes.append(
+            Change(
+                change_type=change_type,
+                object_type=ObjectType.from_object(obj),
+                source_path=getattr(obj, "source_path", ""),
+                body=obj,
+            )
+        )
 
 
     def _compare_with_children(
@@ -217,12 +231,20 @@ class Comparator:
 
         added_names = new_names - old_names
         for name in added_names:
-            changeset.add_created(new_map[name])
+            self._append_change(
+                changeset,
+                change_type=ChangeType.ADD,
+                obj=new_map[name]
+            )
 
         if mode == 'full':
             removed_names = old_names - new_names
             for name in removed_names:
-                changeset.add_deleted(old_map[name])
+                self._append_change(
+                    changeset,
+                    change_type=ChangeType.REMOVE,
+                    obj=old_map[name]
+                )
 
         common_names = new_names & old_names
         matched_pairs: dict[str, tuple[Any, Any]] = {}
@@ -233,8 +255,11 @@ class Comparator:
                 matched_pairs[name] = (old_obj, new_obj)
                 objects_equal = equals_fn(old_obj, new_obj) if equals_fn else old_obj == new_obj
                 if not objects_equal:
-                    changeset.add_modified(old=old_obj, new=new_obj,
-                                          changes=f"Content of {object_type_name} '{name}' changed.")
+                    self._append_change(
+                        changeset,
+                        change_type=ChangeType.MODIFY,
+                        obj=new_obj
+                    )
             except Exception as exc:
                 logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc)
                 raise

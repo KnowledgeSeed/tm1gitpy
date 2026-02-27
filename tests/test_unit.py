@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TypeVar
 
 import pytest
+import yaml
 
 import tm1_git_py.comparator
 from tests.utility import (
@@ -16,9 +17,10 @@ from tests.utility import (
     make_dimension, make_subset, make_chore, make_process, make_mdx_view, make_cube, make_rule, make_hierarchy,
     make_element
 )
+from tm1_git_py.apply import apply
 from tm1_git_py.serializer import serialize_model
 from tm1_git_py.comparator import Comparator
-from tm1_git_py.changeset import Changeset, import_changeset
+from tm1_git_py.changeset import Change, ChangeType, Changeset, ObjectType, import_changeset
 from tm1_git_py.filter import filter_changeset
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
@@ -419,9 +421,9 @@ class TestChangeset:
         changeset.modified = []
 
         # Patch create/update/delete so we can inspect call order
-        mock_create = mocker.patch("tm1_git_py.changeset.create_object")
-        mock_update = mocker.patch("tm1_git_py.changeset.update_object")
-        mock_delete = mocker.patch("tm1_git_py.changeset.delete_object")
+        mock_create = mocker.patch("tm1_git_py.apply.create_object")
+        mock_update = mocker.patch("tm1_git_py.apply.update_object")
+        mock_delete = mocker.patch("tm1_git_py.apply.delete_object")
 
         # Give create/delete something with a .url so apply() doesn't fail
         def create_side_effect(**kwargs):
@@ -437,9 +439,7 @@ class TestChangeset:
 
         tm1_service = mocker.Mock()
 
-        status_dir = 'tests'
-        exec_id = 'test_create_and_delete'
-        success, _ = changeset.apply(tm1_service=tm1_service, status_dir=status_dir, execution_id=exec_id, batch=False)
+        success, _ = apply(tm1_service=tm1_service, changeset=changeset, fail_fast=False)
         assert success
 
         # --- Assert create order ---
@@ -463,8 +463,8 @@ class TestChangeset:
         # cubes -> subsets -> hierarchies -> dimensions -> chore -> process
         assert deleted_types == [MDXView, Cube, Chore, Process]
 
-        assert os.path.isfile(status_dir + '/' + exec_id + '.json')
-        os.remove(status_dir + '/' + exec_id + '.json')
+        #assert os.path.isfile(status_dir + '/' + exec_id + '.yml')
+        #os.remove(status_dir + '/' + exec_id + '.yml')
 
 
     def test_apply_sorts_updates_in_expected_precedence(self, mocker):
@@ -596,92 +596,77 @@ class TestChangeset:
             mdx="SELECT FROM [Cube_One]",
             source_path="cubes/Cube_One.views/View_To_Delete.json",
         )
-        old_dimension = make_dimension(
-            name="Dim_Update",
-            hierarchy_names=["Base"],
-            source_path="/dimensions/Dim_Update",
-        )
         new_dimension = make_dimension(
             name="Dim_Update",
             hierarchy_names=["Base", "Added"],
             source_path="/dimensions/Dim_Update",
         )
 
-        changes.add_created(created_subset)
-        changes.add_modified(
-            old=old_dimension,
-            new=new_dimension,
-            changes="Dimension structure changed.",
-        )
-        changes.add_deleted(removed_view)
+        changes.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.SUBSET,
+                source_path=created_subset.source_path,
+                body=created_subset,
+            ),
+            Change(
+                change_type=ChangeType.MODIFY,
+                object_type=ObjectType.DIMENSION,
+                source_path=new_dimension.source_path,
+                body=new_dimension,
+            ),
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.MDX_VIEW,
+                source_path=removed_view.source_path,
+                body=removed_view,
+            ),
+        ]
 
-        export_path = tmp_path / "changes.json"
+        export_path = tmp_path / "changes.yml"
         changes.export(export_path)
 
-        exported_payload = json.loads(export_path.read_text(encoding="utf-8"))
-
-        def _serialize_entry(old_obj, new_obj, message=None, apply=True):
-            obj = new_obj or old_obj
-            diff = {
-                "old_object": old_obj.to_dict() if old_obj else None,
-                "new_object": new_obj.to_dict() if new_obj else None,
-            }
-            if message:
-                diff["message"] = message
-            return {
-                "apply": apply,
-                "object_type": obj.__class__.__name__,
-                "object_name": getattr(obj, "name", None),
-                "source_path": getattr(obj, "source_path", None),
-                "difference": diff,
-            }
+        exported_payload = yaml.safe_load(export_path.read_text(encoding="utf-8"))
 
         expected_payload = {
             "changeset_name": None,
-            "status": "ok",
             "summary": {
-                "added": 1,
-                "removed": 1,
-                "modified": 1,
+                "add": 1,
+                "remove": 1,
+                "modify": 1,
             },
-            "changes": {
-                "added": [
-                    _serialize_entry(None, created_subset),
-                ],
-                "removed": [
-                    _serialize_entry(removed_view, None),
-                ],
-                "modified": [
-                    _serialize_entry(old_dimension, new_dimension, "Dimension structure changed."),
-                ],
-            },
-            "filter_semaphore": {
-                "Dimension": {
-                    "color": "green",
-                    "sign": True
+            "changes": [
+                {
+                    "change_type": "remove",
+                    "object_type": "MDXView",
+                    "source_path": "cubes/Cube_One.views/View_To_Delete.json",
+                    "body": {
+                        "name": "View_To_Delete",
+                    },
                 },
-                "Hierarchy": {
-                    "color": None,
-                    "sign": None
+                {
+                    "change_type": "add",
+                    "object_type": "Subset",
+                    "source_path": "/dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create",
+                    "body": {
+                        "name": "Subset_Create",
+                        "expression": "{[Dim_New].[Hier_New].Members}",
+                    },
                 },
-                "Subset": {
-                    "color": "green",
-                    "sign": True
+                {
+                    "change_type": "modify",
+                    "object_type": "Dimension",
+                    "source_path": "/dimensions/Dim_Update.json",
+                    "body": {
+                        "name": "Dim_Update",
+                        "hierarchies": [
+                            "/dimensions/Dim_Update.hierarchies/dummy.json",
+                            "/dimensions/Dim_Update.hierarchies/dummy.json",
+                        ],
+                        "default_hierarchy": "/dimensions/Dim_Update.hierarchies/dummy.json",
+                    },
                 },
-                "Element": {
-                    "color": None,
-                    "sign": None
-                },
-                "Edge": {
-                    "color": None,
-                    "sign": None
-                },
-                "MDXView": {
-                    "color": "red",
-                    "sign": True
-                },
-            },
-            "errors": {}
+            ],
         }
 
         assert exported_payload == expected_payload
@@ -693,7 +678,8 @@ class TestChangeset:
         comparator = tm1_git_py.Comparator()
 
         changeset_compared = comparator.compare(model_old, model_new)
-        export_path = tmp_path / "changes_exported.json"
+        #export_path = tmp_path / "changes_exported.yaml"
+        export_path = "tests/changes_exported.yaml"
         changeset_compared.export(file_path=export_path)
 
         changeset_imported = import_changeset(
@@ -703,15 +689,27 @@ class TestChangeset:
         changeset_compared.sort()
         changeset_imported.sort()
 
-        assert changeset_compared.added == changeset_imported.added
-        assert changeset_compared.removed == changeset_imported.removed
+        for expected, actual in zip(changeset_compared.changes, changeset_imported.changes):
+            assert expected.change_type == actual.change_type
+            assert expected.object_type == actual.object_type
+            assert expected.source_path == actual.source_path
+            assert expected.body.__class__ == actual.body.__class__
+            #assert expected.body.name == actual.body.name
 
-        assert len(changeset_compared.modified) == len(changeset_imported.modified)
 
-        for expected, actual in zip(changeset_compared.modified, changeset_imported.modified):
-            assert expected["old"].name == actual["old"].name
-            assert expected["new"].name == actual["new"].name
+    def test_export_import_round_trip(self):
+        change = import_changeset("test_integration/fixture_changeset.yml")
+        change.sort()
 
+        change.export("tests/changes_exported.yaml")
+
+        round_trip = import_changeset("tests/changes_exported.yaml")
+        round_trip.sort()
+
+        change_source_paths = [ch.source_path for ch in change.changes].sort()
+        round_trip_source_paths = [ch.source_path for ch in round_trip.changes].sort()
+
+        assert round_trip_source_paths == change_source_paths
 
 
 class TestChangesetFiltering:

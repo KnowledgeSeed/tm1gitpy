@@ -94,7 +94,7 @@ class Cube:
         return {
             'name': self.name,
             'dimensions': [d.to_dict() for d in self.dimensions],
-            'rules': [r.__dict__ for r in self.rules],
+            'rules': [r.to_dict() for r in self.rules],
             'views': [v.to_dict() for v in self.views]
         }
 
@@ -113,13 +113,9 @@ class Cube:
         dimensions = [Dimension.from_dict(payload) for payload in dimension_payloads]
 
         rule_payloads = data.get("rules") or data.get("Rules") or []
+        rule_base_path = resolved_path[:-5] if resolved_path.endswith(".json") else resolved_path
         rules = [
-            Rule(
-                area=payload.get("area") or payload.get("Area") or "",
-                full_statement=payload.get("full_statement") or payload.get("fullStatement") or payload.get(
-                    "statement") or "",
-                comment=payload.get("comment") or payload.get("Comment") or ""
-            )
+            Rule.from_dict(payload, source_path=f"{rule_base_path}.rules", cube_name=name)
             for payload in rule_payloads
         ]
 

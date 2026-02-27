@@ -2,27 +2,20 @@ import copy
 import json
 import logging
 import re
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, TypeVar, Union
 
-from TM1py.Services import TM1Service
-from requests import Response
+import yaml
 
-from tm1_git_py.changeset_status import ChangeSetStatusStore
-from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, Model, Process, Subset, hierarchy, subset, \
-    mdxview
-from tm1_git_py.model.chore import create_chore, delete_chore, update_chore
-from tm1_git_py.model.cube import create_cube, delete_cube, update_cube
-from tm1_git_py.model.dimension import create_dimension, delete_dimension, update_dimension
-from tm1_git_py.model.hierarchy import create_hierarchy, delete_hierarchy, update_hierarchy
-from tm1_git_py.model.mdxview import create_mdx_view, delete_mdx_view, update_mdx_view
-from tm1_git_py.model.process import create_process, delete_process, update_process
-from tm1_git_py.model.subset import create_subset, delete_subset, update_subset
+from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, Process, Subset, hierarchy, subset, \
+    mdxview, Element, Rule, Edge
 
 logger = logging.getLogger(__name__)
 
 
-T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore)
+T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule)
 
 _CHILD_RELATIONS: dict[type, list[str]] = {
     Dimension: ["hierarchies"],
@@ -30,12 +23,195 @@ _CHILD_RELATIONS: dict[type, list[str]] = {
     Cube: ["views"],
 }
 
-FLAG_PRECEDENCE = {"C": 0, "U": 1, "D": 2}
-OBJECT_PRECEDENCE = {'dimensions': 0, 'hierarchies': 1, 'subsets': 2, 'cubes': 3, 'views': 4, 'processes': 5, 'chores': 6}
-DELETE_OBJECT_PRECEDENCE = {'views': 0, 'cubes': 1, 'subsets': 2, 'hierarchies': 3, 'dimensions': 4, 'chores': 5, 'processes': 6}
+OBJECT_PRECEDENCE = {
+    'Dimension': 0,
+    'Hierarchy': 1,
+    'Subset': 2,
+    'Element': 3,
+    'Edge': 4,
+    'Cube': 5,
+    'MDXView': 6,
+    'Rule': 7,
+    'Process': 8,
+    'Chore': 9
+}
+DELETE_OBJECT_PRECEDENCE = {
+    'MDXView': 0,
+    'Rule': 1,
+    'Cube': 2,
+    'Edge': 3,
+    'Element': 4,
+    'Subset': 5,
+    'Hierarchy': 6,
+    'Dimension': 7,
+    'Chore': 8,
+    'Process': 9
+}
 
-FILTER_SEMAPHORE_OBJECT_TYPES = ("Dimension", "Hierarchy", "Subset", "Element", "Edge", "MDXView")
 
+class ChangeType(str, Enum):
+    ADD = "add"
+    REMOVE = "remove"
+    MODIFY = "modify"
+
+
+class ObjectType(str, Enum):
+    CUBE = "Cube"
+    CHORE = "Chore"
+    MDX_VIEW = "MDXView"
+    DIMENSION = "Dimension"
+    HIERARCHY = "Hierarchy"
+    SUBSET = "Subset"
+    ELEMENT = "Element"
+    EDGE = "Edge"
+    RULE = "Rule"
+    PROCESS = "Process"
+    TI_PROCESS = "Process"
+
+    @classmethod
+    def from_raw(cls, value: Optional[str]) -> "ObjectType":
+        normalized = (value or "").strip().lower()
+        aliases = {
+            "cube": cls.CUBE,
+            "chore": cls.CHORE,
+            "mdxview": cls.MDX_VIEW,
+            "dimension": cls.DIMENSION,
+            "hierarchy": cls.HIERARCHY,
+            "subset": cls.SUBSET,
+            "element": cls.ELEMENT,
+            "edge": cls.EDGE,
+            "rule": cls.RULE,
+            "process": cls.PROCESS,
+            "tiprocess": cls.PROCESS,
+        }
+        if normalized not in aliases:
+            raise ValueError(f"Unsupported object type '{value}'.")
+        return aliases[normalized]
+
+    @classmethod
+    def from_object(cls, obj: Any) -> "ObjectType":
+        return cls.from_raw(obj.__class__.__name__)
+
+
+ChangesetBody = Union[Cube, Chore, MDXView, Dimension, Hierarchy, Subset, Element, Edge, Rule, Process]
+
+OBJECT_TYPE_TO_CLASS: dict[ObjectType, type] = {
+    ObjectType.CUBE: Cube,
+    ObjectType.CHORE: Chore,
+    ObjectType.MDX_VIEW: MDXView,
+    ObjectType.DIMENSION: Dimension,
+    ObjectType.HIERARCHY: Hierarchy,
+    ObjectType.SUBSET: Subset,
+    ObjectType.ELEMENT: Element,
+    ObjectType.EDGE: Edge,
+    ObjectType.RULE: Rule,
+    ObjectType.PROCESS: Process,
+}
+
+
+@dataclass
+class Change:
+    """A single change entry describing one add / delete / update operation."""
+
+    change_type: ChangeType
+    object_type: ObjectType
+    source_path: str
+    body: ChangesetBody
+
+
+@dataclass
+class Changeset:
+    """A collection of changes to apply."""
+
+    changes: list[Change]
+
+    def __init__(self):
+        self.changes: list[Change] = []
+        self.last_execution_id: str = '0'
+
+        self.errors: dict[str, list[Any]] = {}
+        self.sort()
+
+    def has_changes(self) -> bool:
+        return bool(self.changes)
+
+    def apply(
+            self,
+            tm1_service,
+            *,
+            status_dir: Optional[Union[str, Path]] = None,
+            execution_id: Optional[str] = None,
+            changeset_name: Optional[str] = None,
+            fail_fast: bool = True,
+            **kwargs
+    ) -> tuple[bool, Union[list, None]]:
+        from tm1_git_py.apply import apply as apply_changeset
+
+        return apply_changeset(
+            changeset=self,
+            tm1_service=tm1_service,
+            status_dir=status_dir,
+            execution_id=execution_id,
+            changeset_name=changeset_name,
+            fail_fast=fail_fast,
+            **kwargs
+        )
+
+
+    def sort(self):
+        if self.has_changes():
+            def _change_key(change: Change) -> tuple[int, tuple[int, str]]:
+                body = change.body
+                change_path = change.source_path or getattr(body, "source_path", "") or ""
+                if not change_path:
+                    path_key = (99, "")
+                elif change.change_type == ChangeType.REMOVE:
+                    path_key = _source_path_sort_key(body, delete_precedence=True)
+                else:
+                    path_key = _source_path_sort_key(body)
+
+                type_rank = {
+                    ChangeType.REMOVE: 0,
+                    ChangeType.ADD: 1,
+                    ChangeType.MODIFY: 2,
+                }.get(change.change_type, 99)
+                return type_rank, path_key
+
+            self.changes.sort(key=_change_key)
+
+
+    def export(self, file_path: Union[str, Path]) -> None:
+        """Export changeset in fixture-compatible flat YAML format."""
+
+        self.sort()
+
+        export_entries = []
+        summary = {"add": 0, "remove": 0, "modify": 0}
+        for change in self.changes:
+            change_type = change.change_type
+            if hasattr(change_type, "value"):
+                change_type = change.change_type.value
+            export_entries.append({
+                "change_type": change_type,
+                "object_type": change.object_type.value,
+                "source_path": change.source_path,
+                "body": _serialize_change_body(change),
+            })
+            summary[change_type] += 1
+
+        output_path = Path(file_path).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "changeset_name": None,
+            "summary": summary,
+            "changes": export_entries
+        }
+        output_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+
+# --------------------------------------------------------------------------------
+# Utility
+# --------------------------------------------------------------------------------
 
 def normalize_source_path(source_path: str) -> str:
     if not source_path:
@@ -49,337 +225,218 @@ def normalize_source_path(source_path: str) -> str:
 
 
 def _source_path_sort_key(s: Union[T, dict[T, Any]], delete_precedence = False):
-    """
-    Sorting key for model objects based on their .source_path, used to sort:
-      - added
-      - removed
-      - modified (by new object)
-    """
-    if isinstance(s, (Cube, MDXView, Dimension, Hierarchy, Subset, Chore, Process)):
-        s = s.source_path
-    else:
+    if not isinstance(s, (Cube, MDXView, Dimension, Hierarchy, Subset, Chore, Process, Element, Edge, Rule)):
         raise ValueError(f"Cannot sort object type for source path '{s}'")
 
-    s = s.lstrip("/")
-    obj_match = re.search(r'(\w*)/', s)
-    if not obj_match:
-        raise ValueError(f"Cannot extract object name from source path '{s}'")
-    obj_name = obj_match.group(1)
+    object_type = s.__class__.__name__
+    source_path = (getattr(s, "source_path", "") or "").replace("\\", "/").lstrip("/")
+    parent_path = source_path.rsplit("/", 1)[0] if "/" in source_path else ""
 
-    if 'subsets' in s:
-        obj_name = 'subsets'
-    elif 'hierarchies' in s:
-        obj_name = 'hierarchies'
+    object_name = getattr(s, "name", None)
+    if object_name is None and isinstance(s, Rule):
+        object_name = _rule_name_from_area(getattr(s, "area", ""))
+    elif object_name is None and isinstance(s, Edge):
+        object_name = f"{getattr(s, 'parent', '')}:{getattr(s, 'name', '')}"
+    elif object_name is None:
+        object_name = source_path.rsplit("/", 1)[-1]
 
-    source_path = s.split(obj_name)[1]
-
-    if not delete_precedence:
-        key = (
-            OBJECT_PRECEDENCE.get(obj_name, 99),
-            source_path
-        )
-    else:
-        key = (
-            DELETE_OBJECT_PRECEDENCE.get(obj_name, 99),
-            source_path
-        )
-
-    return key
+    precedence_map = DELETE_OBJECT_PRECEDENCE if delete_precedence else OBJECT_PRECEDENCE
+    return (
+        precedence_map.get(object_type, 99),
+        parent_path,
+        str(object_name),
+    )
 
 
 def _iter_changeset_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    Normalize changeset payload entries to a flat list with action.
-    Supports both legacy format:
-      "changes": [{"action": "...", ...}]
-    and grouped format:
-      "changes": {"added": [...], "removed": [...], "modified": [...]}
-    """
+    """Return fixture-style changeset entries from payload['changes']."""
     changes = payload.get("changes", [])
-
-    if isinstance(changes, list):
-        return [entry for entry in changes if isinstance(entry, dict)]
-
-    if isinstance(changes, dict):
-        entries: list[dict[str, Any]] = []
-        for action, key in (("CREATE", "added"), ("DELETE", "removed"), ("UPDATE", "modified")):
-            for entry in changes.get(key, []) or []:
-                if not isinstance(entry, dict):
-                    continue
-                normalized = dict(entry)
-                normalized["action"] = action
-                entries.append(normalized)
-        return entries
-
-    raise ValueError("changeset payload must contain either a list or an object under 'changes'")
+    if not isinstance(changes, list):
+        raise ValueError("changeset payload must contain a list under 'changes'")
+    return [entry for entry in changes if isinstance(entry, dict)]
 
 
-class Changeset:
-
-    model: Model
-
-    def __init__(self):
-
-        self.added: list[T] = []
-        self.modified: list[dict[T, Any]] = []
-        self.removed: list[T] = []
-
-        self.changes: list[str] = []
-        self.last_execution_id: str = '0'
-
-        self.errors: dict[str, list[Any]] = {}
-        self.sort()
-
-    @property
-    def all_removed(self) -> list[str]:
-        return self.removed
-
-    def add_created(self, obj: Any) -> None:
-        self.added.append(obj)
-
-    def add_deleted(self, obj: Any) -> None:
-        self.removed.append(obj)
-
-    def add_modified(
-            self,
-            old: Any,
-            new: Any,
-            *,
-            changes: Optional[str] = None,
-    ) -> None:
-        self.modified.append(
-            {
-                "old": old,
-                "new": new,
-                "changes": changes or "Content changed.",
-            }
-        )
-
-    def has_changes(self) -> bool:
-        return any([self.added, self.modified, self.removed])
+def _path_stem(source_path: Optional[str]) -> str:
+    if not source_path:
+        return ""
+    normalized = source_path.replace("\\", "/")
+    name = normalized.rsplit("/", 1)[-1]
+    return name[:-5] if name.endswith(".json") else name
 
 
-    def apply(
-        self,
-        tm1_service: TM1Service,
-        *,
-        status_dir: Optional[Union[str, Path]] = None,
-        execution_id: Optional[str] = None,
-        changeset_name: Optional[str] = None,
-        fail_fast: bool = True,
-        **kwargs
-    ) -> tuple[bool, Union[list, None]]:
-
-        changes = []
-        if not self.has_changes():
-            logger.info("No changes to apply.")
-            return True, None
-
-        self.sort()
-
-        operations: list[tuple[str, Any]] = []
-        operations += [("CREATE", obj) for obj in self.added]
-        operations += [("UPDATE", obj) for obj in self.modified]
-        operations += [("DELETE", obj) for obj in self.removed]
-
-        store: Optional[ChangeSetStatusStore] = None
-        if status_dir is not None:
-            store = ChangeSetStatusStore(status_dir=status_dir, execution_id=execution_id,
-                                         changeset_name=changeset_name)
-            store.start(total_operations=len(operations))
-            self.last_execution_id = store.execution_id
-            logger.info("changeset execution_id=%s status_file=%s", store.execution_id, store.path)
-
-        def _obj_meta(o: Any) -> tuple[str, Optional[str], Optional[str]]:
-            if isinstance(o, dict) and "new" in o:
-                o = o["new"]
-            return o.__class__.__name__, getattr(o, "name", None), getattr(o, "source_path", None)
-
-        ok_all = True
-
-        for i, (action, obj) in enumerate(operations, start=1):
-            obj_type, obj_name, obj_path = _obj_meta(obj)
-
-            if store is not None:
-                store.begin_operation(i, action, obj_type, obj_name, obj_path)
-
-            try:
-                if action == "CREATE":
-                    resp = create_object(tm1_service=tm1_service, object_instance=obj)
-                    if isinstance(resp, list) or isinstance(resp, tuple):
-                        resp = resp[0]
-                elif action == "UPDATE":
-                    resp = update_object(tm1_service=tm1_service, object_instance=obj, **kwargs)
-                    if isinstance(resp, list) or isinstance(resp, tuple):
-                        resp = resp[0]
-                elif action == "DELETE":
-                    resp = delete_object(tm1_service=tm1_service, object_instance=obj)
-                    if isinstance(resp, list) or isinstance(resp, tuple):
-                        resp = resp[0]
-                else:
-                    raise ValueError(f"Unknown action: {action}")
-
-                changes.append(resp.url)
-
-                logger.info("%s %s%s -> %s %s",
-                            action,
-                            f"{obj_type}:" if obj_name else obj_type,
-                            obj_name or "",
-                            resp.status_code,
-                            getattr(resp, "url", ""))
-
-                if store is not None:
-                    store.end_operation_with_response(resp)
-
-                if not resp.ok:
-                    ok_all = False
-                    if fail_fast:
-                        if store is not None:
-                            store.fail()
-                        return False, changes
-
-            except Exception as exc:
-                logger.exception("Exception during %s %s%s: %s",
-                                 action,
-                                 f"{obj_type}:" if obj_name else obj_type,
-                                 obj_name or "",
-                                 exc)
-                if store is not None:
-                    store.end_operation_with_exception(exc)
-                    store.fail()
-                return False, changes
-
-        if store is not None:
-            store.succeed() if ok_all else store.fail()
-
-        return ok_all, changes
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().strip(",").lower() in {"1", "true", "yes"}
+    return bool(value)
 
 
-    def sort(self):
-        if self.has_changes():
-
-            self.added.sort(key=_source_path_sort_key)
-
-            self.modified.sort(
-                key=lambda m: _source_path_sort_key(m["new"])
-            )
-
-            self.removed.sort(
-                key=lambda obj: _source_path_sort_key(obj, delete_precedence=True)
-            )
+def _rule_name_from_area(area: str) -> str:
+    if not area:
+        return "default"
+    match = re.match(r"\[([^\]]+)\]", area.strip())
+    if match:
+        return match.group(1)
+    return "default"
 
 
-    def export(self, file_path: Union[str, Path]) -> None:
-        """
-        Export a detailed representation of the changeset so it can be recreated later.
-        """
+def _remove_body_name(body: Any) -> str:
+    if isinstance(body, Rule):
+        return _rule_name_from_area(body.area)
+    if isinstance(body, Edge):
+        return f"{body.parent}:{body.name}"
+    return getattr(body, "name", "")
 
-        def _serialize_obj(obj: Optional[Any]) -> Optional[dict[str, Any]]:
-            if obj is None:
-                return None
-            if hasattr(obj, "to_dict"):
-                try:
-                    return copy.deepcopy(obj.to_dict())
-                except Exception as exc:
-                    logger.error("Failed serializing %s to dict for export: %s", type(obj).__name__, exc)
-                    raise
-            raise ValueError(f"Object '{obj}' does not support to_dict()")
 
-        def _serialize_entry(old_obj: Optional[Any],
-                             new_obj: Optional[Any],
-                             message: Optional[str] = None,
-                             apply: Optional[bool] = None) -> dict[str, Any]:
-            obj_for_meta = new_obj or old_obj
-            object_type = obj_for_meta.__class__.__name__ if obj_for_meta is not None else None
-            object_name = getattr(obj_for_meta, "name", None) if obj_for_meta is not None else None
-            source_path = getattr(obj_for_meta, "source_path", None) if obj_for_meta is not None else None
-            apply_value = apply if apply is not None else bool(getattr(obj_for_meta, "apply", True))
-            serialized = {
-                "apply": apply_value,
-                "object_type": object_type,
-                "object_name": object_name,
-                "source_path": source_path if source_path else None,
-                "difference": {
-                    "old_object": _serialize_obj(old_obj),
-                    "new_object": _serialize_obj(new_obj)
-                }
-            }
-            if message:
-                serialized["difference"]["message"] = message
-            return serialized
+def _serialize_change_body(change: Change) -> dict[str, Any]:
+    body = change.body
+    if change.change_type == ChangeType.REMOVE:
+        return {"name": _remove_body_name(body)}
 
-        def _build_filter_semaphore(changes_by_action: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, Any]]:
-            state = {
-                key: {"has_added_or_modified": False, "has_removed": False, "has_false_apply": False, "has_any": False}
-                for key in FILTER_SEMAPHORE_OBJECT_TYPES
-            }
-
-            for action, entries in changes_by_action.items():
-                for entry in entries:
-                    obj_type = entry.get("object_type")
-                    if obj_type not in state:
-                        continue
-
-                    entry_state = state[obj_type]
-                    entry_state["has_any"] = True
-                    if action == "removed":
-                        entry_state["has_removed"] = True
-                    else:
-                        entry_state["has_added_or_modified"] = True
-                    if not entry.get("apply", True):
-                        entry_state["has_false_apply"] = True
-
-            filter_semaphore: dict[str, dict[str, Any]] = {}
-            for key in FILTER_SEMAPHORE_OBJECT_TYPES:
-                entry_state = state[key]
-                if not entry_state["has_any"]:
-                    color = None
-                    sign = None
-                else:
-                    has_removed = entry_state["has_removed"]
-                    has_add_mod = entry_state["has_added_or_modified"]
-                    if has_removed and not has_add_mod:
-                        color = "red"
-                    elif has_removed and has_add_mod:
-                        color = "yellow"
-                    else:
-                        color = "green"
-                    sign = not entry_state["has_false_apply"]
-
-                filter_semaphore[key] = {"color": color, "sign": sign}
-
-            return filter_semaphore
-
-        self.sort()
-
-        export_entries = {
-            "added": [_serialize_entry(None, obj) for obj in self.added],
-            "removed": [_serialize_entry(obj, None) for obj in self.removed],
-            "modified": [
-                _serialize_entry(mod.get("old"), mod.get("new"), mod.get("changes"), mod.get("apply"))
-                for mod in self.modified
-            ],
+    if isinstance(body, MDXView):
+        return {
+            "name": body.name,
+            "mdx": body.mdx
         }
 
-        status = "ok"
-        if self.errors:
-            status = "error"
-
-        output_path = Path(file_path).expanduser().resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "changeset_name": None,
-            "status": status,
-            "summary": {
-                "added": len(self.added),
-                "removed": len(self.removed),
-                "modified": len(self.modified),
-            },
-            "changes": export_entries,
-            "filter_semaphore": _build_filter_semaphore(export_entries),
-            "errors": self.errors,
+    if isinstance(body, Rule):
+        return {
+            "name": _rule_name_from_area(body.area),
+            "rule": body.full_statement
         }
-        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    if isinstance(body, Cube):
+        return {
+            "name": body.name,
+            "dimensions": [getattr(d, "source_path", f"dimensions/{d.name}.json") for d in body.dimensions]
+        }
+
+    if isinstance(body, Subset):
+        return {
+            "name": body.name,
+            "expression": body.expression
+        }
+
+    if isinstance(body, Edge):
+        return {
+            "parent_name": body.parent,
+            "component_name": body.name,
+            "weight": body.weight
+        }
+
+    if isinstance(body, Element):
+        return {
+            "name": body.name,
+            "type": body.type
+        }
+
+    if isinstance(body, Hierarchy):
+        return {
+            "name": body.name
+        }
+
+    if isinstance(body, Dimension):
+        return {
+            "name": body.name,
+            "hierarchies": [getattr(h, "source_path", f"dimensions/{body.name}.hierarchies/{h.name}.json") for h in body.hierarchies],
+            "default_hierarchy": getattr(body.defaultHierarchy, "source_path",
+                                         f"dimensions/{body.name}.hierarchies/{body.defaultHierarchy.name}.json")
+        }
+
+    if isinstance(body, Process):
+        return {
+            "name": body.name,
+            "has_security_access": body.hasSecurityAccess,
+            "data_source": body.datasource if isinstance(body.datasource, dict) else {"type": body.datasource or "None"},
+            "parameters": body.parameters,
+            "variables": body.variables,
+            "prolog": body.ti.prolog_procedure,
+            "data": body.ti.data_procedure,
+            "metadata": body.ti.metadata_procedure,
+            "epilog": body.ti.epilog_procedure,
+        }
+
+    if isinstance(body, Chore):
+        start_date = body.start_time.split("T")[0] if isinstance(body.start_time, str) and "T" in body.start_time else body.start_time
+        return {
+            "name": body.name,
+            "active": body.active,
+            "start_date": start_date,
+            "dst_sensitive": body.dst_sensitive,
+            "execution_mode": body.execution_mode,
+            "frequency": body.frequency,
+            "tasks": [f"processes/{task.process_name}.json" for task in body.tasks]
+        }
+
+    if hasattr(body, "to_dict"):
+        return copy.deepcopy(body.to_dict())
+    raise ValueError(f"Unsupported change body type: {type(body).__name__}")
+
+
+def _normalize_body_payload(
+        object_type: ObjectType,
+        payload: dict[str, Any],
+        source_path: str
+) -> dict[str, Any]:
+    normalized = copy.deepcopy(payload or {})
+
+    if object_type == ObjectType.EDGE:
+        if "parent_name" in normalized and "parentName" not in normalized:
+            normalized["parentName"] = normalized["parent_name"]
+        if "component_name" in normalized and "componentName" not in normalized:
+            normalized["componentName"] = normalized["component_name"]
+
+    if object_type == ObjectType.RULE:
+        if "rule" in normalized and "statement" not in normalized and "full_statement" not in normalized:
+            normalized["statement"] = normalized["rule"]
+        if "area" not in normalized and "Area" not in normalized:
+            rule_name = normalized.get("name") or "default"
+            normalized["area"] = f"[{rule_name}]"
+
+    if object_type == ObjectType.DIMENSION:
+        hierarchies = normalized.get("hierarchies")
+        if isinstance(hierarchies, list) and hierarchies and isinstance(hierarchies[0], str):
+            normalized["hierarchies"] = [{"name": _path_stem(path)} for path in hierarchies]
+        default_hierarchy = normalized.get("default_hierarchy") or normalized.get("defaultHierarchy")
+        if isinstance(default_hierarchy, str):
+            normalized["defaultHierarchy"] = {"name": _path_stem(default_hierarchy)}
+
+    if object_type == ObjectType.CUBE:
+        dimensions = normalized.get("dimensions")
+        if isinstance(dimensions, list) and dimensions and isinstance(dimensions[0], str):
+            normalized["dimensions"] = [{"name": _path_stem(path)} for path in dimensions]
+
+    if object_type == ObjectType.PROCESS:
+        data_source = normalized.get("data_source")
+        if data_source is not None and "datasource" not in normalized:
+            normalized["datasource"] = data_source
+
+        if "ti" not in normalized:
+            normalized["ti"] = {
+                "prolog_procedure": normalized.get("prolog", ""),
+                "metadata_procedure": normalized.get("metadata", ""),
+                "data_procedure": normalized.get("data", ""),
+                "epilog_procedure": normalized.get("epilog", ""),
+            }
+        if "code_link" not in normalized:
+            normalized["code_link"] = f"{_path_stem(source_path)}.ti"
+
+    if object_type == ObjectType.CHORE:
+        if "start_time" not in normalized:
+            normalized["start_time"] = normalized.get("start_date")
+        if "dst_sensitive" in normalized:
+            normalized["dst_sensitive"] = _as_bool(normalized.get("dst_sensitive"))
+        if "active" in normalized:
+            normalized["active"] = _as_bool(normalized.get("active"))
+        tasks = normalized.get("tasks")
+        if isinstance(tasks, list) and tasks and isinstance(tasks[0], str):
+            normalized["tasks"] = [
+                {"process_name": _path_stem(task_path), "parameters": []}
+                for task_path in tasks
+            ]
+
+    return normalized
 
 
 # --------------------------------------------------------------------------------
@@ -388,7 +445,12 @@ class Changeset:
 
 def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
     """
-    Rebuild a changeset from an exported changeset file without requiring a base model.
+    Build a Changeset from fixture-style YAML/JSON:
+    changes:
+      - change_type: add|remove|modify
+        object_type: <ObjectType>
+        source_path: <path>
+        body: <object payload>
     """
     try:
         payload = _load_changeset_payload(changeset_file)
@@ -405,41 +467,26 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
             logger.warning("Skipping malformed changeset entry: %s", entry)
             continue
 
-        action = entry.get("action")
-        object_type = entry.get("object_type")
-        source_path = entry.get("source_path")
-        diff = entry.get("difference") or {}
-        new_payload = diff.get("new_object")
-        old_payload = diff.get("old_object")
-        message = diff.get("message")
+        change_type = entry.get("change_type")
+        object_type = ObjectType.from_raw(entry.get("object_type"))
+        source_path = (entry.get("source_path") or "").replace("\\", "/")
+        body_payload = entry.get("body") or {}
+        if not source_path:
+            raise ValueError(f"Missing source_path in changeset entry {entry}")
 
-        if action == "CREATE":
-            if new_payload is None:
-                raise ValueError(f"Missing new_object payload for CREATE entry {entry}")
-            new_obj = _deserialize_object_from_payload(object_type, new_payload, source_path)
-            if new_obj is None:
-                raise ValueError(f"Failed to deserialize CREATE entry {entry}")
-            changeset.add_created(new_obj)
-        elif action == "DELETE":
-            if old_payload is None:
-                raise ValueError(f"Missing old_object payload for DELETE entry {entry}")
-            old_obj = _deserialize_object_from_payload(object_type, old_payload, source_path)
-            if old_obj is None:
-                raise ValueError(f"Failed to deserialize DELETE entry {entry}")
-            changeset.add_deleted(old_obj)
-        elif action == "UPDATE":
-            if new_payload is None or old_payload is None:
-                raise ValueError(f"Missing old_object or new_object payload for UPDATE entry {entry}")
-            old_obj = _deserialize_object_from_payload(object_type, old_payload, source_path)
-            new_obj = _deserialize_object_from_payload(object_type, new_payload, source_path)
-            if old_obj is None or new_obj is None:
-                raise ValueError(f"Failed to deserialize UPDATE entry {entry}")
-            if not message:
-                target_name = entry.get("object_name") or getattr(new_obj, "name", "")
-                message = f"Content of {object_type} '{target_name}' changed."
-            changeset.add_modified(old=old_obj, new=new_obj, changes=message)
-        else:
-            logger.warning("Unknown action '%s' in entry %s", action, entry)
+        normalized_payload = _normalize_body_payload(object_type, body_payload, source_path)
+        body_object = _deserialize_object_from_payload(object_type.value, normalized_payload, source_path)
+        if body_object is None:
+            raise ValueError(f"Failed to deserialize entry {entry}")
+
+        changeset.changes.append(
+            Change(
+                change_type=change_type,
+                object_type=object_type,
+                source_path=source_path,
+                body=body_object
+            )
+        )
 
     changeset.sort()
     return changeset
@@ -447,42 +494,20 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
 
 def _load_changeset_payload(changeset_file) -> dict[str, Any]:
     if hasattr(changeset_file, "read"):
-        return json.load(changeset_file)
+        content = changeset_file.read()
+        if not isinstance(content, str):
+            content = content.decode("utf-8")
+        try:
+            return json.loads(content)
+        except Exception:
+            return yaml.safe_load(content)
 
     with open(changeset_file, "r", encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def _resolve_path(path: str, index: dict[str, Any]) -> Any:
-    if not path:
-        return None
-
-    if path in index:
-        return index[path]
-
-    normalized = normalize_source_path(path)
-    if normalized in index:
-        return index[normalized]
-
-    candidate_with_json = f"{normalized}.json"
-    if candidate_with_json in index:
-        return index[candidate_with_json]
-
-    return None
-
-
-def _index_object_paths(index: dict[str, Any], obj: Any) -> None:
-    source_path = getattr(obj, "source_path", None)
-    if source_path:
-        normalized = normalize_source_path(source_path)
-        if normalized:
-            index[normalized] = obj
-            index[f"{normalized}.json"] = obj
-
-    for child_attr in _CHILD_RELATIONS.get(type(obj), []):
-        children = getattr(obj, child_attr, None) or []
-        for child in children:
-            _index_object_paths(index, child)
+        content = handle.read()
+        try:
+            return json.loads(content)
+        except Exception:
+            return yaml.safe_load(content)
 
 
 def _build_dimension_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Dimension:
@@ -522,6 +547,23 @@ def _build_process_from_payload(payload: dict[str, Any], source_path: Optional[s
 def _build_chore_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Chore:
     return Chore.from_dict(payload, source_path=source_path)
 
+def _build_element_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Element:
+    return Element.from_dict(payload, source_path=source_path)
+
+
+def _build_edge_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Edge:
+    return Edge.from_dict(payload, source_path=source_path)
+
+
+def _build_rule_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Rule:
+    cube_name = None
+    if source_path and source_path.startswith("cubes/"):
+        cube_name = source_path.split("/", 1)[1].split(".", 1)[0]
+    normalized_payload = dict(payload)
+    if "rule" in normalized_payload and "statement" not in normalized_payload and "full_statement" not in normalized_payload:
+        normalized_payload["statement"] = normalized_payload["rule"]
+    return Rule.from_dict(normalized_payload, source_path=source_path, cube_name=cube_name)
+
 
 _OBJECT_BUILDERS: dict[str, Any] = {
     "Dimension": _build_dimension_from_payload,
@@ -530,7 +572,11 @@ _OBJECT_BUILDERS: dict[str, Any] = {
     "Cube": _build_cube_from_payload,
     "MDXView": _build_mdx_view_from_payload,
     "Process": _build_process_from_payload,
-    "Chore": _build_chore_from_payload
+    "Chore": _build_chore_from_payload,
+    "Element": _build_element_from_payload,
+    "Edge": _build_edge_from_payload,
+    "Rule": _build_rule_from_payload,
+    "TIProcess": _build_process_from_payload,
 }
 
 
@@ -553,85 +599,3 @@ def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, A
         else:
             result[key] = copy.deepcopy(value)
     return result
-
-
-# --------------------------------------------------------------------------------
-# CRUD operations for apply changeset function
-# --------------------------------------------------------------------------------
-
-def create_object(tm1_service: TM1Service, object_instance: T) -> Response:
-    if isinstance(object_instance, Dimension):
-        return create_dimension(tm1_service=tm1_service, dimension=object_instance)
-
-    elif isinstance(object_instance, Hierarchy):
-        return create_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
-
-    elif isinstance(object_instance, Subset):
-        return create_subset(tm1_service=tm1_service, subset=object_instance)
-
-    elif isinstance(object_instance, Cube):
-        return create_cube(tm1_service=tm1_service, cube=object_instance)
-
-    elif isinstance(object_instance, MDXView):
-        return create_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
-
-    elif isinstance(object_instance, Process):
-        return create_process(tm1_service=tm1_service, process=object_instance)
-
-    elif isinstance(object_instance, Chore):
-        return create_chore(tm1_service=tm1_service, chore=object_instance)
-
-    else:
-        raise ValueError
-
-
-def delete_object(tm1_service: TM1Service, object_instance: T) -> Response:
-    if isinstance(object_instance, MDXView):
-        return delete_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
-
-    elif isinstance(object_instance, Cube):
-        return delete_cube(tm1_service=tm1_service, cube_name=object_instance.name)
-
-    elif isinstance(object_instance, Subset):
-        return delete_subset(tm1_service=tm1_service, subset=object_instance)
-
-    elif isinstance(object_instance, Hierarchy):
-        return delete_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
-
-    elif isinstance(object_instance, Dimension):
-        return delete_dimension(tm1_service=tm1_service, dimension_name=object_instance.name)
-
-    elif isinstance(object_instance, Chore):
-        return delete_chore(tm1_service=tm1_service, chore_name=object_instance.name)
-
-    elif isinstance(object_instance, Process):
-        return delete_process(tm1_service=tm1_service, process_name=object_instance.name)
-
-    else:
-        raise ValueError
-
-
-def update_object(tm1_service: TM1Service, object_instance: dict[T, Any], **kwargs) -> Response:
-    if isinstance(object_instance['new'], Dimension):
-        return update_dimension(tm1_service=tm1_service, dimension=object_instance)
-
-    elif isinstance(object_instance['new'], Hierarchy):
-        return update_hierarchy(tm1_service=tm1_service, hierarchy=object_instance)
-
-    elif isinstance(object_instance['new'], Subset):
-        return update_subset(tm1_service=tm1_service, subset=object_instance)
-
-    elif isinstance(object_instance['new'], Cube):
-        return update_cube(tm1_service=tm1_service, cube=object_instance, **kwargs)
-
-    elif isinstance(object_instance['new'], MDXView):
-        return update_mdx_view(tm1_service=tm1_service, mdx_view=object_instance)
-
-    elif isinstance(object_instance['new'], Process):
-        return update_process(tm1_service=tm1_service, process=object_instance)
-
-    elif isinstance(object_instance['new'], Chore):
-        return update_chore(tm1_service=tm1_service, chore=object_instance)
-
-    else:
-        raise ValueError

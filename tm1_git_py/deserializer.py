@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
+from tm1_git_py.model import Edge
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -180,8 +181,9 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
                 continue
 
         try:
+            dim_name = dim_json['Name']
             relative_path = os.path.join('dimensions', file_name).replace('\\', '/')
-            _dimension = Dimension(name=dim_json['Name'], hierarchies=[], defaultHierarchy=None,
+            _dimension = Dimension(name=dim_name, hierarchies=[], defaultHierarchy=None,
                                    source_path=relative_path)
         except Exception as e:
             dimension_errors[dim_link] = e.__repr__()
@@ -213,10 +215,12 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
                     data = file.read()
                     hier_json = json.loads(data)
                     hier_relative_path = os.path.join('dimensions', hier_dir_name, hier_file_name).replace('\\', '/')
+                    hier_name = hier_json.get('Name')
                     _hierarchy = Hierarchy(
-                        name=hier_json.get('Name'),
-                        elements=[Element(v) for v in hier_json.get('Elements', [])],
-                        edges=[Element(v) for v in hier_json.get('Edges', [])],
+                        name=hier_name,
+                        elements=[Element(**v, dimension_name=dim_name, hierarchy_name=hier_name) for v in hier_json.get('Elements', [])],
+                        edges=[Edge(**v, dimension_name=dim_name, hierarchy_name=hier_name)
+                               for v in hier_json.get('Edges', [])],
                         subsets=[],
                         source_path=hier_relative_path
                     )
