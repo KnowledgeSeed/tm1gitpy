@@ -14,9 +14,6 @@ jobs:
     container:
       image: python:${{ matrix.python-version }}-bookworm
       options: --user 1103:1103
-    env:
-      HOME: ${{ github.workspace }}/.home
-      PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
     
     strategy:
       fail-fast: false
@@ -41,6 +38,7 @@ jobs:
     - name: Test import
       run: |
         python -c "from tm1_git_py.config import load_tm1_servers; print('Import successful')"
+    
 
   integration-test:
     name: Integration Tests
@@ -73,16 +71,11 @@ jobs:
     runs-on: [self-hosted, linux, kseed-docker1]
     container:
       image: python:3.11-bookworm
+      options: --user 1103:1103
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
     
     - name: Install dependencies
       run: |
@@ -105,23 +98,19 @@ jobs:
       run: |
         isort --check-only tm1_git_py/
       continue-on-error: true
+    
 
   build:
     name: Build Package
     runs-on: [self-hosted, linux, kseed-docker1]
     container:
       image: python:3.11-bookworm
+      options: --user 1103:1103
     needs: [test, integration-test, lint]
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
     
     - name: Install build dependencies
       run: |
@@ -138,6 +127,7 @@ jobs:
         name: python-package-distributions
         path: dist/
         retention-days: 7
+    
 
   # build-executable:
   #   name: Build Executable with Nuitka
@@ -201,16 +191,11 @@ jobs:
     runs-on: [self-hosted, linux, kseed-docker1]
     container:
       image: python:3.11-bookworm
+      options: --user 1103:1103
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
     
     - name: Install dependencies
       run: |
