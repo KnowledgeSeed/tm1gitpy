@@ -73,12 +73,12 @@ changes:
     body:
       name: mydim
       hierarchies:
-        - dimensions/mydim.hieararchies/myhier.json
-      default_hierarchy: dimensions/mydim.hieararchies/myhier.json
+        - dimensions/mydim.hierarchies/myhier.json
+      default_hierarchy: dimensions/mydim.hierarchies/myhier.json
 
   - change_type: add
     object_type: Hierarchy
-    source_path: dimensions/mydim.hieararchies/myhier.json
+    source_path: dimensions/mydim.hierarchies/myhier.json
     body:
       name: mydim
 
@@ -118,14 +118,14 @@ changes:
     body:
       name: mod_dim
       hierarchies:
-        - dimensions/mydim.hieararchies/myhier.json
-        - dimensions/mydim.hieararchies/myhier2.json
-      default_hierarchy: dimensions/mydim.hieararchies/myhier.json
+        - dimensions/mydim.hierarchies/myhier.json
+        - dimensions/mydim.hierarchies/myhier2.json
+      default_hierarchy: dimensions/mydim.hierarchies/myhier.json
 
 #   HIERARCHY UPDATE NOT DEFINED: modification is handled by children for add/remove
 #  - change_type: modify
 #    object_type: Hierarchy
-#    source_path: dimensions/mydim.hieararchies/myhier.json
+#    source_path: dimensions/mydim.hierarchies/myhier.json
 #    body:
 #      name: mydim
 
@@ -291,8 +291,8 @@ changes:
       active: false
       start_date: "2024-01-01"
       dst_sensitive: false,
-      execution_mode: "SingleCommit",
-      frequency: "P01DT00H00M00S",
+      execution_mode: "SingleCommit"
+      frequency: "P01DT00H00M00S"
       tasks:
         - processes/myprocess.json
         - processes/myprocess2.json
@@ -305,7 +305,7 @@ changes:
       active: false
       start_date: "2024-01-01"
       dst_sensitive: false,
-      execution_mode: "SingleCommit",
-      frequency: "P02DT00H00M00S",
+      execution_mode: "SingleCommit"
+      frequency: "P02DT00H00M00S"
       tasks:
         - processes/myprocess.json
