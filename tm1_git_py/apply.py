@@ -1,11 +1,12 @@
 import logging
 from pathlib import Path
-from typing import Optional, Union, Any, TypeVar
+from typing import Optional, Union, TypeVar
 
 from TM1py import TM1Service
 from requests import Response
 
 from tm1_git_py import Changeset
+from tm1_git_py.changeset import ChangeType
 from tm1_git_py.changeset_status import ChangeSetStatusStore
 from tm1_git_py.model import Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore
 from tm1_git_py.validation import validate_changeset
@@ -22,8 +23,7 @@ def apply(
         status_dir: Optional[Union[str, Path]] = None,
         execution_id: Optional[str] = None,
         changeset_name: Optional[str] = None,
-        fail_fast: bool = True,
-        **kwargs
+        fail_fast: bool = True
 ) -> tuple[bool, Union[list, None]]:
 
     changes = []
@@ -41,10 +41,6 @@ def apply(
     if validate_errors:
         logger.warning("Changeset validation reported %d error(s).", len(validate_errors))
     """
-    operations: list[tuple[str, Any]] = []
-    #operations += [("CREATE", obj) for obj in changeset.added]
-    #operations += [("UPDATE", obj) for obj in changeset.modified]
-    #operations += [("DELETE", obj) for obj in changeset.removed]
 
     store: Optional[ChangeSetStatusStore] = None
     if status_dir is not None:
@@ -54,37 +50,33 @@ def apply(
         changeset.last_execution_id = store.execution_id
         logger.info("changeset execution_id=%s status_file=%s", store.execution_id, store.path)
 
-    def _obj_meta(o: Any) -> tuple[str, Optional[str], Optional[str]]:
-        if isinstance(o, dict) and "new" in o:
-            o = o["new"]
-        return o.__class__.__name__, getattr(o, "name", None), getattr(o, "source_path", None)
-
     ok_all = True
 
     for i, change in enumerate(changeset.changes, start=1):
         obj = change.body
-        action = change.change_type.value
+        action = ChangeType.from_raw(change.change_type)
+        action_name = action.value
         obj_type = change.object_type.value
         obj_path = change.source_path
         obj_name = obj.name
 
         if store is not None:
-            store.begin_operation(i, action, obj_type, obj_name, obj_path)
+            store.begin_operation(i, action_name, obj_type, obj_name, obj_path)
 
         try:
-            if action == "add":
+            if action == ChangeType.ADD:
                 resp = create_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
-            elif action == "modify":
-                resp = update_object(tm1_service=tm1_service, object_instance={"old": obj, "new": obj}, object_type=obj_type)
-            elif action == "remove":
+            elif action == ChangeType.MODIFY:
+                resp = update_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
+            elif action == ChangeType.REMOVE:
                 resp = delete_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
             else:
-                raise ValueError(f"Unknown action: {action}")
+                raise ValueError(f"Unknown action: {action_name}")
 
             changes.append(resp.url)
 
             logger.info("%s %s%s -> %s %s",
-                        action,
+                        action_name,
                         f"{obj_type}:" if obj_name else obj_type,
                         obj_name or "",
                         resp.status_code,
@@ -102,7 +94,7 @@ def apply(
 
         except Exception as exc:
             logger.exception("Exception during %s %s%s: %s",
-                             action,
+                             action_name,
                              f"{obj_type}:" if obj_name else obj_type,
                              obj_name or "",
                              exc)
@@ -131,6 +123,6 @@ def delete_object(tm1_service: TM1Service, object_instance: T, object_type) -> R
     return delete(tm1_service, object_instance)
 
 
-def update_object(tm1_service: TM1Service, object_instance: dict[T, Any], object_type) -> Response:
+def update_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
     update = getattr(object_instance, f"update_{object_type.lower()}")
     return update(tm1_service, object_instance)

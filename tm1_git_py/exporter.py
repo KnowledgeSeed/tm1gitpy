@@ -127,7 +127,7 @@ def cubes_to_model(tm1_conn, _dimensions: Dict[str, Dimension]) -> tuple[Dict[st
                 except (json.JSONDecodeError, AttributeError):
                     rule_text = raw_body if isinstance(raw_body, str) else ""
 
-            rules_list = _parse_rules(rule_text)
+            rules_list = _parse_rules(rule_text, cube_name=cube_name)
             _cube = Cube(
                 name=cube_name,
                 dimensions=[],
@@ -208,7 +208,7 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
     return _dimensions, _errors
 
 
-def _parse_rules(rule_text: str) -> List[Rule]:
+def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
     if not rule_text: return []
     rules = []
     pattern = re.compile(r"(?P<comment>(?:#.*(?:\r\n|\n|$)\s*)*)?(?P<statement>\[.*?\][^;]*;)", re.DOTALL)
@@ -217,14 +217,14 @@ def _parse_rules(rule_text: str) -> List[Rule]:
     if header_match:
         header_text = header_match.group(1).strip()
         if header_text:
-            rules.append(Rule(area="[HEADER]", full_statement=header_text, comment=""))
+            rules.append(Rule(area="[HEADER]", full_statement=header_text, comment="", cube_name=cube_name))
         last_pos = header_match.end()
     for match in pattern.finditer(rule_text, last_pos):
         comment = (match.group('comment') or "").strip()
         statement_text = match.group('statement').strip()
         area_match = re.search(r'(\[.*?\])', statement_text)
         area = area_match.group(1) if area_match else "[UNKNOWN]"
-        rules.append(Rule(area=area, full_statement=statement_text, comment=comment))
+        rules.append(Rule(area=area, full_statement=statement_text, comment=comment, cube_name=cube_name))
     return rules
 
 

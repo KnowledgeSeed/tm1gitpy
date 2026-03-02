@@ -71,10 +71,10 @@ class Element:
         )
 
     @staticmethod
-    def as_link(dimension_name_base, hierarchy_name_base, name):
-        # /dimensions/Dimension_A.hierarchies/Dimension_A.json/element1
-        if dimension_name_base and hierarchy_name_base:
-            return '/dimensions/' + dimension_name_base + '.hierarchies/' + hierarchy_name_base + '.json/' + name
+    def as_link(dimension_name_base: Optional[str], hierarchy_name_base: Optional[str], name: Optional[str]) -> Optional[str]:
+        # dimensions/Dimension_A.hierarchies/Dimension_A.json/element1
+        if dimension_name_base and hierarchy_name_base and name:
+            return f"dimensions/{dimension_name_base}.hierarchies/{hierarchy_name_base}.json/{name}"
         return None
 
 # ------------------------------------------------------------------------------------------------------------

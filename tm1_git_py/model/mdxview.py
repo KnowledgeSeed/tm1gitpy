@@ -86,14 +86,12 @@ def create_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
     return tm1_service.views.create(mdx_view_object)
 
 
-def update_mdxview(tm1_service: TM1Service, mdx_view: Dict[str, Any]) -> Response:
-    mdx_view_new = mdx_view.get('new')
+def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
+    cube_name, _ = _view_context_from_path(mdx_view.source_path)
 
-    cube_name, _ = _view_context_from_path(mdx_view_new.source_path)
-
-    mdx_view_object = tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=mdx_view_new.name)
-    mdx_view_object.mdx = mdx_view_new.mdx
-    logger.info(f"Updating MDXView: {mdx_view_new.name} for Cube: {cube_name}.")
+    mdx_view_object = tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=mdx_view.name)
+    mdx_view_object.mdx = mdx_view.mdx
+    logger.info(f"Updating MDXView: {mdx_view.name} for Cube: {cube_name}.")
     return tm1_service.views.update(mdx_view_object)
 
 

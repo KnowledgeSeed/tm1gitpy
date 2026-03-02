@@ -1,7 +1,7 @@
 import fnmatch
 from typing import Any, List, Mapping, Optional
 
-from tm1_git_py.changeset import Changeset, normalize_source_path
+from tm1_git_py.changeset import Change, Changeset, ChangeType, normalize_source_path
 from tm1_git_py.model import Model
 
 
@@ -172,43 +172,39 @@ def filter_changeset(
     if not filter_rules:
         return changeset
 
-    path_entries: list[tuple[str, str, Any]] = []
+    def _change_path(change: Change) -> str:
+        body_path = _normalize_path(change.body)
+        if body_path:
+            return body_path
+        return normalize_source_path(change.source_path)
 
-    for obj in changeset.added:
-        path_entries.append(("added", _normalize_path(obj), obj))
-    for mod in changeset.modified:
-        mod_path = _normalize_path(mod.get("new")) or _normalize_path(mod.get("old"))
-        path_entries.append(("modified", mod_path, mod))
-    for obj in changeset.removed:
-        path_entries.append(("removed", _normalize_path(obj), obj))
+    path_entries: list[tuple[str, str, Change]] = []
+    for change in changeset.changes:
+        section = ChangeType.from_raw(change.change_type).value
+        path_entries.append((section, _change_path(change), change))
 
-    paths_by_section: dict[str, list[str]] = {"added": [], "removed": [], "modified": []}
-    for section, path, _ in path_entries:
+    paths_by_section: dict[str, list[str]] = {"add": [], "remove": [], "modify": []}
+    for section, path, _change in path_entries:
         if path:
             paths_by_section[section].append(path)
 
-    paths_to_remove_by_section: dict[str, set[str]] = {"added": set(), "removed": set(), "modified": set()}
+    paths_to_remove_by_section: dict[str, set[str]] = {"add": set(), "remove": set(), "modify": set()}
 
     rules_by_section = {
-        "added": {_normalize_filter_path(path) for path in (filter_rules.get("added", []) or []) if path},
-        "removed": {_normalize_filter_path(path) for path in (filter_rules.get("removed", []) or []) if path},
-        "modified": {_normalize_filter_path(path) for path in (filter_rules.get("modified", []) or []) if path},
+        "add": {_normalize_filter_path(path) for path in (filter_rules.get("add", []) or []) if path},
+        "remove": {_normalize_filter_path(path) for path in (filter_rules.get("remove", []) or []) if path},
+        "modify": {_normalize_filter_path(path) for path in (filter_rules.get("modify", []) or []) if path},
     }
 
-    if not rules_by_section["modified"]:
-        rules_by_section["modified"] = {
-            _normalize_filter_path(path) for path in (filter_rules.get("modifed", []) or []) if path
-        }
-
-    for section, path, _ in path_entries:
+    for section, path, _change in path_entries:
         if not path:
             continue
         section_paths = rules_by_section.get(section, set())
         if path in section_paths:
             paths_to_remove_by_section[section].add(path)
 
-    expanded_paths_to_remove_by_section: dict[str, set[str]] = {"added": set(), "removed": set(), "modified": set()}
-    for section in ("added", "removed", "modified"):
+    expanded_paths_to_remove_by_section: dict[str, set[str]] = {"add": set(), "remove": set(), "modify": set()}
+    for section in ("add", "remove", "modify"):
         if filter_children:
             expanded_paths_to_remove_by_section[section] = _expand_removed_paths(
                 paths_to_remove_by_section[section],
@@ -218,18 +214,9 @@ def filter_changeset(
             expanded_paths_to_remove_by_section[section] = set(paths_to_remove_by_section[section])
 
     filtered_changeset = Changeset()
-    filtered_changeset.added = [
-        obj for obj in changeset.added
-        if _normalize_path(obj) not in expanded_paths_to_remove_by_section["added"]
-    ]
-    filtered_changeset.modified = [
-        mod for mod in changeset.modified
-        if (_normalize_path(mod.get("new")) or _normalize_path(mod.get("old")))
-        not in expanded_paths_to_remove_by_section["modified"]
-    ]
-    filtered_changeset.removed = [
-        obj for obj in changeset.removed
-        if _normalize_path(obj) not in expanded_paths_to_remove_by_section["removed"]
+    filtered_changeset.changes = [
+        change for section, path, change in path_entries
+        if path not in expanded_paths_to_remove_by_section[section]
     ]
     filtered_changeset.errors = dict(changeset.errors)
     filtered_changeset.last_execution_id = changeset.last_execution_id

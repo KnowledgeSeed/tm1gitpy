@@ -149,13 +149,12 @@ def create_cube(tm1_service: TM1Service, cube: Cube) -> Response:
     return tm1_service.cubes.create(cube_object)
 
 
-def update_cube(tm1_service: TM1Service, cube: Dict[str, Any], **kwargs) -> Response:
-    cube_new = cube.get('new')
-    cube_old = cube.get('old')
-    dimensions_new = [d.name for d in cube_new.dimensions]
-    dimensions_old = [d.name for d in cube_old.dimensions]
-    cube_object = tm1_service.cubes.get(cube_new.name)
+def update_cube(tm1_service: TM1Service, cube: Cube) -> Response:
+    cube_object = tm1_service.cubes.get(cube.name)
 
+    #dimensions_new = [d.name for d in cube.dimensions]
+    #dimensions_old = [d.name for d in cube_old.dimensions]
+    """
     if dimensions_new != dimensions_old:
         if set(dimensions_new) == set(dimensions_old):
             tm1_service.cubes.update_storage_dimension_order(
@@ -185,11 +184,11 @@ def update_cube(tm1_service: TM1Service, cube: Dict[str, Any], **kwargs) -> Resp
                     **kwargs
                 )
                 cube_object = tm1_service.cubes.get(cube_new.name)
-
-    new_rule_text = cube_new.get_rule_text()
+    """
+    new_rule_text = cube.get_rule_text()
     if not cube_object.rules or cube_object.rules.body != new_rule_text:
         cube_object.rules = TM1py.Rules(new_rule_text)
-        logger.info(f"Updated Rules for Cube: {cube_new.name}.")
+        logger.info(f"Updated Rules for Cube: {cube.name}.")
 
     return tm1_service.cubes.update(cube_object)
 

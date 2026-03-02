@@ -52,7 +52,14 @@ class Edge:
         }, indent=4)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], *, source_path: Optional[str] = None) -> "Edge":
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        *,
+        source_path: Optional[str] = None,
+        dimension_name: Optional[str] = None,
+        hierarchy_name: Optional[str] = None
+    ) -> "Edge":
         parent = data.get("parentName") or data.get("parent") or data.get("ParentName")
         component = (
             data.get("componentName") or data.get("name") or data.get("ComponentName")
@@ -62,13 +69,23 @@ class Edge:
             weight = data.get("Weight")
         if weight is None:
             weight = 1
-        return cls(parent=parent, name=component, weight=weight, source_path=source_path)
+        return cls(
+            parent=parent,
+            name=component,
+            weight=weight,
+            source_path=source_path or cls.as_link(dimension_name, hierarchy_name, component, parent)
+        )
 
     @staticmethod
-    def as_link(dimension_name_base, hierarchy_name_base, name, parent):
-        # /dimensions/Dimension_A.hierarchies/Dimension_A.json/parent:component
-        if dimension_name_base and hierarchy_name_base:
-            return f'/dimensions/{dimension_name_base}.hierarchies/{hierarchy_name_base}.json/{parent}:{name}'
+    def as_link(
+        dimension_name_base: Optional[str],
+        hierarchy_name_base: Optional[str],
+        name: Optional[str],
+        parent: Optional[str]
+    ) -> Optional[str]:
+        # dimensions/Dimension_A.hierarchies/Dimension_A.json/parent:component
+        if dimension_name_base and hierarchy_name_base and name and parent:
+            return f"dimensions/{dimension_name_base}.hierarchies/{hierarchy_name_base}.json/{parent}:{name}"
         return None
 
 
@@ -89,6 +106,10 @@ def create_edge(tm1_service: TM1Service, edge: Edge) -> Response:
     edge_name = {(edge.parent, edge.name), edge.weight}
     logger.debug(f"Creating Edge: {edge.name} in Hierarchy: {hierarchy}.")
     return tm1_service.elements.add_edges(hierarchy, dimension, edge_name)
+
+
+def update_edge(tm1_service: TM1Service, edge: Edge) -> Response:
+    pass
 
 
 def delete_edge(tm1_service: TM1Service, edge: Edge) -> Response:

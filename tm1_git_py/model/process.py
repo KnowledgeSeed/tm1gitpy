@@ -172,18 +172,15 @@ def create_process(tm1_service: TM1Service, process: Process) -> Response:
     return tm1_service.processes.create(process_object)
 
 
-def update_process(tm1_service: TM1Service, process: Dict[str, Any]) -> Response:
-    process_new = process.get('new')
-    process_old = process.get('old')
+def update_process(tm1_service: TM1Service, process: Process) -> Response:
+    process_object = tm1_service.processes.get(name_process=process.name)
+    process_object.datasource_type = process.datasource
+    process_object.has_security_access = process.hasSecurityAccess
 
-    process_object = tm1_service.processes.get(name_process=process_new.name)
-    process_object.datasource_type = process_new.datasource
-    process_object.has_security_access = process_new.hasSecurityAccess
+    _update_process_parameters(process_new=process, process_object=process_object)
+    _update_process_variables(process_new=process, process_object=process_object)
 
-    _update_process_parameters(process_old=process_old, process_new=process_new, process_object=process_object)
-    _update_process_variables(process_old=process_old, process_new=process_new, process_object=process_object)
-
-    logger.info(f"Updating Process: {process_new.name}.")
+    logger.info(f"Updating Process: {process.name}.")
 
     return tm1_service.processes.update(process_object)
 
@@ -193,9 +190,18 @@ def delete_process(tm1_service: TM1Service, process_name: str) -> Response:
     return tm1_service.processes.delete(process_name)
 
 
-def _update_process_variables(process_old: Process, process_new: Process, process_object: TM1py.Process):
-    if process_new.variables != process_old.variables:
-        vars_to_add, vars_to_remove = _diff_lists(process_old.variables, process_new.variables)
+def _update_process_variables(process_new: Process, process_object: TM1py.Process):
+    variables_old = process_object.variables
+    process_new = TM1py.Process(
+        name=process_new.name,
+        has_security_access=process_new.hasSecurityAccess,
+        datasource_type=process_new.datasource,
+        parameters=process_new.parameters,
+        variables=process_new.variables
+    )
+    variables_new = process_new.variables
+    if variables_new != variables_old:
+        vars_to_add, vars_to_remove = _diff_lists(variables_old, variables_new)
         for var in vars_to_add:
             process_object.add_variable(
                 name=var.get('name'),
@@ -208,9 +214,18 @@ def _update_process_variables(process_old: Process, process_new: Process, proces
         logger.info(f"Removed Variables: {vars_to_remove} from Process: {process_new.name}.")
 
 
-def _update_process_parameters(process_old: Process, process_new: Process, process_object: TM1py.Process):
-    if process_new.parameters != process_old.parameters:
-        params_to_add, params_to_remove = _diff_lists(process_old.parameters, process_new.parameters)
+def _update_process_parameters(process_new: Process, process_object: TM1py.Process):
+    parameters_old = process_object.parameters
+    process_new = TM1py.Process(
+        name=process_new.name,
+        has_security_access=process_new.hasSecurityAccess,
+        datasource_type=process_new.datasource,
+        parameters=process_new.parameters,
+        variables=process_new.variables
+    )
+    parameters_new = process_new.parameters
+    if parameters_new != parameters_old:
+        params_to_add, params_to_remove = _diff_lists(parameters_old, parameters_new)
         for param in params_to_add:
             process_object.add_parameter(
                 name=param.get('name'),

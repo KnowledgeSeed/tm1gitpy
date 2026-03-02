@@ -54,6 +54,21 @@ class ChangeType(str, Enum):
     REMOVE = "remove"
     MODIFY = "modify"
 
+    @classmethod
+    def from_raw(cls, value: Any) -> "ChangeType":
+        if isinstance(value, cls):
+            return value
+
+        normalized = (str(value or "")).strip().lower()
+        aliases = {
+            "add": cls.ADD,
+            "remove": cls.REMOVE,
+            "modify": cls.MODIFY,
+        }
+        if normalized not in aliases:
+            raise ValueError(f"Unsupported change type '{value}'.")
+        return aliases[normalized]
+
 
 class ObjectType(str, Enum):
     CUBE = "Cube"
@@ -111,12 +126,16 @@ OBJECT_TYPE_TO_CLASS: dict[ObjectType, type] = {
 
 @dataclass
 class Change:
-    """A single change entry describing one add / delete / update operation."""
+    """A single change entry describing one add / remove / modify operation."""
 
     change_type: ChangeType
     object_type: ObjectType
     source_path: str
     body: ChangesetBody
+
+    def __post_init__(self):
+        self.change_type = ChangeType.from_raw(self.change_type)
+        self.object_type = ObjectType.from_raw(self.object_type)
 
 
 @dataclass
@@ -197,7 +216,7 @@ class Changeset:
                 "source_path": change.source_path,
                 "body": _serialize_change_body(change),
             })
-            summary[change_type] += 1
+            summary[change_type] = summary.get(change_type, 0) + 1
 
         output_path = Path(file_path).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -467,7 +486,7 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
             logger.warning("Skipping malformed changeset entry: %s", entry)
             continue
 
-        change_type = entry.get("change_type")
+        change_type = ChangeType.from_raw(entry.get("change_type"))
         object_type = ObjectType.from_raw(entry.get("object_type"))
         source_path = (entry.get("source_path") or "").replace("\\", "/")
         body_payload = entry.get("body") or {}

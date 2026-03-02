@@ -46,10 +46,12 @@ class Rule:
         area = data.get("area") or data.get("Area") or ""
         statement = data.get("full_statement") or data.get("fullStatement") or data.get("statement") or data.get("rule") or ""
         comment = data.get("comment") or data.get("Comment") or ""
-        resolved_path = source_path or (f"cubes/{cube_name}.rules" if cube_name else None)
+        resolved_path = source_path or (cls.as_link(cube_name) if cube_name else None)
         return cls(area=area, full_statement=statement, comment=comment, source_path=resolved_path)
 
     @staticmethod
-    def as_link(cube_base_name):
-        # /dimensions/Dimension_A.hierarchies/Dimension_A.json/element1
-        return '/cubes/' + cube_base_name + '.rules'
+    def as_link(cube_base_name: Optional[str]) -> Optional[str]:
+        # cubes/Cube_A.rules
+        if not cube_base_name:
+            return None
+        return f"cubes/{cube_base_name}.rules"

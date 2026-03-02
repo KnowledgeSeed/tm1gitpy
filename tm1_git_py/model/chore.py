@@ -325,27 +325,25 @@ def create_chore(tm1_service: TM1Service, chore: Chore) -> Response:
     return tm1_service.chores.create(chore_object)
 
 
-def update_chore(tm1_service: TM1Service, chore: Dict[str, Any]) -> Response:
-    chore_new = chore.get('new')
+def update_chore(tm1_service: TM1Service, chore: Chore) -> Response:
+    chore_tasks = [create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore.tasks)]
 
-    chore_tasks = [create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore_new.tasks)]
+    frequency = chore.frequency
+    start_time = chore.start_time
 
-    frequency = chore_new.frequency
-    start_time = chore_new.start_time
-
-    chore_object = tm1_service.chores.get(chore_name=chore_new.name)
+    chore_object = tm1_service.chores.get(chore_name=chore.name)
     chore_object.start_time = ChoreStartTime.from_string(start_time)
-    chore_object.dst_sensitivity = chore_new.dst_sensitive
-    chore_object.execution_mode = chore_new.execution_mode
+    chore_object.dst_sensitivity = chore.dst_sensitive
+    chore_object.execution_mode = chore.execution_mode
     chore_object.frequency = ChoreFrequency.from_string(frequency)
     chore_object.tasks = chore_tasks
 
-    if chore_object.active != chore_new.active:
-        if chore_new.active: chore_object.activate()
-        if not chore_new.active: chore_object.deactivate()
+    if chore_object.active != chore.active:
+        if chore.active: chore_object.activate()
+        if not chore.active: chore_object.deactivate()
 
-    task_names = [proc.process_name for proc in chore_new.tasks]
-    logger.info(f"Updating Chore: {chore_new.name} with Tasks: {task_names}.")
+    task_names = [proc.process_name for proc in chore.tasks]
+    logger.info(f"Updating Chore: {chore.name} with Tasks: {task_names}.")
 
     return tm1_service.chores.update(chore_object)
 

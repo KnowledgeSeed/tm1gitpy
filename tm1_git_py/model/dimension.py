@@ -124,12 +124,9 @@ def create_dimension(tm1_service: TM1Service, dimension: Union[Dimension, str]) 
     return tm1_service.dimensions.create(dimension_object)
 
 
-def update_dimension(tm1_service: TM1Service, dimension: Dict[str, Any]) -> Response:
-    dimension_new = dimension.get('new')
-    dimension_old = dimension.get('old')
-
-    dimension_object = tm1_service.dimensions.get(dimension_name=dimension_new.name)
-    _update_dimension_hierarchies(tm1_service=tm1_service, dimension_new=dimension_new, dimension_old=dimension_old,
+def update_dimension(tm1_service: TM1Service, dimension: Dimension) -> Response:
+    dimension_object = tm1_service.dimensions.get(dimension_name=dimension.name)
+    _update_dimension_hierarchies(tm1_service=tm1_service, dimension_new=dimension,
                                   dimension_object=dimension_object)
     return tm1_service.dimensions.update(dimension_object)
 
@@ -142,18 +139,20 @@ def delete_dimension(tm1_service: TM1Service, dimension_name: str) -> Response:
 def _update_dimension_hierarchies(
         tm1_service: TM1Service,
         dimension_new: Dimension,
-        dimension_old: Dimension,
         dimension_object: TM1py.Dimension
 ):
-    hierarchies_new = dimension_new.hierarchies
-    hierarchies_old = dimension_old.hierarchies
+    hierarchies_new = [TM1py.Hierarchy(
+        name=hierarchy.name,
+        dimension_name=dimension_new.name
+    ) for hierarchy in dimension_new.hierarchies]
+    hierarchies_old = dimension_object.hierarchies
 
     if hierarchies_new != hierarchies_old:
         hierarchies_to_remove = list(set(hierarchies_old) - set(hierarchies_new))
         hierarchies_to_add = list(set(hierarchies_new) - set(hierarchies_old))
 
-        hierarchies_to_remove_names = [element.name for element in hierarchies_to_remove]
-        hierarchies_to_add_names = [element.name for element in hierarchies_to_add]
+        hierarchies_to_remove_names = [hierarchy.name for hierarchy in hierarchies_to_remove]
+        hierarchies_to_add_names = [hierarchy.name for hierarchy in hierarchies_to_add]
 
         for hierarchy in hierarchies_to_remove:
             dimension_object.remove_hierarchy(hierarchy_name=hierarchy.name)

@@ -168,16 +168,13 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     return response
 
 
-def update_hierarchy(tm1_service: TM1Service, hierarchy: Dict[str, Any]) -> Response:
-    hierarchy_new = hierarchy.get('new')
-    hierarchy_old = hierarchy.get('old')
+def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
 
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy_new.source_path)
+    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
 
-    hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_name, hierarchy_name=hierarchy_new.name)
-    _update_hierarchy_elements(tm1_service=tm1_service, dimension_name=dimension_name, hierarchy_new= hierarchy_new,
-                               hierarchy_old=hierarchy_old, hierarchy_object=hierarchy_object)
-    logger.info(f"Updating Hierarchy: {hierarchy_new.name}.")
+    hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
+
+    logger.info(f"Updating Hierarchy: {hierarchy.name}.")
 
     return tm1_service.hierarchies.update(hierarchy_object)
 
@@ -188,38 +185,3 @@ def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     logger.info(f"Deleting Hierarchy: {hierarchy.name} of Dimension: {dimension_name}.")
     return tm1_service.hierarchies.delete(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
 
-
-def _update_hierarchy_elements(
-        tm1_service: TM1Service,
-        dimension_name: str,
-        hierarchy_new: Hierarchy,
-        hierarchy_old: Hierarchy,
-        hierarchy_object: TM1py.Hierarchy
-):
-    elements_old = hierarchy_old.elements
-    elements_new = hierarchy_new.elements
-    if elements_old != elements_new:
-        elements_to_update = list(set(elements_old) & set(elements_new))
-        elements_to_remove = list(set(elements_old) - set(elements_new))
-        elements_to_create = list(set(elements_new) - set(elements_old))
-
-        for element in elements_to_remove:
-            hierarchy_object.remove_element(element_name=element.name)
-            delete_element(tm1_service=tm1_service, hierarchy_name=hierarchy_old.name,
-                           dimension_name=dimension_name, element_name=element.name)
-        logger.debug(f"Removed Elements: {elements_to_remove} from Hierarchy: {hierarchy_new.name}.")
-
-        for element in elements_to_update:
-            update_element(tm1_service=tm1_service, hierarchy_name=hierarchy_new.name,
-                           dimension_name=dimension_name, element=element)
-            hierarchy_object.update_element(element_name=element.name, element_type=element.type)
-        logger.debug(f"Updated Elements: {elements_to_update} in Hierarchy: {hierarchy_new.name}.")
-
-        for element in elements_to_create:
-            create_element(tm1_service=tm1_service, hierarchy_name=hierarchy_new.name,
-                           dimension_name=dimension_name, element=element)
-            element_object = tm1_service.elements.get(dimension_name=dimension_name,
-                                                      hierarchy_name=hierarchy_new.name, element_name=element.name)
-            if element_object not in hierarchy_object.elements.values():
-                hierarchy_object.add_element(element_name=element.name, element_type=element.type)
-        logger.debug(f"Added Elements: {elements_to_create} to Hierarchy: {hierarchy_new.name}.")
