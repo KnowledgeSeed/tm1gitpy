@@ -125,45 +125,22 @@ def create_dimension(tm1_service: TM1Service, dimension: Union[Dimension, str]) 
 
 
 def update_dimension(tm1_service: TM1Service, dimension: Dimension) -> Response:
-    dimension_object = tm1_service.dimensions.get(dimension_name=dimension.name)
-    _update_dimension_hierarchies(tm1_service=tm1_service, dimension_new=dimension,
-                                  dimension_object=dimension_object)
-    return tm1_service.dimensions.update(dimension_object)
+    logger.info("Skipping direct Dimension update for '%s'; updates are handled by child changes.", dimension.name)
+    return _build_noop_update_response(
+        resource_url=format_url("/api/v1/Dimensions('{}')", dimension.name),
+        message=f"No-op Dimension update for '{dimension.name}'."
+    )
 
 
-def delete_dimension(tm1_service: TM1Service, dimension_name: str) -> Response:
-    logger.info(f"Deleting Dimension: {dimension_name}.")
-    return tm1_service.dimensions.delete(dimension_name)
+def delete_dimension(tm1_service: TM1Service, dimension: Dimension) -> Response:
+    logger.info(f"Deleting Dimension: {dimension.name}.")
+    return tm1_service.dimensions.delete(dimension.name)
 
 
-def _update_dimension_hierarchies(
-        tm1_service: TM1Service,
-        dimension_new: Dimension,
-        dimension_object: TM1py.Dimension
-):
-    hierarchies_new = [TM1py.Hierarchy(
-        name=hierarchy.name,
-        dimension_name=dimension_new.name
-    ) for hierarchy in dimension_new.hierarchies]
-    hierarchies_old = dimension_object.hierarchies
-
-    if hierarchies_new != hierarchies_old:
-        hierarchies_to_remove = list(set(hierarchies_old) - set(hierarchies_new))
-        hierarchies_to_add = list(set(hierarchies_new) - set(hierarchies_old))
-
-        hierarchies_to_remove_names = [hierarchy.name for hierarchy in hierarchies_to_remove]
-        hierarchies_to_add_names = [hierarchy.name for hierarchy in hierarchies_to_add]
-
-        for hierarchy in hierarchies_to_remove:
-            dimension_object.remove_hierarchy(hierarchy_name=hierarchy.name)
-        logger.info(f"Removed Hierarchies: {hierarchies_to_remove_names} from Dimension: {dimension_new.name}.")
-
-        for hierarchy in hierarchies_to_add:
-            try:
-                hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_new.name,
-                                                               hierarchy_name=hierarchy.name)
-                dimension_object.add_hierarchy(hierarchy_object)
-            except Exception:
-                raise ValueError(f"Cannot update Dimension '{dimension_new.name}' "
-                                 f"with Hierarchy: {hierarchy.name}, Hierarchy does not exist")
-        logger.info(f"Added Hierarchies: {hierarchies_to_add_names} to Dimension: {dimension_new.name}.")
+def _build_noop_update_response(resource_url: str, message: str) -> Response:
+    response = Response()
+    response.status_code = 200
+    response.url = resource_url
+    response._content = message.encode("utf-8")
+    response.encoding = "utf-8"
+    return response

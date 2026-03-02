@@ -185,9 +185,9 @@ def update_process(tm1_service: TM1Service, process: Process) -> Response:
     return tm1_service.processes.update(process_object)
 
 
-def delete_process(tm1_service: TM1Service, process_name: str) -> Response:
-    logger.info(f"Deleting Process: {process_name}.")
-    return tm1_service.processes.delete(process_name)
+def delete_process(tm1_service: TM1Service, process: Process) -> Response:
+    logger.info(f"Deleting Process: {process.name}.")
+    return tm1_service.processes.delete(process.name)
 
 
 def _update_process_variables(process_new: Process, process_object: TM1py.Process):

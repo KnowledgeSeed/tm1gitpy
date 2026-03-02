@@ -169,15 +169,12 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
 
 
 def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-
     dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
-
-    hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
-
-    logger.info(f"Updating Hierarchy: {hierarchy.name}.")
-
-    return tm1_service.hierarchies.update(hierarchy_object)
-
+    logger.info("Skipping direct Hierarchy update for '%s'; updates are handled by child changes.", hierarchy.name)
+    return _build_noop_update_response(
+        resource_url=format_url("/api/v1/Dimensions('{}')/Hierarchies('{}')", dimension_name, hierarchy.name),
+        message=f"No-op Hierarchy update for '{hierarchy.name}'."
+    )
 
 
 def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
@@ -185,3 +182,11 @@ def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     logger.info(f"Deleting Hierarchy: {hierarchy.name} of Dimension: {dimension_name}.")
     return tm1_service.hierarchies.delete(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
 
+
+def _build_noop_update_response(resource_url: str, message: str) -> Response:
+    response = Response()
+    response.status_code = 200
+    response.url = resource_url
+    response._content = message.encode("utf-8")
+    response.encoding = "utf-8"
+    return response

@@ -193,9 +193,9 @@ def update_cube(tm1_service: TM1Service, cube: Cube) -> Response:
     return tm1_service.cubes.update(cube_object)
 
 
-def delete_cube(tm1_service: TM1Service, cube_name: str) -> Response:
-    logger.warning(f"Deleting Cube: {cube_name}.")
-    return tm1_service.cubes.delete(cube_name)
+def delete_cube(tm1_service: TM1Service, cube: Cube) -> Response:
+    logger.warning(f"Deleting Cube: {cube.name}.")
+    return tm1_service.cubes.delete(cube.name)
 
 
 # ------------------------------------------------------------------------------------------------------------
@@ -332,7 +332,7 @@ def _add_dimensions_to_cube(
 
     # 3) Delete the original cube and recreate it with the new dimensionality
     logger.warning(f"Deleting original Cube '{cube_name}' before recreation.")
-    delete_cube(tm1_service=tm1_service, cube_name=cube_name)
+    delete_cube(tm1_service=tm1_service, cube=cube_old)
 
     logger.info(
         f"Recreating Cube '{cube_name}' with new Dimensions: {dims_new} and rules "
@@ -568,7 +568,7 @@ def _delete_dimensions_from_cube(
 
     # 2) Delete the original cube and recreate it with the reduced dimension set
     logger.warning(f"Deleting original Cube '{cube_name}' before recreation.")
-    delete_cube(tm1_service=tm1_service, cube_name=cube_name)
+    delete_cube(tm1_service=tm1_service, cube=cube_old)
 
     logger.info(
         f"Recreating Cube '{cube_name}' with new Dimensions: {dims_new} and rules "

@@ -8,12 +8,12 @@ from requests import Response
 from tm1_git_py import Changeset
 from tm1_git_py.changeset import ChangeType
 from tm1_git_py.changeset_status import ChangeSetStatusStore
-from tm1_git_py.model import Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore
+from tm1_git_py.model import Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge
 from tm1_git_py.validation import validate_changeset
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore)
+T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge)
 
 
 def apply(

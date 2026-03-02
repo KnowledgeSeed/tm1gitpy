@@ -348,6 +348,6 @@ def update_chore(tm1_service: TM1Service, chore: Chore) -> Response:
     return tm1_service.chores.update(chore_object)
 
 
-def delete_chore(tm1_service: TM1Service, chore_name: str) -> Response:
-    logger.info(f"Deleting Chore: {chore_name}.")
-    return tm1_service.chores.delete(chore_name)
+def delete_chore(tm1_service: TM1Service, chore: Chore) -> Response:
+    logger.info(f"Deleting Chore: {chore.name}.")
+    return tm1_service.chores.delete(chore.name)

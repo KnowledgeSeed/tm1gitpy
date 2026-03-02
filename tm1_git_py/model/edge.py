@@ -96,8 +96,11 @@ class Edge:
 logger = logging.getLogger(__name__)
 
 def _edge_context_from_path(source_path: str) -> tuple[str, str]:
-    dimension_name = re.search(r'/([\w}]*)(.hierarchies)', source_path).group(1)
-    hierarchy_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+    normalized_path = (source_path or "").replace("\\", "/").lstrip("/")
+    match = re.search(r"dimensions/([^/]+)\.hierarchies/([^/]+)\.json(?:/|$)", normalized_path)
+    if not match:
+        raise ValueError(f"Invalid edge source_path format: '{source_path}'")
+    dimension_name, hierarchy_name = match.groups()
     return dimension_name, hierarchy_name
 
 
@@ -109,7 +112,9 @@ def create_edge(tm1_service: TM1Service, edge: Edge) -> Response:
 
 
 def update_edge(tm1_service: TM1Service, edge: Edge) -> Response:
-    pass
+    dimension, hierarchy = _edge_context_from_path(source_path=edge.source_path)
+    hierarchy = tm1_service.hierarchies.get(dimension_name=dimension, hierarchy_name=hierarchy)
+    return hierarchy.update_edge(parent=edge.parent, component=edge.name, weight=edge.weight)
 
 
 def delete_edge(tm1_service: TM1Service, edge: Edge) -> Response:
