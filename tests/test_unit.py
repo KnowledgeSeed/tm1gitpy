@@ -631,8 +631,7 @@ class TestChangeset:
         comparator = tm1_git_py.Comparator()
 
         changeset_compared = comparator.compare(model_old, model_new)
-        #export_path = tmp_path / "changes_exported.yaml"
-        export_path = "tests/changes_exported.yaml"
+        export_path = tmp_path / "changes_exported.yaml"
         changeset_compared.export(file_path=export_path)
 
         changeset_imported = import_changeset(
@@ -647,22 +646,6 @@ class TestChangeset:
             assert expected.object_type == actual.object_type
             assert expected.source_path == actual.source_path
             assert expected.body.__class__ == actual.body.__class__
-            #assert expected.body.name == actual.body.name
-
-
-    def test_export_import_round_trip(self):
-        change = import_changeset("test_integration/fixture_changeset.yml")
-        change.sort()
-
-        change.export("tests/changes_exported.yaml")
-
-        round_trip = import_changeset("tests/changes_exported.yaml")
-        round_trip.sort()
-
-        change_source_paths = [ch.source_path for ch in change.changes].sort()
-        round_trip_source_paths = [ch.source_path for ch in round_trip.changes].sort()
-
-        assert round_trip_source_paths == change_source_paths
 
 
 class TestChangesetFiltering:

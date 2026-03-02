@@ -202,6 +202,15 @@ class Changeset:
     def export(self, file_path: Union[str, Path]) -> None:
         """Export changeset in fixture-compatible flat YAML format."""
 
+        payload = self.to_json()
+
+        output_path = Path(file_path).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    def to_json(self, changeset_name: Optional[str] = None) -> dict[str, Any]:
+        """Build a fixture-compatible changeset payload as a JSON-serializable dict."""
+
         self.sort()
 
         export_entries = []
@@ -218,14 +227,11 @@ class Changeset:
             })
             summary[change_type] = summary.get(change_type, 0) + 1
 
-        output_path = Path(file_path).expanduser().resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "changeset_name": None,
+        return {
+            "changeset_name": changeset_name,
             "summary": summary,
             "changes": export_entries
         }
-        output_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------------
