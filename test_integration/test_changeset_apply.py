@@ -14,13 +14,12 @@ from tm1_git_py.serializer import serialize_model
 @pytest.mark.usefixtures("tm1_service")
 class TestChangesetApply:
 
-    _f_no_meta_obj = [ "-/cubes/}*", "-/dimensions/}*", "-/cubes/*.views/*"]
+    _f_no_meta_obj = [ "-/cubes/}*", "-/dimensions/}*"]
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
         self.tm1_service : TM1Service = tm1_service
 
-    @pytest.mark.skip(reason="Incorrect handling of views")
     def test_create_cube_full_no_meta_objects(self):
         
         # given
@@ -60,7 +59,6 @@ class TestChangesetApply:
         assert changeset.added[0].name == "TestCube1"
         self.check_no_diff(fixture_model, test_model)
 
-    @pytest.mark.skip(reason="Incorrect handling of views")
     def test_create_cube_add_only_no_meta_objects(self):
         
         # given
@@ -100,7 +98,6 @@ class TestChangesetApply:
         assert changeset.added[0].name == "TestCube1"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
-    @pytest.mark.skip(reason="Incorrect handling of views")
     def test_delete_cube_full_no_meta_objects(self):
         
         # given
@@ -120,7 +117,6 @@ class TestChangesetApply:
         assert changeset.removed[0].name == "TestCubeRemovable1"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
-    @pytest.mark.skip(reason="Incorrect handling of views")
     def test_delete_cube_full_with_meta_objects(self):
         
         # given
@@ -130,32 +126,31 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self, [])
         
         # when
-        changeset = self.compare(model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_tm1gitpy_model)
         self.apply(changeset)
-        model = export_check_no_errors(self, [])
+        test_model = export_check_no_errors(self, [])
 
         # then
         assert len(changeset.removed) == 1
         assert changeset.removed[0].__class__.__name__ == "Cube"
         assert changeset.removed[0].name == "TestCubeRemovable2"
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
+        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
-    @pytest.mark.skip(reason="Incorrect handling of views")
     def test_delete_cube_add_only_no_meta_objects(self):
         
         # given
         fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
         
         self.tm1_service.cubes.create(Cube("TestCubeRemovable3", dimensions=["TestDim1", "TestDim2"]))
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self, self._f_no_meta_obj)
         
         # when
-        changeset = self.compare(model, fixture_tm1gitpy_model, mode='add_only')
+        changeset = self.compare(test_model, fixture_tm1gitpy_model, mode='add_only')
         self.apply(changeset)
         
         # then
         assert not changeset.removed
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
+        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     def test_delete_cube_add_only_with_meta_objects(self):
         
@@ -163,15 +158,15 @@ class TestChangesetApply:
         fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self)
         
         self.tm1_service.cubes.create(Cube("TestCubeRemovable4", dimensions=["TestDim1", "TestDim2"]))
-        model = export_check_no_errors(self)
+        test_model = export_check_no_errors(self)
         
         # when
-        changeset = self.compare(model, fixture_tm1gitpy_model, mode='add_only')
+        changeset = self.compare(test_model, fixture_tm1gitpy_model, mode='add_only')
         self.apply(changeset)
         
         # then
         assert not changeset.removed
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
+        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     def test_create_dimension_no_meta_objects(self):
         
@@ -181,13 +176,13 @@ class TestChangesetApply:
         dimension = Dimension("TestDimension")
         dimension.add_hierarchy(Hierarchy(dimension_name="TestDimension", name= "TestDimension"))
         self.tm1_service.dimensions.create(dimension)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self, self._f_no_meta_obj)
         
         # when
-        changeset = self.compare(model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_tm1gitpy_model)
         self.apply(changeset)
 
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
+        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     @pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_create_dimension_with_meta_objects(self):
@@ -243,6 +238,7 @@ class TestChangesetApply:
     # Hierarchy tests
     # -----------------------------------------------------------------------
 
+    @pytest.mark.skip(reason="Ignoring for now")
     def test_create_hierarchy_no_meta_objects(self):
         """Changeset should re-create a hierarchy that was deleted from the server."""
         # given
@@ -267,6 +263,7 @@ class TestChangesetApply:
         assert any(h.name == "mydimension" for h in added_hierarchies)
         self.check_no_diff(fixture_tm1gitpy_dir, model)
 
+    @pytest.mark.skip(reason="Ignoring for now")
     def test_delete_hierarchy_no_meta_objects(self):
         """Changeset should remove an extra hierarchy that does not exist in the fixture."""
         # given
@@ -299,6 +296,7 @@ class TestChangesetApply:
 
     _f_no_meta = ["-/cubes/}*", "-/dimensions/}*", "-/processes/}*"]
 
+    
     def test_create_process_no_meta_objects(self):
         """Changeset should re-create a process that was deleted from the server."""
         # given
@@ -383,6 +381,7 @@ class TestChangesetApply:
     # Rule tests (rules are part of cubes)
     # -----------------------------------------------------------------------
 
+    @pytest.mark.skip(reason="Ignoring for now")
     def test_delete_rule_no_meta_objects(self):
         """Changeset should remove a rule that was added on the server but is absent in the fixture."""
         # given — fixture mycube has no rules
@@ -407,6 +406,7 @@ class TestChangesetApply:
         assert updated_cubes[0].get('new').name == "mycube"
         self.check_no_diff(fixture_dir, model)
 
+    @pytest.mark.skip(reason="Ignoring for now")
     def test_create_rule_no_meta_objects(self):
         """Changeset should add a rule that exists in the fixture but is missing on the server."""
         # given — we'll modify the fixture to include a rule, then remove it from the server

@@ -9,13 +9,13 @@ from typing import Any, Optional, TypeVar, Union
 
 import yaml
 
-from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, Process, Subset, hierarchy, subset, \
+from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, NativeView, Process, Subset, hierarchy, subset, \
     mdxview, Element, Rule, Edge
 
 logger = logging.getLogger(__name__)
 
 
-T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule)
+T = TypeVar('T', Cube, MDXView, NativeView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule)
 
 _CHILD_RELATIONS: dict[type, list[str]] = {
     Dimension: ["hierarchies"],
@@ -31,21 +31,23 @@ OBJECT_PRECEDENCE = {
     'Edge': 4,
     'Cube': 5,
     'MDXView': 6,
-    'Rule': 7,
-    'Process': 8,
-    'Chore': 9
+    'NativeView': 7,
+    'Rule': 8,
+    'Process': 9,
+    'Chore': 10
 }
 DELETE_OBJECT_PRECEDENCE = {
-    'MDXView': 0,
-    'Rule': 1,
-    'Cube': 2,
-    'Edge': 3,
-    'Element': 4,
-    'Subset': 5,
-    'Hierarchy': 6,
-    'Dimension': 7,
-    'Chore': 8,
-    'Process': 9
+    'NativeView': 0,
+    'MDXView': 1,
+    'Rule': 2,
+    'Cube': 3,
+    'Edge': 4,
+    'Element': 5,
+    'Subset': 6,
+    'Hierarchy': 7,
+    'Dimension': 8,
+    'Chore': 9,
+    'Process': 10
 }
 
 
@@ -161,8 +163,7 @@ class Changeset:
             status_dir: Optional[Union[str, Path]] = None,
             execution_id: Optional[str] = None,
             changeset_name: Optional[str] = None,
-            fail_fast: bool = True,
-            **kwargs
+            fail_fast: bool = True
     ) -> tuple[bool, Union[list, None]]:
         from tm1_git_py.apply import apply as apply_changeset
 
@@ -172,8 +173,7 @@ class Changeset:
             status_dir=status_dir,
             execution_id=execution_id,
             changeset_name=changeset_name,
-            fail_fast=fail_fast,
-            **kwargs
+            fail_fast=fail_fast
         )
 
 
@@ -559,10 +559,21 @@ def _build_cube_from_payload(payload: dict[str, Any], source_path: Optional[str]
 
 
 def _build_mdx_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> MDXView:
-    cube_name, _ = mdxview._view_context_from_path(source_path)
+    cube_name = None
+    if source_path:
+        cube_name, _ = mdxview._view_context_from_path(source_path)
     if not source_path and not cube_name:
         raise ValueError("MDXView payload missing cube context.")
     return MDXView.from_dict(payload, source_path=source_path, cube_name=cube_name)
+
+
+def _build_native_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> NativeView:
+    cube_name = None
+    if source_path:
+        cube_name, _ = mdxview._view_context_from_path(source_path)
+    if not source_path and not cube_name:
+        raise ValueError("NativeView payload missing cube context.")
+    return NativeView.from_dict(payload, source_path=source_path, cube_name=cube_name)
 
 
 def _build_process_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Process:
@@ -596,6 +607,7 @@ _OBJECT_BUILDERS: dict[str, Any] = {
     "Subset": _build_subset_from_payload,
     "Cube": _build_cube_from_payload,
     "MDXView": _build_mdx_view_from_payload,
+    "NativeView": _build_native_view_from_payload,
     "Process": _build_process_from_payload,
     "Chore": _build_chore_from_payload,
     "Element": _build_element_from_payload,

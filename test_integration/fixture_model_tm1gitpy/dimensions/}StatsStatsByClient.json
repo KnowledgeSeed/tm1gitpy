@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}StatsStatsByClient",
 	"Hierarchies@Code.links": [
-		"}StatsStatsByClient.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c89f650>.json"
+		"}StatsStatsByClient.hierarchies/}StatsStatsByClient.json"
 	],
 	"DefaultHierarchy": "Dimensions('}StatsStatsByClient')/Hierarchies('}StatsStatsByClient')"
 }

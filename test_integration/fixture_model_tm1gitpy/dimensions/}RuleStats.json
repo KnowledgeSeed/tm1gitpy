@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}RuleStats",
 	"Hierarchies@Code.links": [
-		"}RuleStats.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c89e5d0>.json"
+		"}RuleStats.hierarchies/}RuleStats.json"
 	],
 	"DefaultHierarchy": "Dimensions('}RuleStats')/Hierarchies('}RuleStats')"
 }

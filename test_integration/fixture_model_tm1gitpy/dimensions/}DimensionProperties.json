@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}DimensionProperties",
 	"Hierarchies@Code.links": [
-		"}DimensionProperties.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c7e3150>.json"
+		"}DimensionProperties.hierarchies/}DimensionProperties.json"
 	],
 	"DefaultHierarchy": "Dimensions('}DimensionProperties')/Hierarchies('}DimensionProperties')"
 }

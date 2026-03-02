@@ -3,6 +3,7 @@ import os
 import re
 from typing import Dict, List
 from TM1py import TM1Service
+import TM1py
 
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
@@ -12,6 +13,7 @@ from tm1_git_py.model.element import Element
 from tm1_git_py.model.hierarchy import Hierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.model import Model
+from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
 from tm1_git_py.model.subset import Subset
@@ -106,7 +108,7 @@ def procs_to_model(tm1_conn) -> tuple[Dict[str, Process], Dict[str, str]]:
     return _processes, _errors
 
 
-def cubes_to_model(tm1_conn, _dimensions: Dict[str, Dimension]) -> tuple[Dict[str, Cube], Dict[str, str]]:
+def cubes_to_model(tm1_conn : TM1Service, _dimensions: Dict[str, Dimension]) -> tuple[Dict[str, Cube], Dict[str, str]]:
     all_cubes = tm1_conn.cubes.get_all_names(skip_control_cubes=False)
 
     _cubes: Dict[str, Cube] = {}
@@ -145,16 +147,31 @@ def cubes_to_model(tm1_conn, _dimensions: Dict[str, Dimension]) -> tuple[Dict[st
                     else:
                         _cube.dimensions.append(_dimension)
 
-            mdxviews_tuple = tm1_conn.views.get_all(cube_name=cube_name)
-            if mdxviews_tuple:
-                mdxviews = mdxviews_tuple[1]
-                for view in mdxviews:
-                    _mdxview = MDXView(
-                        name=view.name,
-                        mdx=view.mdx,
-                        source_path=os.path.join('cubes', f"{cube_name}.views", f"{view.name}.json").replace('\\', '/')
-                    )
-                    _cube.views.append(_mdxview)
+            views_tuple = tm1_conn.views.get_all(cube_name=cube_name)
+            if views_tuple:
+                private_views, public_views = views_tuple
+                for view in private_views + public_views:
+                    view_source_path = os.path.join('cubes', f"{cube_name}.views", f"{view.name}.json").replace('\\', '/')
+                    if isinstance(view, TM1py.Objects.MDXView):
+                        _view = MDXView(
+                            name=view.name,
+                            mdx=view.mdx,
+                            source_path=view_source_path,
+                        )
+                    elif isinstance(view, TM1py.Objects.NativeView):
+                        _view = NativeView(
+                            name=view.name,
+                            columns=view.columns,
+                            rows=view.rows,
+                            titles=view.titles,
+                            suppress_empty_columns=view.suppress_empty_columns,
+                            suppress_empty_rows=view.suppress_empty_rows,
+                            format_string=view.format_string,
+                            source_path=view_source_path,
+                        )
+                    else:
+                        continue
+                    _cube.views.append(_view)
 
 
         except Exception as e:

@@ -11,6 +11,7 @@ from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.element import Element
 from tm1_git_py.model.hierarchy import Hierarchy
 from tm1_git_py.model.mdxview import MDXView
+from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
@@ -345,24 +346,42 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                 else:
                     continue
 
-                mdx_file_name = view_file_name_base + '.mdx'
-                if mdx_file_name in views:
-                    with open(os.path.join(view_dir_path, mdx_file_name), 'r', encoding='utf-8') as file:
-                        try:
-                            mdx = file.read()
-                        except Exception as e:
-                            cube_errors[file_name_base + '.mdx'] = e.__repr__()
-                    files.pop(mdx_file_name, None)
-                else:
-                    cube_errors[mdx_file_name] = 'rule not found'
-                    continue
-
-                if not mdx:
-                    cube_errors[mdx_file_name] = 'mdx cannot be parsed'
-
                 view_relative_path = os.path.join('cubes', view_dir_name, view_file_name).replace('\\', '/')
-                _mdxview = MDXView(name=view['Name'], mdx=mdx, source_path=view_relative_path)
-                _cube.views.append(_mdxview)
+                view_type = (view.get('@type') or '').lower()
+
+                if view_type == 'mdxview':
+                    mdx_file_name = view_file_name_base + '.mdx'
+                    if mdx_file_name in views:
+                        with open(os.path.join(view_dir_path, mdx_file_name), 'r', encoding='utf-8') as file:
+                            try:
+                                mdx = file.read()
+                            except Exception as e:
+                                cube_errors[file_name_base + '.mdx'] = e.__repr__()
+                        files.pop(mdx_file_name, None)
+                    else:
+                        cube_errors[mdx_file_name] = 'mdx not found'
+                        continue
+
+                    if not mdx:
+                        cube_errors[mdx_file_name] = 'mdx cannot be parsed'
+                        continue
+
+                    _cube.views.append(MDXView(name=view['Name'], mdx=mdx, source_path=view_relative_path))
+                elif view_type == 'nativeview':
+                    _cube.views.append(
+                        NativeView(
+                            name=view['Name'],
+                            columns=view.get('Columns', []),
+                            rows=view.get('Rows', []),
+                            titles=view.get('Titles', []),
+                            suppress_empty_columns=view.get('SuppressEmptyColumns', False),
+                            suppress_empty_rows=view.get('SuppressEmptyRows', False),
+                            format_string=view.get('FormatString', '0.#########'),
+                            source_path=view_relative_path,
+                        )
+                    )
+                else:
+                    cube_errors[file_name_base + '.views/' + view_file_name] = "unsupported view type"
         cubes[_cube.name] = _cube
     return cubes, cube_errors
 

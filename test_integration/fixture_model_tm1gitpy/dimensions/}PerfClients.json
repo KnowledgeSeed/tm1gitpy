@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}PerfClients",
 	"Hierarchies@Code.links": [
-		"}PerfClients.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c89ff50>.json"
+		"}PerfClients.hierarchies/}PerfClients.json"
 	],
 	"DefaultHierarchy": "Dimensions('}PerfClients')/Hierarchies('}PerfClients')"
 }

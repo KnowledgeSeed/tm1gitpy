@@ -2,7 +2,7 @@
 	"@type": "Dimension",
 	"Name": "}ElementAttributes_}Cultures",
 	"Hierarchies@Code.links": [
-		"}ElementAttributes_}Cultures.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x10c7e1750>.json"
+		"}ElementAttributes_}Cultures.hierarchies/}ElementAttributes_}Cultures.json"
 	],
 	"DefaultHierarchy": "Dimensions('}ElementAttributes_}Cultures')/Hierarchies('}ElementAttributes_}Cultures')"
 }

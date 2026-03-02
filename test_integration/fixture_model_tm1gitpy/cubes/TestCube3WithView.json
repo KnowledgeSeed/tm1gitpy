@@ -12,6 +12,6 @@
 	"Rules@Code.link": [],
 	"Views@Code.links": [
 		"TestCube3WithView.views/TestCube3WithView_view2.json",
-		"TestCube3WithView.views/TestCube3WithView_view1.json"
+		"TestCube3WithView.views/testcube3withview_view1.json"
 	]
 }
