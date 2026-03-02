@@ -14,6 +14,9 @@ jobs:
     container:
       image: python:${{ matrix.python-version }}-bookworm
       options: --user 1103:1103
+    env:
+      HOME: ${{ github.workspace }}/.home
+      PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
     
     strategy:
       fail-fast: false
@@ -28,12 +31,12 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        python -m pip install -r requirements.txt
     
     - name: Run tests
       env:
         PYTHONPATH: .
-      run: pytest tests/ -v --tb=short
+      run: python -m pytest tests/ -v --tb=short
     
     - name: Test import
       run: |
@@ -57,14 +60,14 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest testcontainers
+        python -m pip install -r requirements.txt
+        python -m pip install pytest testcontainers
     
     - name: Run integration tests
       env:
         PYTHONPATH: .
         FORCE_CONTAINER_START: 'true'
-      run: pytest test_integration/ -v --tb=short
+      run: python -m pytest test_integration/ -v --tb=short
 
   lint:
     name: Lint and Code Quality
@@ -72,6 +75,9 @@ jobs:
     container:
       image: python:3.11-bookworm
       options: --user 1103:1103
+    env:
+      HOME: ${{ github.workspace }}/.home
+      PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
     
     steps:
     - name: Checkout code
@@ -80,23 +86,23 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install flake8 black isort mypy
-        pip install -r requirements.txt
+        python -m pip install flake8 black isort mypy
+        python -m pip install -r requirements.txt
     
     - name: Run flake8
       run: |
-        flake8 tm1_git_py/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 tm1_git_py/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        python -m flake8 tm1_git_py/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        python -m flake8 tm1_git_py/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
       continue-on-error: true
     
     - name: Check code formatting with black
       run: |
-        black --check tm1_git_py/
+        python -m black --check tm1_git_py/
       continue-on-error: true
     
     - name: Check import sorting with isort
       run: |
-        isort --check-only tm1_git_py/
+        python -m isort --check-only tm1_git_py/
       continue-on-error: true
     
 
@@ -106,6 +112,9 @@ jobs:
     container:
       image: python:3.11-bookworm
       options: --user 1103:1103
+    env:
+      HOME: ${{ github.workspace }}/.home
+      PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
     needs: [test, integration-test, lint]
     
     steps:
@@ -115,7 +124,7 @@ jobs:
     - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build setuptools wheel
+        python -m pip install build setuptools wheel
     
     - name: Build package
       run: |
@@ -192,6 +201,9 @@ jobs:
     container:
       image: python:3.11-bookworm
       options: --user 1103:1103
+    env:
+      HOME: ${{ github.workspace }}/.home
+      PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
     
     steps:
     - name: Checkout code
@@ -200,14 +212,14 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-cov
-        pip install -r requirements.txt
+        python -m pip install pytest pytest-cov
+        python -m pip install -r requirements.txt
     
     - name: Run tests with coverage
       env:
         PYTHONPATH: .
       run: |
-        pytest tests/ --cov=tm1_git_py --cov-report=xml --cov-report=html --cov-report=term
+        python -m pytest tests/ --cov=tm1_git_py --cov-report=xml --cov-report=html --cov-report=term
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
