@@ -536,7 +536,7 @@ class TestChangeset:
 
 
     def test_export_persists_expected_payload(self, tmp_path):
-        changes = Changeset()
+        changes = Changeset(changeset_name="mock_changes")
 
         created_subset = make_subset(
             name="Subset_Create",
@@ -582,7 +582,7 @@ class TestChangeset:
         exported_payload = yaml.safe_load(export_path.read_text(encoding="utf-8"))
 
         expected_payload = {
-            "changeset_name": None,
+            "changeset_name": "mock_changes",
             "summary": {
                 "add": 1,
                 "remove": 1,

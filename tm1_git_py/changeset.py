@@ -2,6 +2,7 @@ import copy
 import json
 import logging
 import re
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -146,8 +147,9 @@ class Changeset:
 
     changes: list[Change]
 
-    def __init__(self):
+    def __init__(self, changeset_name: Optional[str] = None):
         self.changes: list[Change] = []
+        self.changeset_name: str = changeset_name or str(uuid.uuid4())
         self.last_execution_id: str = '0'
 
         self.errors: dict[str, list[Any]] = {}
@@ -179,22 +181,30 @@ class Changeset:
 
     def sort(self):
         if self.has_changes():
-            def _change_key(change: Change) -> tuple[int, tuple[int, str]]:
+            def _change_key(change: Change) -> tuple[int, int, str, str]:
                 body = change.body
-                change_path = change.source_path or getattr(body, "source_path", "") or ""
-                if not change_path:
-                    path_key = (99, "")
-                elif change.change_type == ChangeType.REMOVE:
-                    path_key = _source_path_sort_key(body, delete_precedence=True)
-                else:
-                    path_key = _source_path_sort_key(body)
+                source_path = change.source_path or getattr(body, "source_path", "") or ""
+                object_type = body.__class__.__name__
+                precedence_map = DELETE_OBJECT_PRECEDENCE if change.change_type == ChangeType.REMOVE else OBJECT_PRECEDENCE
 
                 type_rank = {
                     ChangeType.REMOVE: 0,
                     ChangeType.ADD: 1,
                     ChangeType.MODIFY: 2,
                 }.get(change.change_type, 99)
-                return type_rank, path_key
+
+                body_name = getattr(body, "name", None)
+                if body_name is None and isinstance(body, Rule):
+                    body_name = _rule_name_from_area(getattr(body, "area", ""))
+                if body_name is None:
+                    body_name = source_path
+
+                return (
+                    type_rank,
+                    precedence_map.get(object_type, 99),
+                    str(body_name),
+                    source_path,
+                )
 
             self.changes.sort(key=_change_key)
 
@@ -228,7 +238,7 @@ class Changeset:
             summary[change_type] = summary.get(change_type, 0) + 1
 
         return {
-            "changeset_name": changeset_name,
+            "changeset_name": changeset_name or self.changeset_name,
             "summary": summary,
             "changes": export_entries
         }
@@ -485,33 +495,42 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
 
     entries = _iter_changeset_entries(payload)
 
-    changeset = Changeset()
+    payload_name = payload.get("changeset_name") if isinstance(payload, dict) else None
+    changeset = Changeset(changeset_name=payload_name or None)
 
     for entry in entries:
         if not isinstance(entry, dict):
             logger.warning("Skipping malformed changeset entry: %s", entry)
             continue
 
-        change_type = ChangeType.from_raw(entry.get("change_type"))
-        object_type = ObjectType.from_raw(entry.get("object_type"))
-        source_path = (entry.get("source_path") or "").replace("\\", "/")
-        body_payload = entry.get("body") or {}
-        if not source_path:
-            raise ValueError(f"Missing source_path in changeset entry {entry}")
+        try:
+            change_type = ChangeType.from_raw(entry.get("change_type"))
+            object_type = ObjectType.from_raw(entry.get("object_type"))
+            source_path = (entry.get("source_path") or "").replace("\\", "/")
+            body_payload = entry.get("body") or {}
+            if not source_path:
+                raise ValueError("Missing source_path")
 
-        normalized_payload = _normalize_body_payload(object_type, body_payload, source_path)
-        body_object = _deserialize_object_from_payload(object_type.value, normalized_payload, source_path)
-        if body_object is None:
-            raise ValueError(f"Failed to deserialize entry {entry}")
+            normalized_payload = _normalize_body_payload(object_type, body_payload, source_path)
+            body_object = _deserialize_object_from_payload(object_type.value, normalized_payload, source_path)
+            if body_object is None:
+                raise ValueError("Failed to deserialize body")
 
-        changeset.changes.append(
-            Change(
-                change_type=change_type,
-                object_type=object_type,
-                source_path=source_path,
-                body=body_object
+            changeset.changes.append(
+                Change(
+                    change_type=change_type,
+                    object_type=object_type,
+                    source_path=source_path,
+                    body=body_object
+                )
             )
-        )
+        except Exception as exc:
+            logger.warning("Skipping unsupported/malformed changeset entry: %s (%s)", entry, exc)
+            changeset.errors.setdefault("import", []).append({
+                "entry": entry,
+                "error": str(exc),
+            })
+            continue
 
     changeset.sort()
     return changeset
