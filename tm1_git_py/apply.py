@@ -1,3 +1,4 @@
+import importlib
 import logging
 from pathlib import Path
 from typing import Optional, Union, TypeVar
@@ -114,15 +115,18 @@ def apply(
 # --------------------------------------------------------------------------------
 
 def create_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
-    create = getattr(object_instance, f"create_{object_type.lower()}")
+    module = importlib.import_module(object_instance.__class__.__module__)
+    create = getattr(module, f"create_{object_type.lower()}")
     return create(tm1_service, object_instance)
 
 
 def delete_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
-    delete = getattr(object_instance, f"delete_{object_type.lower()}")
+    module = importlib.import_module(object_instance.__class__.__module__)
+    delete = getattr(module, f"delete_{object_type.lower()}")
     return delete(tm1_service, object_instance)
 
 
 def update_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
-    update = getattr(object_instance, f"update_{object_type.lower()}")
+    module = importlib.import_module(object_instance.__class__.__module__)
+    update = getattr(module, f"update_{object_type.lower()}")
     return update(tm1_service, object_instance)

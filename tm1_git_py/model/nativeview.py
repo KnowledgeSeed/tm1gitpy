@@ -49,7 +49,7 @@ class NativeView:
         self.name = name
         self.columns = [view_axis_selection_to_dict(item) for item in columns]
         self.rows = [view_axis_selection_to_dict(item) for item in rows]
-        self.titles = titles
+        self.titles = [view_axis_selection_to_dict(item) for item in titles]
         self.suppress_empty_columns = suppress_empty_columns
         self.suppress_empty_rows = suppress_empty_rows
         self.format_string = format_string

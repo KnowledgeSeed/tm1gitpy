@@ -198,7 +198,7 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
 
         for hierarchy in dim.hierarchies:
             _hierarchy = Hierarchy(name=hierarchy.name,
-                                   elements=[Element(name=v.name, type=v.element_type,
+                                   elements=[Element(name=v.name, type=v.element_type.value,
                                                      dimension_name=dim_name, hierarchy_name=hierarchy.name)
                                              for k, v in hierarchy.elements.items()],
                                    edges=[Edge(k[0], k[1], v, dimension_name=dim_name, hierarchy_name=hierarchy.name)

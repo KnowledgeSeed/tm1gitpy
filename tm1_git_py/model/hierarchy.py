@@ -50,11 +50,13 @@ class Hierarchy:
         self.source_path = source_path
 
     def as_json(self):
+        elements = [obj.to_dict() for obj in self.elements]
+        edges = [obj.to_dict() for obj in self.edges]
         return json.dumps({
             "@type": self.type,
             "Name": self.name,
-            "Elements": [obj.to_dict() for obj in self.elements],
-            "Edges": [obj.to_dict() for obj in self.edges],
+            "Elements": elements,
+            "Edges": edges,
             "Subsets@Code.links": [format_url("{}.subsets/{}.json", self.name, s.name) for s in self.subsets]
         }, indent='\t')
 
