@@ -112,6 +112,8 @@ def _normalize_filter(
 
 
 class Comparator:
+    DEFAULT_FILTER_RULES: list[str] = ["-/cubes/}*", "-/dimensions/}*"]
+
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
         Hierarchy: [("subsets", Subset), ("elements", Element), ("edges", Edge)],
@@ -123,6 +125,14 @@ class Comparator:
         Hierarchy: _hierarchies_equal_shallow,
         Cube: _cubes_equal_shallow
     }
+
+    def __init__(
+            self,
+            *,
+            use_default_filter: bool = True
+    ):
+        self.use_default_filter = use_default_filter
+        self.default_filter_rules = list(self.DEFAULT_FILTER_RULES)
 
     def compare(
             self,
@@ -136,6 +146,10 @@ class Comparator:
         mode='full' emits add/remove/modify changes.
         mode='add_only' emits add/modify changes.
         """
+
+        if self.use_default_filter:
+            model1 = filter(model1, self.default_filter_rules)
+            model2 = filter(model2, self.default_filter_rules)
 
         if filter_rules:
             if isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules):

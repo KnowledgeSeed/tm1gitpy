@@ -46,7 +46,7 @@ class TestChangesetApply:
         assert added_cubes[0].name == "TestCube1"
         self.check_no_diff(fixture_model, test_model)
 
-    @pytest.mark.skip(reason="Ignoring failing due to meta objects")
+    #@pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_create_cube_full_with_meta_objects(self):
         
         # given
@@ -85,7 +85,7 @@ class TestChangesetApply:
         assert added_cubes[0].name == "TestCube1"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
-    @pytest.mark.skip(reason="Ignoring failing due to meta objects")
+    #@pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_create_cube_add_only_with_meta_objects(self):
         
         # given
@@ -191,7 +191,7 @@ class TestChangesetApply:
 
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
-    @pytest.mark.skip(reason="Ignoring failing due to meta objects")
+    #@pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_create_dimension_with_meta_objects(self):
         
         # given
@@ -224,7 +224,7 @@ class TestChangesetApply:
 
         self.check_no_diff(fixture_tm1gitpy_dir, model)
 
-    @pytest.mark.skip(reason="Ignoring failing due to meta objects")
+    #@pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_delete_dimension_with_meta_objects(self):
         
         # given
@@ -450,7 +450,7 @@ class TestChangesetApply:
 
     def compare(self, source, target, mode :str = 'full'):
         comparator = Comparator()
-        return comparator.compare(source, target, mode=mode, filter_rules=self._f_no_meta)
+        return comparator.compare(source, target, mode=mode)
         
     
     def apply(self, changeset: Changeset):

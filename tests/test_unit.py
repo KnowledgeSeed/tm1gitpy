@@ -361,7 +361,7 @@ class TestComparator:
 
         assert len(added) == 6
         assert len(modified) == 9
-        assert len(removed) == 6
+        assert len(removed) == 5
 
 
     def test_comparator_dimensions_change_propagation(self):
@@ -462,7 +462,7 @@ class TestChangeset:
 
         # For deletes, precedence is:
         # mdx_views -> rules -> cubes -> edges -> elements -> subsets -> hierarchies -> dimensions -> chore -> process
-        assert deleted_types == [MDXView, Cube, Edge, Element, Chore, Process]
+        assert deleted_types == [MDXView, Edge, Element, Chore, Process]
 
 
     def test_apply_uses_sorted_order_for_create(self, mocker):
