@@ -110,7 +110,7 @@ def load_fixture_model_tm1gitpy(obj, filter_rules: list[str] = None) -> tuple[st
     return fixture_dir, filter(fixture_model, filter_rules) if filter_rules else fixture_model
 
 
-def load_fixture_changeset(obj) -> tuple[str, Model]:
+def load_fixture_changeset(obj, filter_rules: list[str] = None) -> tuple[str, Model]:
     dir_path = get_dir(obj)
     fixture_dir = str(Path(dir_path) / "fixture_changeset")
     fixture_model, errors = deserialize_model(fixture_dir)

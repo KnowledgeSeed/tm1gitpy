@@ -7,7 +7,7 @@ import TM1py
 from TM1py import Cube, Dimension, Hierarchy, TM1Service
 
 from test_integration.test_base import export_check_no_errors, load_fixture_model_tm1gitpy, tm1_service
-from tm1_git_py.changeset import Changeset
+from tm1_git_py.changeset import ChangeType, Changeset
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.serializer import serialize_model
 
@@ -19,6 +19,13 @@ class TestChangesetApply:
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
         self.tm1_service : TM1Service = tm1_service
+
+    @staticmethod
+    def _changes_by(changeset: Changeset, change_type: ChangeType, class_name: str):
+        return [
+            change.body for change in changeset.changes
+            if change.change_type == change_type and change.body.__class__.__name__ == class_name
+        ]
 
     def test_create_cube_full_no_meta_objects(self):
         
@@ -34,9 +41,9 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then
-        assert len(changeset.added) == 1
-        assert changeset.added[0].__class__.__name__ == "Cube"
-        assert changeset.added[0].name == "TestCube1"
+        added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
+        assert len(added_cubes) == 1
+        assert added_cubes[0].name == "TestCube1"
         self.check_no_diff(fixture_model, test_model)
 
     @pytest.mark.skip(reason="Ignoring failing due to meta objects")
@@ -54,9 +61,9 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self, [])
 
         # then
-        assert len(changeset.added) == 1
-        assert changeset.added[0].__class__.__name__ == "Cube"
-        assert changeset.added[0].name == "TestCube1"
+        added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
+        assert len(added_cubes) == 1
+        assert added_cubes[0].name == "TestCube1"
         self.check_no_diff(fixture_model, test_model)
 
     def test_create_cube_add_only_no_meta_objects(self):
@@ -73,9 +80,9 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then
-        assert len(changeset.added) == 1
-        assert changeset.added[0].__class__.__name__ == "Cube"
-        assert changeset.added[0].name == "TestCube1"
+        added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
+        assert len(added_cubes) == 1
+        assert added_cubes[0].name == "TestCube1"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     @pytest.mark.skip(reason="Ignoring failing due to meta objects")
@@ -93,9 +100,9 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self, [])
 
         # then
-        assert len(changeset.added) == 1
-        assert changeset.added[0].__class__.__name__ == "Cube"
-        assert changeset.added[0].name == "TestCube1"
+        added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
+        assert len(added_cubes) == 1
+        assert added_cubes[0].name == "TestCube1"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     def test_delete_cube_full_no_meta_objects(self):
@@ -112,9 +119,9 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then
-        assert len(changeset.removed) == 1
-        assert changeset.removed[0].__class__.__name__ == "Cube"
-        assert changeset.removed[0].name == "TestCubeRemovable1"
+        removed_cubes = self._changes_by(changeset, ChangeType.REMOVE, "Cube")
+        assert len(removed_cubes) == 1
+        assert removed_cubes[0].name == "TestCubeRemovable1"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     def test_delete_cube_full_with_meta_objects(self):
@@ -131,9 +138,9 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self, [])
 
         # then
-        assert len(changeset.removed) == 1
-        assert changeset.removed[0].__class__.__name__ == "Cube"
-        assert changeset.removed[0].name == "TestCubeRemovable2"
+        removed_cubes = self._changes_by(changeset, ChangeType.REMOVE, "Cube")
+        assert len(removed_cubes) == 1
+        assert removed_cubes[0].name == "TestCubeRemovable2"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     def test_delete_cube_add_only_no_meta_objects(self):
@@ -149,7 +156,7 @@ class TestChangesetApply:
         self.apply(changeset)
         
         # then
-        assert not changeset.removed
+        assert not self._changes_by(changeset, ChangeType.REMOVE, "Cube")
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     def test_delete_cube_add_only_with_meta_objects(self):
@@ -165,7 +172,7 @@ class TestChangesetApply:
         self.apply(changeset)
         
         # then
-        assert not changeset.removed
+        assert not self._changes_by(changeset, ChangeType.REMOVE, "Cube")
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
     def test_create_dimension_no_meta_objects(self):
@@ -256,9 +263,7 @@ class TestChangesetApply:
         model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then
-        added_hierarchies = [
-            o for o in changeset.added if o.__class__.__name__ == "Hierarchy"
-        ]
+        added_hierarchies = self._changes_by(changeset, ChangeType.ADD, "Hierarchy")
         assert len(added_hierarchies) >= 1
         assert any(h.name == "mydimension" for h in added_hierarchies)
         self.check_no_diff(fixture_tm1gitpy_dir, model)
@@ -283,9 +288,7 @@ class TestChangesetApply:
         model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then
-        removed_hierarchies = [
-            o for o in changeset.removed if o.__class__.__name__ == "Hierarchy"
-        ]
+        removed_hierarchies = self._changes_by(changeset, ChangeType.REMOVE, "Hierarchy")
         assert len(removed_hierarchies) >= 1
         assert any(h.name == "AltHierarchy" for h in removed_hierarchies)
         self.check_no_diff(fixture_tm1gitpy_dir, model)
@@ -311,9 +314,7 @@ class TestChangesetApply:
         model = export_check_no_errors(self, self._f_no_meta)
 
         # then
-        added_processes = [
-            o for o in changeset.added if o.__class__.__name__ == "Process"
-        ]
+        added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
         assert len(added_processes) == 1
         assert added_processes[0].name == "myprocess2"
         self.check_no_diff(fixture_dir, model)
@@ -333,9 +334,7 @@ class TestChangesetApply:
         model = export_check_no_errors(self, self._f_no_meta)
 
         # then
-        removed_processes = [
-            o for o in changeset.removed if o.__class__.__name__ == "Process"
-        ]
+        removed_processes = self._changes_by(changeset, ChangeType.REMOVE, "Process")
         assert len(removed_processes) == 1
         assert removed_processes[0].name == "TestExtraProcess"
         self.check_no_diff(fixture_dir, model)
@@ -354,8 +353,9 @@ class TestChangesetApply:
         model = export_check_no_errors(self, self._f_no_meta)
 
         # then
-        assert len(changeset.added) >= 1
-        assert any(o.name == "myprocess2" for o in changeset.added)
+        added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
+        assert len(added_processes) >= 1
+        assert any(o.name == "myprocess2" for o in added_processes)
         self.check_no_diff(fixture_dir, model)
 
     def test_delete_process_add_only_no_meta_objects(self):
@@ -372,7 +372,7 @@ class TestChangesetApply:
         self.apply(changeset)
 
         # then — nothing should have been removed
-        assert not changeset.removed
+        assert not self._changes_by(changeset, ChangeType.REMOVE, "Process")
 
         # cleanup
         self.tm1_service.processes.delete("TestExtraProcess2")
@@ -399,11 +399,9 @@ class TestChangesetApply:
         model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then — the cube should have been updated (rule removed)
-        updated_cubes = [
-            o for o in changeset.updated if o.get('new').__class__.__name__ == "Cube"
-        ]
+        updated_cubes = self._changes_by(changeset, ChangeType.MODIFY, "Cube")
         assert len(updated_cubes) >= 1
-        assert updated_cubes[0].get('new').name == "mycube"
+        assert updated_cubes[0].name == "mycube"
         self.check_no_diff(fixture_dir, model)
 
     @pytest.mark.skip(reason="Ignoring for now")
@@ -436,11 +434,9 @@ class TestChangesetApply:
         model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then — cube should have been updated (rule added back)
-        updated_cubes = [
-            o for o in changeset.updated if o.get('new').__class__.__name__ == "Cube"
-        ]
+        updated_cubes = self._changes_by(changeset, ChangeType.MODIFY, "Cube")
         assert len(updated_cubes) >= 1
-        assert updated_cubes[0].get('new').name == "mycube"
+        assert updated_cubes[0].name == "mycube"
 
         # Verify the rule is present on the server
         cube_final = self.tm1_service.cubes.get("mycube")
@@ -454,13 +450,17 @@ class TestChangesetApply:
 
     def compare(self, source, target, mode :str = 'full'):
         comparator = Comparator()
-        return comparator.compare(source, target, mode=mode)
+        return comparator.compare(source, target, mode=mode, filter_rules=self._f_no_meta)
         
     
     def apply(self, changeset: Changeset):
         status_dir = 'tests'
         exec_id = 'test_create_and_delete'
-        success, _errors = changeset.apply(tm1_service=self.tm1_service, status_dir=status_dir, execution_id=exec_id, batch=False)
+        success, _errors = changeset.apply(
+            tm1_service=self.tm1_service,
+            status_dir=status_dir,
+            execution_id=exec_id
+        )
         assert success, f"Changeset application failed with errors: {_errors}"
 
 
