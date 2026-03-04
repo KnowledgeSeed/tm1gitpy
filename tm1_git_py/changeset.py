@@ -77,6 +77,7 @@ class ObjectType(str, Enum):
     CUBE = "Cube"
     CHORE = "Chore"
     MDX_VIEW = "MDXView"
+    NATIVE_VIEW = "NativeView"
     DIMENSION = "Dimension"
     HIERARCHY = "Hierarchy"
     SUBSET = "Subset"
@@ -93,6 +94,7 @@ class ObjectType(str, Enum):
             "cube": cls.CUBE,
             "chore": cls.CHORE,
             "mdxview": cls.MDX_VIEW,
+            "nativeview": cls.NATIVE_VIEW,
             "dimension": cls.DIMENSION,
             "hierarchy": cls.HIERARCHY,
             "subset": cls.SUBSET,
@@ -111,12 +113,13 @@ class ObjectType(str, Enum):
         return cls.from_raw(obj.__class__.__name__)
 
 
-ChangesetBody = Union[Cube, Chore, MDXView, Dimension, Hierarchy, Subset, Element, Edge, Rule, Process]
+ChangesetBody = Union[Cube, Chore, MDXView, NativeView, Dimension, Hierarchy, Subset, Element, Edge, Rule, Process]
 
 OBJECT_TYPE_TO_CLASS: dict[ObjectType, type] = {
     ObjectType.CUBE: Cube,
     ObjectType.CHORE: Chore,
     ObjectType.MDX_VIEW: MDXView,
+    ObjectType.NATIVE_VIEW: NativeView,
     ObjectType.DIMENSION: Dimension,
     ObjectType.HIERARCHY: Hierarchy,
     ObjectType.SUBSET: Subset,
@@ -318,7 +321,7 @@ def _rule_name_from_area(area: str) -> str:
 
 def _remove_body_name(body: Any) -> str:
     if isinstance(body, Rule):
-        return _rule_name_from_area(body.area)
+        return getattr(body, "name", None) or _rule_name_from_area(body.area)
     if isinstance(body, Edge):
         return f"{body.parent}:{body.name}"
     return getattr(body, "name", "")
@@ -337,8 +340,10 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
 
     if isinstance(body, Rule):
         return {
-            "name": _rule_name_from_area(body.area),
-            "rule": body.full_statement
+            "name": body.name,
+            "rule": body.full_statement,
+            "area": body.area,
+            "comment": body.comment,
         }
 
     if isinstance(body, Cube):
@@ -617,6 +622,8 @@ def _build_rule_from_payload(payload: dict[str, Any], source_path: Optional[str]
     normalized_payload = dict(payload)
     if "rule" in normalized_payload and "statement" not in normalized_payload and "full_statement" not in normalized_payload:
         normalized_payload["statement"] = normalized_payload["rule"]
+    if "name" not in normalized_payload:
+        normalized_payload["name"] = _rule_name_from_area(normalized_payload.get("area", ""))
     return Rule.from_dict(normalized_payload, source_path=source_path, cube_name=cube_name)
 
 

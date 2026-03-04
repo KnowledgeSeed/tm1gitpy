@@ -2,7 +2,7 @@ import logging
 from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
 
 from tm1_git_py.changeset import Changeset, Change, ChangeType, ObjectType
-from tm1_git_py.model import Hierarchy, MDXView, Subset, Element, Edge
+from tm1_git_py.model import Hierarchy, MDXView, Subset, Element, Edge, Rule
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -77,9 +77,6 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
         if old_view_names != new_view_names:
             return False
 
-        if set(old_cube.rules) != set(new_cube.rules):
-            return False
-
         return True
 
     except AttributeError as exc:
@@ -117,7 +114,7 @@ class Comparator:
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
         Hierarchy: [("subsets", Subset), ("elements", Element), ("edges", Edge)],
-        Cube: [("views", MDXView)],
+        Cube: [("views", MDXView), ("rules", Rule)],
     }
 
     _EQUALITY_OVERRIDES: Mapping[type, Callable[[Any, Any], bool]] = {

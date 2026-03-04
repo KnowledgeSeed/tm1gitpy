@@ -344,7 +344,7 @@ class TestComparator:
         removed = self._changes_by_type(changeset, ChangeType.REMOVE)
 
         assert len(added) == 6
-        assert len(modified) == 9
+        assert len(modified) == 10
         assert len(removed) == 0
 
 
@@ -359,7 +359,7 @@ class TestComparator:
         removed = self._changes_by_type(changeset, ChangeType.REMOVE)
 
         assert len(added) == 6
-        assert len(modified) == 9
+        assert len(modified) == 10
         assert len(removed) == 5
 
 
@@ -389,6 +389,7 @@ class TestComparator:
         added = self._bodies_by(self._changes_by_type(changeset, ChangeType.ADD), MDXView)
         removed = self._bodies_by(self._changes_by_type(changeset, ChangeType.REMOVE), MDXView)
         modified = self._bodies_by(self._changes_by_type(changeset, ChangeType.MODIFY), Cube)
+        modified_rules = self._bodies_by(self._changes_by_type(changeset, ChangeType.MODIFY), Rule)
 
         old_cube = next(c for c in model1.cubes if c.name == "testbenchSales")
         new_cube = next(c for c in model2.cubes if c.name == "testbenchSales")
@@ -396,6 +397,7 @@ class TestComparator:
         assert (isinstance(added[0], MDXView) and added[0].name == "tm1_bedrock_py_gp0vkg064lilmmga")
         assert (isinstance(modified[0], Cube) and modified[0].name == "testbenchSales")
         assert (old_cube.rules != new_cube.rules)
+        assert any(isinstance(rule, Rule) and rule.source_path == "cubes/testbenchSales.rules" for rule in modified_rules)
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
 
 
@@ -531,7 +533,7 @@ class TestChangeset:
 
         # For updates, precedence is:
         # dimensions -> hierarchies -> subsets -> elements -> edges -> cubes -> mdx_views -> rules -> processes -> chores
-        assert updated_types == [Hierarchy, Hierarchy, Hierarchy, Hierarchy, Subset, Cube, MDXView, Process, Chore]
+        assert updated_types == [Hierarchy, Hierarchy, Hierarchy, Hierarchy, Subset, Cube, Cube, MDXView, Process, Chore]
 
 
     def test_export_persists_expected_payload(self, tmp_path):
