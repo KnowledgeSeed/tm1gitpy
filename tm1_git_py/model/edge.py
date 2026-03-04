@@ -109,7 +109,7 @@ def _edge_context_from_path(source_path: str) -> tuple[str, str]:
 
 def create_edge(tm1_service: TM1Service, edge: Edge) -> Response:
     dimension, hierarchy = _edge_context_from_path(source_path=edge.source_path)
-    edge_name = {(edge.parent, edge.name), edge.weight}
+    edge_name = {(edge.parent, edge.name): edge.weight}
     logger.debug(f"Creating Edge: {edge.name} in Hierarchy: {hierarchy}.")
     return tm1_service.elements.add_edges(hierarchy, dimension, edge_name)
 

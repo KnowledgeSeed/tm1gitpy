@@ -923,7 +923,7 @@ class TestEdgeCRUD:
         tm1_service.elements.add_edges.assert_called_once_with(
             "Hier_A",
             "Dim_A",
-            {("Parent_A", "Child_A"), 1},
+            {("Parent_A", "Child_A"): 1},
         )
         assert result == "create-result"
 
