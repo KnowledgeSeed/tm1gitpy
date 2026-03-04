@@ -89,10 +89,6 @@ def serialize_cubes(cubes: List[Cube], cubes_dir):
                     with open(os.path.join(views_dir, view.name + '.mdx'), 'w', encoding='utf-8') as mdx_file:
                         mdx_file.write(view.mdx)
 
-        with open(cubes_dir + '/' + cube.name + '.json', 'w', encoding='utf-8') as cube_file:
-            cube_file.write(cube.as_json())
-
-
 def serialize_processes(processes: List[Process], process_dir):
     for process in processes:
         with open(process_dir + '/' + process.name + '.ti', 'w', encoding='utf-8', newline='\n') as processti_file:

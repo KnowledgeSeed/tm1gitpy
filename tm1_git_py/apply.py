@@ -60,7 +60,7 @@ def apply(
         action_name = action.value
         obj_type = change.object_type.value
         obj_path = change.source_path
-        obj_name = obj.name
+        obj_name = getattr(obj, "name", "")
 
         if store is not None:
             store.begin_operation(i, action_name, obj_type, obj_name, obj_path)

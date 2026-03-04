@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, Optional, Union
 
 import yaml
 
@@ -14,9 +14,6 @@ from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, NativeV
     mdxview, Element, Rule, Edge
 
 logger = logging.getLogger(__name__)
-
-
-T = TypeVar('T', Cube, MDXView, NativeView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule)
 
 _CHILD_RELATIONS: dict[type, list[str]] = {
     Dimension: ["hierarchies"],
@@ -309,30 +306,6 @@ def normalize_source_path(source_path: str) -> str:
         normalized = normalized[:-5]
 
     return normalized
-
-
-def _source_path_sort_key(s: Union[T, dict[T, Any]], delete_precedence = False):
-    if not isinstance(s, (Cube, MDXView, Dimension, Hierarchy, Subset, Chore, Process, Element, Edge, Rule)):
-        raise ValueError(f"Cannot sort object type for source path '{s}'")
-
-    object_type = s.__class__.__name__
-    source_path = (getattr(s, "source_path", "") or "").replace("\\", "/").lstrip("/")
-    parent_path = source_path.rsplit("/", 1)[0] if "/" in source_path else ""
-
-    object_name = getattr(s, "name", None)
-    if object_name is None and isinstance(s, Rule):
-        object_name = _rule_name_from_area(getattr(s, "area", ""))
-    elif object_name is None and isinstance(s, Edge):
-        object_name = f"{getattr(s, 'parent', '')}:{getattr(s, 'name', '')}"
-    elif object_name is None:
-        object_name = source_path.rsplit("/", 1)[-1]
-
-    precedence_map = DELETE_OBJECT_PRECEDENCE if delete_precedence else OBJECT_PRECEDENCE
-    return (
-        precedence_map.get(object_type, 99),
-        parent_path,
-        str(object_name),
-    )
 
 
 def _iter_changeset_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -724,12 +697,3 @@ def _deserialize_object_from_payload(object_type: Optional[str],
         raise ValueError(f"Unsupported object type '{object_type}' in changeset import.")
     return builder(payload, source_path)
 
-
-def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
-    result = copy.deepcopy(base)
-    for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = _deep_merge_dict(result[key], value)
-        else:
-            result[key] = copy.deepcopy(value)
-    return result

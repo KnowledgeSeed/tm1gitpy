@@ -46,7 +46,6 @@ class TestChangesetApply:
         assert added_cubes[0].name == "TestCube1"
         self.check_no_diff(fixture_model, test_model)
 
-    #@pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_create_cube_full_with_meta_objects(self):
         
         # given
@@ -85,7 +84,6 @@ class TestChangesetApply:
         assert added_cubes[0].name == "TestCube1"
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
-    #@pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_create_cube_add_only_with_meta_objects(self):
         
         # given
@@ -191,7 +189,6 @@ class TestChangesetApply:
 
         self.check_no_diff(fixture_tm1gitpy_dir, test_model)
 
-    #@pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_create_dimension_with_meta_objects(self):
         
         # given
@@ -224,7 +221,6 @@ class TestChangesetApply:
 
         self.check_no_diff(fixture_tm1gitpy_dir, model)
 
-    #@pytest.mark.skip(reason="Ignoring failing due to meta objects")
     def test_delete_dimension_with_meta_objects(self):
         
         # given
@@ -245,15 +241,14 @@ class TestChangesetApply:
     # Hierarchy tests
     # -----------------------------------------------------------------------
 
-    @pytest.mark.skip(reason="Ignoring for now")
     def test_create_hierarchy_no_meta_objects(self):
         """Changeset should re-create a hierarchy that was deleted from the server."""
         # given
         fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
 
-        # Delete the default hierarchy of mydimension so it is missing on the server
+        # Delete an existing fixture hierarchy so it is missing on the server
         self.tm1_service.hierarchies.delete(
-            dimension_name="mydimension", hierarchy_name="mydimension"
+            dimension_name="TestDimMultiHier", hierarchy_name="Hier2"
         )
         model = export_check_no_errors(self, self._f_no_meta_obj)
 
@@ -265,18 +260,17 @@ class TestChangesetApply:
         # then
         added_hierarchies = self._changes_by(changeset, ChangeType.ADD, "Hierarchy")
         assert len(added_hierarchies) >= 1
-        assert any(h.name == "mydimension" for h in added_hierarchies)
+        assert any(h.name == "Hier2" for h in added_hierarchies)
         self.check_no_diff(fixture_tm1gitpy_dir, model)
 
-    @pytest.mark.skip(reason="Ignoring for now")
     def test_delete_hierarchy_no_meta_objects(self):
         """Changeset should remove an extra hierarchy that does not exist in the fixture."""
         # given
         fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
 
-        # Add an alternate hierarchy to mydimension
+        # Add an alternate hierarchy to an existing fixture dimension
         alt_hierarchy = Hierarchy(
-            dimension_name="mydimension", name="AltHierarchy"
+            dimension_name="TestDim1", name="AltHierarchy"
         )
         alt_hierarchy.add_element("AltElement1", "Numeric")
         self.tm1_service.hierarchies.create(alt_hierarchy)
@@ -381,14 +375,13 @@ class TestChangesetApply:
     # Rule tests (rules are part of cubes)
     # -----------------------------------------------------------------------
 
-    @pytest.mark.skip(reason="Ignoring for now")
     def test_delete_rule_no_meta_objects(self):
         """Changeset should remove a rule that was added on the server but is absent in the fixture."""
-        # given — fixture mycube has no rules
+        # given — fixture TestCube1 has no rules
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
 
-        # Add a rule to mycube on the server
-        cube_object = self.tm1_service.cubes.get("mycube")
+        # Add a rule to TestCube1 on the server
+        cube_object = self.tm1_service.cubes.get("TestCube1")
         cube_object.rules = TM1py.Rules("SKIPCHECK;\n['myelement_num'] = 1;\nFEEDERS;\n")
         self.tm1_service.cubes.update(cube_object)
         model = export_check_no_errors(self, self._f_no_meta_obj)
@@ -398,33 +391,24 @@ class TestChangesetApply:
         self.apply(changeset)
         model = export_check_no_errors(self, self._f_no_meta_obj)
 
-        # then — the cube should have been updated (rule removed)
-        updated_cubes = self._changes_by(changeset, ChangeType.MODIFY, "Cube")
-        assert len(updated_cubes) >= 1
-        assert updated_cubes[0].name == "mycube"
+        # then — rule changes are unified into one modify Rule change per cube
+        modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
+        assert len(modified_rules) == 1
+        assert modified_rules[0].source_path == "cubes/TestCube1.rules"
+        assert modified_rules[0].name == "default"
+        assert modified_rules[0].full_statement == ""
         self.check_no_diff(fixture_dir, model)
 
-    @pytest.mark.skip(reason="Ignoring for now")
     def test_create_rule_no_meta_objects(self):
         """Changeset should add a rule that exists in the fixture but is missing on the server."""
-        # given — we'll modify the fixture to include a rule, then remove it from the server
-        # Since the fixture mycube has no rules, we approach this differently:
-        # 1. Add a rule to the server mycube
-        # 2. Export to get the "with-rule" state as fixture
-        # 3. Remove the rule from the server
-        # 4. Compare against the exported fixture → changeset should add the rule back
+        # given — fixture TestCube2WithRule has rules; remove them from server first
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        fixture_cube = next(c for c in fixture_model.cubes if c.name == "TestCube2WithRule")
+        expected_rule_text = fixture_cube.get_rule_text()
 
-        rule_text = "SKIPCHECK;\n['myelement_num'] = 1;\nFEEDERS;\n"
-
-        # Add rule to mycube
-        cube_object = self.tm1_service.cubes.get("mycube")
-        cube_object.rules = TM1py.Rules(rule_text)
-        self.tm1_service.cubes.update(cube_object)
-        fixture_model = export_check_no_errors(self, self._f_no_meta_obj)
-
-        # Now remove the rule
-        cube_object = self.tm1_service.cubes.get("mycube")
-        cube_object.rules = None
+        # Remove rule from TestCube2WithRule to create the expected diff against fixture.
+        cube_object = self.tm1_service.cubes.get("TestCube2WithRule")
+        cube_object.rules = TM1py.Rules("SKIPCHECK;")
         self.tm1_service.cubes.update(cube_object)
         model = export_check_no_errors(self, self._f_no_meta_obj)
 
@@ -433,20 +417,18 @@ class TestChangesetApply:
         self.apply(changeset)
         model = export_check_no_errors(self, self._f_no_meta_obj)
 
-        # then — cube should have been updated (rule added back)
-        updated_cubes = self._changes_by(changeset, ChangeType.MODIFY, "Cube")
-        assert len(updated_cubes) >= 1
-        assert updated_cubes[0].name == "mycube"
+        # then — rule changes are unified into one modify Rule change per cube
+        modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
+        target_rules = [rule for rule in modified_rules if rule.source_path == "cubes/TestCube2WithRule.rules"]
+        assert len(target_rules) == 1
+        assert target_rules[0].name == "default"
+        assert target_rules[0].full_statement == expected_rule_text
 
         # Verify the rule is present on the server
-        cube_final = self.tm1_service.cubes.get("mycube")
+        cube_final = self.tm1_service.cubes.get("TestCube2WithRule")
         assert cube_final.rules is not None
-        assert "myelement_num" in str(cube_final.rules)
-
-        # cleanup — remove rule to restore fixture state
-        cube_object = self.tm1_service.cubes.get("mycube")
-        cube_object.rules = TM1py.Rules("")
-        self.tm1_service.cubes.update(cube_object)
+        assert "TestDim1Elem1" in str(cube_final.rules)
+        self.check_no_diff(fixture_dir, model)
 
     def compare(self, source, target, mode :str = 'full'):
         comparator = Comparator()

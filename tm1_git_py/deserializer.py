@@ -36,7 +36,7 @@ def _handle_long_path(file_path) -> str:
     return file_path
 
 
-def deserialize_model(dir) -> Model:
+def deserialize_model(dir: str) -> tuple[Model, dict[str, str]]:
     dir = _handle_long_path(dir)
 
     dimensions_dir = dir + '/dimensions'
