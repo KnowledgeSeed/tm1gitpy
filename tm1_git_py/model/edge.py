@@ -116,8 +116,12 @@ def create_edge(tm1_service: TM1Service, edge: Edge) -> Response:
 
 def update_edge(tm1_service: TM1Service, edge: Edge) -> Response:
     dimension, hierarchy = _edge_context_from_path(source_path=edge.source_path)
-    hierarchy = tm1_service.hierarchies.get(dimension_name=dimension, hierarchy_name=hierarchy)
-    return hierarchy.update_edge(parent=edge.parent, component=edge.name, weight=edge.weight)
+    hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension, hierarchy_name=hierarchy)
+    hierarchy_object.update_edge(parent=edge.parent, component=edge.name, weight=edge.weight)
+    resp = tm1_service.hierarchies.update(hierarchy_object)
+    if isinstance(resp, list):
+        resp = resp[0]
+    return resp
 
 
 def delete_edge(tm1_service: TM1Service, edge: Edge) -> Response:

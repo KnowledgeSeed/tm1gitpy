@@ -116,4 +116,4 @@ def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
 def delete_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
     cube_name, _ = _view_context_from_path(mdx_view.source_path)
     logger.info(f"Deleting View: {mdx_view.name} from Cube: {cube_name}.")
-    return tm1_service.views.delete(mdx_view.name)
+    return tm1_service.views.delete(view_name=mdx_view.name, cube_name=cube_name)

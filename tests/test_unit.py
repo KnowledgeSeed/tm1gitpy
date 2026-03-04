@@ -937,9 +937,9 @@ class TestEdgeCRUD:
             source_path="/dimensions/Dim_B.hierarchies/Hier_B.json/Parent_B:Child_B"
         )
 
-        hierarchy_obj = mocker.Mock()
-        hierarchy_obj.update_edge.return_value = "update-result"
-        tm1_service.hierarchies.get.return_value = hierarchy_obj
+        hierarchy_object = mocker.Mock()
+        tm1_service.hierarchies.get.return_value = hierarchy_object
+        tm1_service.hierarchies.update.return_value = "update-result"
 
         result = edge.update_edge(tm1_service, edge_obj)
 
@@ -947,11 +947,12 @@ class TestEdgeCRUD:
             dimension_name="Dim_B",
             hierarchy_name="Hier_B",
         )
-        hierarchy_obj.update_edge.assert_called_once_with(
+        hierarchy_object.update_edge.assert_called_once_with(
             parent="Parent_B",
             component="Child_B",
             weight=2,
         )
+        tm1_service.hierarchies.update.assert_called_once_with(hierarchy_object)
         assert result == "update-result"
 
 
@@ -1148,7 +1149,7 @@ class TestMDXViewCRUD:
 
         result = mdxview.delete_mdxview(tm1_service, mdx_view)
 
-        tm1_service.views.delete.assert_called_once_with(mdx_view.name)
+        tm1_service.views.delete.assert_called_once_with(view_name=mdx_view.name, cube_name="Cube_A")
         assert result == "delete-result"
 
 
