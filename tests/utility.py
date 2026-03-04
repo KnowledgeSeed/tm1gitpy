@@ -239,7 +239,7 @@ def _objects_equal_case_builders():
         hierarchy_numeric = dimension.hierarchies[0]
         hierarchy_string = Hierarchy(
             name=hierarchy_numeric.name,
-            elements=[Element({"Name": "Leaf1", "Type": "String"})],
+            elements=[Element(name="Leaf1", type="String")],
             edges=[],
             subsets=[],
             source_path=hierarchy_numeric.source_path
@@ -261,14 +261,14 @@ def _objects_equal_case_builders():
         )
         hierarchy_one = Hierarchy(
             name=hierarchy.name,
-            elements=[Element({"Name": "Leaf", "Type": "Numeric"})],
+            elements=[Element(name="Leaf", type="Numeric")],
             edges=[Edge("Parent", "Leaf", 1)],
             subsets=[subset],
             source_path=hierarchy.source_path
         )
         hierarchy_two = Hierarchy(
             name=hierarchy.name,
-            elements=[Element({"Name": "Leaf", "Type": "String"})],
+            elements=[Element(name="Leaf", type="String")],
             edges=[Edge("Parent", "Leaf", 2)],
             subsets=[subset],
             source_path=hierarchy.source_path

@@ -235,7 +235,6 @@ class TestSerializer:
             assert view_mdx.read_text(encoding='utf-8') == view.mdx
 
 
-    @pytest.mark.skip
     def test_serialize_handles_special_character_names(self, tmp_path):
         special_dim_name = "}Tech Dimension"
         special_hier_name = "}Tech Hierarchy"
@@ -245,7 +244,7 @@ class TestSerializer:
 
         hierarchy = Hierarchy(
             name=special_hier_name,
-            elements=[Element({"Name": "Item 1", "Type": "Numeric"})],
+            elements=[Element(name="Item 1", type="Numeric")],
             edges=[],
             subsets=[],
             source_path=f"dimensions/{special_dim_name}.hierarchies/{special_hier_name}.json"
@@ -311,7 +310,7 @@ class TestComparator:
     def _bodies_by(change_set: list[Change], body_type: type) -> list:
         return [c.body for c in change_set if isinstance(c.body, body_type)]
 
-    @pytest.mark.skip
+
     def test_objects_equal(self, objects_equal_data):
         obj1, obj2, shallow_fn, expect_strict_equal = objects_equal_data
 
