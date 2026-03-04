@@ -389,7 +389,11 @@ class TestComparator:
         added = self._bodies_by(self._changes_by_type(changeset, ChangeType.ADD), MDXView)
         removed = self._bodies_by(self._changes_by_type(changeset, ChangeType.REMOVE), MDXView)
         modified = self._bodies_by(self._changes_by_type(changeset, ChangeType.MODIFY), Cube)
-        modified_rules = self._bodies_by(self._changes_by_type(changeset, ChangeType.MODIFY), Rule)
+        modified_rule_changes = [
+            c for c in self._changes_by_type(changeset, ChangeType.MODIFY)
+            if c.object_type == ObjectType.RULE
+        ]
+        modified_rules = [c.body for c in modified_rule_changes]
 
         old_cube = next(c for c in model1.cubes if c.name == "testbenchSales")
         new_cube = next(c for c in model2.cubes if c.name == "testbenchSales")
@@ -397,7 +401,12 @@ class TestComparator:
         assert (isinstance(added[0], MDXView) and added[0].name == "tm1_bedrock_py_gp0vkg064lilmmga")
         assert (isinstance(modified[0], Cube) and modified[0].name == "testbenchSales")
         assert (old_cube.rules != new_cube.rules)
-        assert any(isinstance(rule, Rule) and rule.source_path == "cubes/testbenchSales.rules" for rule in modified_rules)
+        assert len(modified_rules) == 1
+        unified_rule = modified_rules[0]
+        assert isinstance(unified_rule, Rule)
+        assert unified_rule.name == "default"
+        assert unified_rule.source_path == "cubes/testbenchSales.rules"
+        assert unified_rule.full_statement == new_cube.get_rule_text()
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
 
 

@@ -1,8 +1,6 @@
 import importlib
-import json
 import logging
 import re
-from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Optional, Union, TypeVar
 
@@ -35,7 +33,7 @@ def apply(
         logger.info("No changes to apply.")
         return True, None
 
-    execution_changes = _prepare_execution_changes(changeset.changes, tm1_service)
+    execution_changes = _prepare_execution_changes(changeset.changes)
     """    
     validate_errors = validate_changeset(
         tm1_service=tm1_service,
@@ -162,93 +160,25 @@ def _cube_name_from_rule_source_path(source_path: str) -> str:
     return match.group(1)
 
 
-def _parse_rule_text(rule_text: str, cube_name: str) -> list[Rule]:
-    if not rule_text:
-        return []
-
-    rules: list[Rule] = []
-    seen_names: dict[str, int] = {}
-
-    def _unique_name(area: str) -> str:
-        base = Rule.name_from_area(area)
-        seen_names[base] = seen_names.get(base, 0) + 1
-        return base if seen_names[base] == 1 else f"{base}_{seen_names[base]}"
-
-    pattern = re.compile(r"(?P<comment>(?:#.*(?:\r\n|\n|$)\s*)*)?(?P<statement>\[.*?\][^;]*;)", re.DOTALL)
-    header_match = re.match(r"^(.*?)(?=\[|#|$)", rule_text, re.DOTALL)
-    last_pos = 0
-
-    if header_match:
-        header_text = header_match.group(1).strip()
-        if header_text:
-            rules.append(
-                Rule(
-                    name=_unique_name("[HEADER]"),
-                    area="[HEADER]",
-                    full_statement=header_text,
-                    comment="",
-                    cube_name=cube_name,
-                )
-            )
-        last_pos = header_match.end()
-
-    for match in pattern.finditer(rule_text, last_pos):
-        comment = (match.group("comment") or "").strip()
-        statement_text = match.group("statement").strip()
-        area_match = re.search(r"(\[.*?\])", statement_text)
-        area = area_match.group(1) if area_match else "[UNKNOWN]"
-        rules.append(
-            Rule(
-                name=_unique_name(area),
-                area=area,
-                full_statement=statement_text,
-                comment=comment,
-                cube_name=cube_name,
-            )
-        )
-    return rules
-
-
-def _get_live_cube_rules(tm1_service: TM1Service, cube_name: str) -> list[Rule]:
-    cube = tm1_service.cubes.get(cube_name=cube_name)
-    if not cube or not cube.rules:
-        return []
-
-    raw_body = cube.rules.body
-    rule_text = ""
-    try:
-        parsed = json.loads(raw_body)
-        if isinstance(parsed, dict):
-            rule_text = parsed.get("Rules", "")
-    except Exception:
-        rule_text = raw_body if isinstance(raw_body, str) else ""
-    return _parse_rule_text(rule_text, cube_name)
-
-
-def _prepare_execution_changes(changes: list[Change], tm1_service: TM1Service) -> list[Change]:
+def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
     non_rule_changes: list[Change] = []
-    rule_changes_by_cube: dict[str, list[Change]] = defaultdict(list)
+    rule_changes_by_cube: dict[str, Change] = {}
 
     for change in changes:
         if change.object_type == ObjectType.RULE:
             cube_name = _cube_name_from_rule_source_path(change.source_path)
-            rule_changes_by_cube[cube_name].append(change)
+            # Keep the last rule change for a cube; compare path now emits one unified entry.
+            rule_changes_by_cube[cube_name] = change
         else:
             non_rule_changes.append(change)
 
     synthesized_cube_changes: list[Change] = []
-    for cube_name, cube_rule_changes in rule_changes_by_cube.items():
-        # Use an ordered map so we can apply add/remove/modify by rule name while preserving order.
-        live_rules = _get_live_cube_rules(tm1_service, cube_name)
-        rules_by_name: OrderedDict[str, Rule] = OrderedDict((rule.name, rule) for rule in live_rules)
-
-        for change in cube_rule_changes:
-            action = ChangeType.from_raw(change.change_type)
-            rule_obj = change.body
-            if action == ChangeType.REMOVE:
-                rules_by_name.pop(rule_obj.name, None)
-            elif action in (ChangeType.ADD, ChangeType.MODIFY):
-                rules_by_name[rule_obj.name] = rule_obj
+    for cube_name, rule_change in rule_changes_by_cube.items():
+        action = ChangeType.from_raw(rule_change.change_type)
+        if action == ChangeType.REMOVE:
+            cube_rules: list[Rule] = []
+        else:
+            cube_rules = [rule_change.body] if isinstance(rule_change.body, Rule) else []
 
         synthesized_cube_changes.append(
             Change(
@@ -258,7 +188,7 @@ def _prepare_execution_changes(changes: list[Change], tm1_service: TM1Service) -
                 body=Cube(
                     name=cube_name,
                     dimensions=[],
-                    rules=list(rules_by_name.values()),
+                    rules=cube_rules,
                     views=[],
                     source_path=f"cubes/{cube_name}.json",
                 ),

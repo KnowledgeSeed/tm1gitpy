@@ -161,6 +161,55 @@ class Changeset:
     def has_changes(self) -> bool:
         return bool(self.changes)
 
+    def unify_rule_changes(self, cube_rule_texts: Optional[dict[str, str]] = None) -> None:
+        """Collapse per-cube Rule add/remove/modify entries into one modify Rule entry.
+
+        The unified Rule entry uses:
+        - name: "default"
+        - change_type: "modify"
+        - source_path: "cubes/<cube_name>.rules"
+        - full_statement: full unified rule text for the cube
+        """
+        cube_rule_texts = cube_rule_texts or {}
+        grouped_rule_changes: dict[str, list[Change]] = {}
+        non_rule_changes: list[Change] = []
+
+        for change in self.changes:
+            if change.object_type != ObjectType.RULE:
+                non_rule_changes.append(change)
+                continue
+
+            cube_name = _cube_name_from_rule_source_path(change.source_path)
+            if not cube_name:
+                non_rule_changes.append(change)
+                continue
+            grouped_rule_changes.setdefault(cube_name, []).append(change)
+
+        unified_rule_changes: list[Change] = []
+        for cube_name in sorted(grouped_rule_changes.keys()):
+            unified_text = cube_rule_texts.get(cube_name)
+            if unified_text is None:
+                unified_text = _compose_rule_text_from_changes(grouped_rule_changes[cube_name])
+
+            source_path = f"cubes/{cube_name}.rules"
+            unified_rule_changes.append(
+                Change(
+                    change_type=ChangeType.MODIFY,
+                    object_type=ObjectType.RULE,
+                    source_path=source_path,
+                    body=Rule(
+                        name="default",
+                        area="[default]",
+                        full_statement=unified_text,
+                        comment="",
+                        source_path=source_path,
+                        cube_name=cube_name,
+                    ),
+                )
+            )
+
+        self.changes = non_rule_changes + unified_rule_changes
+
     def apply(
             self,
             tm1_service,
@@ -317,6 +366,28 @@ def _rule_name_from_area(area: str) -> str:
     if match:
         return match.group(1)
     return "default"
+
+
+def _cube_name_from_rule_source_path(source_path: str) -> str:
+    normalized = (source_path or "").replace("\\", "/").lstrip("/")
+    match = re.match(r"cubes/(.+)\.rules$", normalized)
+    if not match:
+        return ""
+    return match.group(1)
+
+
+def _compose_rule_text_from_changes(changes: list[Change]) -> str:
+    """Fallback when full target cube rule text is not provided."""
+    parts: list[str] = []
+    for change in changes:
+        if change.change_type == ChangeType.REMOVE:
+            continue
+        body = change.body
+        if isinstance(body, Rule):
+            if body.comment:
+                parts.append(body.comment)
+            parts.append(body.full_statement)
+    return "\n\n".join(parts)
 
 
 def _remove_body_name(body: Any) -> str:

@@ -166,6 +166,8 @@ class Comparator:
         self._compare_with_children(model1.processes, model2.processes, Process, changeset, mode)
         self._compare_with_children(model1.chores, model2.chores, Chore, changeset, mode)
 
+        cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
+        changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
         changeset.sort()
 
         return changeset
