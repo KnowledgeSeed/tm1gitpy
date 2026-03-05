@@ -2008,6 +2008,42 @@ class TestProcessCRUD:
         tm1_service.processes.update.assert_called_once_with(tm1_process_obj)
         assert result is update_result
 
+    def test_create_process_accepts_datasource_dict(self, mocker):
+        tm1_service = mocker.Mock()
+        process_mock = make_process(name="Proc_DictDS", datasource_type={"type": "None"})
+
+        tm1py_process_cls = mocker.patch("tm1_git_py.model.process.TM1py.Process")
+        tm1py_process_instance = tm1py_process_cls.return_value
+        tm1_service.processes.create.return_value = "create-result"
+
+        result = process.create_process(tm1_service, process_mock)
+
+        tm1py_process_cls.assert_called_once_with(
+            name="Proc_DictDS",
+            has_security_access=process_mock.hasSecurityAccess,
+            datasource_type="None",
+            parameters=process_mock.parameters,
+            variables=process_mock.variables,
+        )
+        tm1_service.processes.create.assert_called_once_with(tm1py_process_instance)
+        assert result == "create-result"
+
+    def test_update_process_normalizes_empty_datasource_to_none(self, mocker):
+        tm1_service = mocker.Mock()
+        process_new = make_process(name="Proc_EmptyDS", datasource_type="")
+
+        tm1_process_obj = mocker.Mock()
+        tm1_process_obj.parameters = list(process_new.parameters)
+        tm1_process_obj.variables = list(process_new.variables)
+        tm1_service.processes.get.return_value = tm1_process_obj
+        tm1_service.processes.update.return_value = "update-result"
+
+        result = process.update_process(tm1_service, process_new)
+
+        assert tm1_process_obj.datasource_type == "None"
+        tm1_service.processes.update.assert_called_once_with(tm1_process_obj)
+        assert result == "update-result"
+
 
 
 class TestChoreCRUD:
@@ -2094,11 +2130,7 @@ class TestChoreCRUD:
             task_names=["Proc1_new", "Proc2_new"],
         )
 
-        tm1_chore_obj = mocker.Mock()
-        tm1_chore_obj.active = True
-
-        tm1_service.chores.get.return_value = tm1_chore_obj
-        tm1_service.chores.update.return_value = "update-result"
+        tm1_service.chores.create.return_value = "create-result"
         create_chore_task_mock = mocker.patch(
             "tm1_git_py.model.chore.create_chore_task"
         )
@@ -2116,10 +2148,10 @@ class TestChoreCRUD:
             "tm1_git_py.model.chore.ChoreFrequency.from_string",
             return_value="parsed-frequency",
         )
+        tm1py_chore_cls = mocker.patch("tm1_git_py.model.chore.TM1py.Chore")
+        tm1py_chore_instance = tm1py_chore_cls.return_value
 
         result = chore.update_chore(tm1_service, chore_new)
-
-        tm1_service.chores.get.assert_called_once_with(chore_name="Chore_A")
 
         assert create_chore_task_mock.call_count == 2
         create_chore_task_mock.assert_any_call(task=chore_new.tasks[0], step=0)
@@ -2127,17 +2159,18 @@ class TestChoreCRUD:
 
         start_time_from_string.assert_called_once_with(chore_new.start_time)
         frequency_from_string.assert_called_once_with(chore_new.frequency)
-        assert tm1_chore_obj.start_time == "parsed-start-time"
-        assert tm1_chore_obj.dst_sensitivity == chore_new.dst_sensitive
-        assert tm1_chore_obj.execution_mode == chore_new.execution_mode
-        assert tm1_chore_obj.frequency == "parsed-frequency"
-        assert tm1_chore_obj.tasks == chore_task_instances
-
-        tm1_chore_obj.activate.assert_not_called()
-        tm1_chore_obj.deactivate.assert_not_called()
-
-        tm1_service.chores.update.assert_called_once_with(tm1_chore_obj)
-        assert result == "update-result"
+        tm1_service.chores.delete.assert_called_once_with("Chore_A")
+        tm1py_chore_cls.assert_called_once_with(
+            name="Chore_A",
+            start_time="parsed-start-time",
+            dst_sensitivity=False,
+            active=True,
+            execution_mode="MultipleCommit",
+            frequency="parsed-frequency",
+            tasks=chore_task_instances,
+        )
+        tm1_service.chores.create.assert_called_once_with(tm1py_chore_instance)
+        assert result == "create-result"
 
 
     def test_update_chore_activates_when_active_flag_changes_from_false_to_true(self, mocker):
@@ -2149,16 +2182,47 @@ class TestChoreCRUD:
             task_names=["ProcX"],
         )
 
-        tm1_service.chores.exists.return_value = True
-        tm1_chore_obj = mocker.Mock()
-        tm1_chore_obj.active = False
-        tm1_service.chores.get.return_value = tm1_chore_obj
+        tm1_service.chores.create.return_value = "create-result"
 
         mocker.patch("tm1_git_py.model.chore.create_chore_task", return_value=mocker.Mock())
         mocker.patch("tm1_git_py.model.chore.ChoreStartTime.from_string", return_value="parsed-start-time")
         mocker.patch("tm1_git_py.model.chore.ChoreFrequency.from_string", return_value="parsed-frequency")
+        tm1py_chore_cls = mocker.patch("tm1_git_py.model.chore.TM1py.Chore")
+        tm1py_chore_instance = tm1py_chore_cls.return_value
 
-        chore.update_chore(tm1_service, chore_new)
+        result = chore.update_chore(tm1_service, chore_new)
 
-        tm1_chore_obj.activate.assert_called_once()
-        tm1_chore_obj.deactivate.assert_not_called()
+        tm1_service.chores.delete.assert_called_once_with("Chore_B")
+        tm1py_chore_cls.assert_called_once()
+        tm1_service.chores.create.assert_called_once_with(tm1py_chore_instance)
+        assert result == "create-result"
+
+    def test_update_chore_accepts_date_only_start_time(self, mocker):
+        tm1_service = mocker.Mock()
+
+        chore_new = make_chore(
+            name="Chore_DateOnly",
+            start_time="2026-03-05",
+            task_names=["ProcX"],
+        )
+
+        tm1_service.chores.create.return_value = "create-result"
+
+        mocker.patch("tm1_git_py.model.chore.create_chore_task", return_value=mocker.Mock())
+        start_time_from_string = mocker.patch(
+            "tm1_git_py.model.chore.ChoreStartTime.from_string",
+            return_value="parsed-start-time"
+        )
+        mocker.patch(
+            "tm1_git_py.model.chore.ChoreFrequency.from_string",
+            return_value="parsed-frequency"
+        )
+        tm1py_chore_cls = mocker.patch("tm1_git_py.model.chore.TM1py.Chore")
+        tm1py_chore_instance = tm1py_chore_cls.return_value
+
+        result = chore.update_chore(tm1_service, chore_new)
+
+        start_time_from_string.assert_called_once_with("2026-03-05T00:00:00+00:00")
+        tm1_service.chores.delete.assert_called_once_with("Chore_DateOnly")
+        tm1_service.chores.create.assert_called_once_with(tm1py_chore_instance)
+        assert result == "create-result"

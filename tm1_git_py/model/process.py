@@ -133,7 +133,7 @@ class Process:
             has_security = data.get("HasSecurityAccess")
 
         code_link = data.get("code_link") or data.get("Code@Code.link") or data.get("Code")
-        datasource = data.get("datasource") or data.get("DataSource")
+        datasource = _normalize_datasource_type(data.get("datasource") or data.get("DataSource"))
         parameters = data.get("parameters") or data.get("Parameters") or []
         variables = data.get("variables") or data.get("Variables") or []
         ti_payload = data.get("ti") or {}
@@ -163,11 +163,24 @@ class Process:
 
 logger = logging.getLogger(__name__)
 
+def _normalize_datasource_type(datasource: Any) -> str:
+    if isinstance(datasource, dict):
+        value = datasource.get("Type")
+        if value is None:
+            value = datasource.get("type")
+        return str(value or "None")
+    if datasource is None:
+        return "None"
+    text = str(datasource).strip()
+    return text or "None"
+
+
 def create_process(tm1_service: TM1Service, process: Process) -> Response:
+    datasource_type = _normalize_datasource_type(process.datasource)
     process_object = TM1py.Process(
         name=process.name,
         has_security_access=process.hasSecurityAccess,
-        datasource_type=process.datasource or "None",
+        datasource_type=datasource_type,
         parameters=process.parameters,
         variables=process.variables
     )
@@ -176,9 +189,15 @@ def create_process(tm1_service: TM1Service, process: Process) -> Response:
 
 
 def update_process(tm1_service: TM1Service, process: Process) -> Response:
+    datasource_type = _normalize_datasource_type(process.datasource)
     process_object = tm1_service.processes.get(name_process=process.name)
-    process_object.datasource_type = process.datasource
+    process_object.datasource_type = datasource_type
     process_object.has_security_access = process.hasSecurityAccess
+    if process.ti:
+        process_object.prolog_procedure = process.ti.prolog_procedure
+        process_object.metadata_procedure = process.ti.metadata_procedure
+        process_object.data_procedure = process.ti.data_procedure
+        process_object.epilog_procedure = process.ti.epilog_procedure
 
     _update_process_parameters(process_new=process, process_object=process_object)
     _update_process_variables(process_new=process, process_object=process_object)
@@ -195,10 +214,11 @@ def delete_process(tm1_service: TM1Service, process: Process) -> Response:
 
 def _update_process_variables(process_new: Process, process_object: TM1py.Process):
     variables_old = process_object.variables
+    datasource_type = _normalize_datasource_type(process_new.datasource)
     process_new = TM1py.Process(
         name=process_new.name,
         has_security_access=process_new.hasSecurityAccess,
-        datasource_type=process_new.datasource,
+        datasource_type=datasource_type,
         parameters=process_new.parameters,
         variables=process_new.variables
     )
@@ -219,10 +239,11 @@ def _update_process_variables(process_new: Process, process_object: TM1py.Proces
 
 def _update_process_parameters(process_new: Process, process_object: TM1py.Process):
     parameters_old = process_object.parameters
+    datasource_type = _normalize_datasource_type(process_new.datasource)
     process_new = TM1py.Process(
         name=process_new.name,
         has_security_access=process_new.hasSecurityAccess,
-        datasource_type=process_new.datasource,
+        datasource_type=datasource_type,
         parameters=process_new.parameters,
         variables=process_new.variables
     )

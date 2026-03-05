@@ -18,6 +18,28 @@ logger = logging.getLogger(__name__)
 T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule)
 
 
+def _normalize_apply_response(
+        resp,
+        *,
+        action_name: str,
+        obj_type: str,
+        obj_name: str,
+        obj_path: str,
+) -> Response:
+    if isinstance(resp, Response):
+        return resp
+
+    normalized = Response()
+    normalized.status_code = 200
+    normalized.url = obj_path or f"{obj_type}:{obj_name}"
+    normalized._content = (
+        f"{action_name} {obj_type}{':' + obj_name if obj_name else ''} "
+        f"completed without explicit HTTP response."
+    ).encode("utf-8")
+    normalized.encoding = "utf-8"
+    return normalized
+
+
 def apply(
         changeset: Changeset,
         tm1_service: TM1Service,
@@ -75,6 +97,13 @@ def apply(
             else:
                 raise ValueError(f"Unknown action: {action_name}")
 
+            resp = _normalize_apply_response(
+                resp,
+                action_name=action_name,
+                obj_type=obj_type,
+                obj_name=obj_name,
+                obj_path=obj_path,
+            )
             changes.append(resp.url)
 
             logger.info("%s %s%s -> %s %s",

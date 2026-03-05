@@ -4,7 +4,7 @@ import logging
 import TM1py
 from TM1py import TM1Service, Chore, ChoreStartTime, ChoreFrequency
 from requests import Response
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from tm1_git_py.model.task import Task, create_chore_task
 
@@ -309,10 +309,21 @@ class Chore:
 
 logger = logging.getLogger(__name__)
 
+def _normalize_start_time(start_time: Union[str, None]) -> str:
+    value = (start_time or "").strip()
+    if not value:
+        # Safe default when source payload is incomplete.
+        return "1970-01-01T00:00:00+00:00"
+    if "T" in value:
+        return value
+    # Changeset payloads may provide date-only start_date.
+    return f"{value}T00:00:00+00:00"
+
+
 def create_chore(tm1_service: TM1Service, chore: Chore) -> Response:
     chore_tasks = [create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore.tasks)]
     frequency = chore.frequency
-    start_time = chore.start_time
+    start_time = _normalize_start_time(chore.start_time)
     chore_object = TM1py.Chore(
         name=chore.name,
         start_time=ChoreStartTime.from_string(start_time),
@@ -329,26 +340,9 @@ def create_chore(tm1_service: TM1Service, chore: Chore) -> Response:
 
 
 def update_chore(tm1_service: TM1Service, chore: Chore) -> Response:
-    chore_tasks = [create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore.tasks)]
-
-    frequency = chore.frequency
-    start_time = chore.start_time
-
-    chore_object = tm1_service.chores.get(chore_name=chore.name)
-    chore_object.start_time = ChoreStartTime.from_string(start_time)
-    chore_object.dst_sensitivity = chore.dst_sensitive
-    chore_object.execution_mode = chore.execution_mode
-    chore_object.frequency = ChoreFrequency.from_string(frequency)
-    chore_object.tasks = chore_tasks
-
-    if chore_object.active != chore.active:
-        if chore.active: chore_object.activate()
-        if not chore.active: chore_object.deactivate()
-
-    task_names = [proc.process_name for proc in chore.tasks]
-    logger.info(f"Updating Chore: {chore.name} with Tasks: {task_names}.")
-
-    return tm1_service.chores.update(chore_object)
+    delete_chore(tm1_service=tm1_service, chore=chore)
+    response = create_chore(tm1_service=tm1_service, chore=chore)
+    return response
 
 
 def delete_chore(tm1_service: TM1Service, chore: Chore) -> Response:
