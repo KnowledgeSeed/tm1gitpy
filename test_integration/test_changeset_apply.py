@@ -321,6 +321,54 @@ class TestChangesetApply:
         finally:
             self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
+    def test_compare_tracks_added_mdx_and_native_views(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        cube_name = "TestCube3WithView"
+        mdx_name = "zz_temp_mdx_view_compare"
+        native_name = "zz_temp_native_view_compare"
+        try:
+            self.tm1_service.views.delete(cube_name=cube_name, view_name=mdx_name)
+        except Exception:
+            pass
+        try:
+            self.tm1_service.views.delete(cube_name=cube_name, view_name=native_name)
+        except Exception:
+            pass
+
+        self.tm1_service.views.create(
+            TM1py.MDXView(
+                cube_name=cube_name,
+                view_name=mdx_name,
+                MDX=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]"
+            )
+        )
+        native_view = TM1py.NativeView.from_dict(
+            view_as_dict={
+                "Name": native_name,
+                "Columns": [{"Subset": {"Expression": "{[TestDim2].[TestDim2].Members}",
+                                        "Hierarchy@odata.bind": "Dimensions('TestDim2')/Hierarchies('TestDim2')"}}],
+                "Rows": [{"Subset": {"Expression": "{[TestDim1].[TestDim1].Members}",
+                                     "Hierarchy@odata.bind": "Dimensions('TestDim1')/Hierarchies('TestDim1')"}}],
+                "Titles": [],
+                "SuppressEmptyColumns": True,
+                "SuppressEmptyRows": True,
+                "FormatString": "0.#########",
+            },
+            cube_name=cube_name,
+        )
+        self.tm1_service.views.create(native_view)
+        model = export_check_no_errors(self, self._f_no_meta_obj)
+
+        try:
+            changeset = self.compare(model, fixture_model)
+            removed_mdx = self._changes_by(changeset, ChangeType.REMOVE, "MDXView")
+            removed_native = self._changes_by(changeset, ChangeType.REMOVE, "NativeView")
+
+            assert any(v.name == mdx_name for v in removed_mdx)
+            assert any(v.name == native_name for v in removed_native)
+        finally:
+            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+
 
     # -----------------------------------------------------------------------
     # Dimension tests
@@ -582,6 +630,53 @@ class TestChangesetApply:
         assert len(removed_hierarchies) >= 1
         assert any(h.name == "AltHierarchy" for h in removed_hierarchies)
         self.check_no_diff(fixture_tm1gitpy_dir, model)
+
+    def test_compare_child_only_hierarchy_change_does_not_modify_dimension(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+
+        alt_hierarchy = Hierarchy(dimension_name="TestDim1", name="AltHierarchyNoParentModify")
+        alt_hierarchy.add_element("AltElem", "Numeric")
+        self.tm1_service.hierarchies.create(alt_hierarchy)
+        model = export_check_no_errors(self, self._f_no_meta_obj)
+
+        try:
+            changeset = self.compare(model, fixture_model)
+            removed_hierarchies = self._changes_by(changeset, ChangeType.REMOVE, "Hierarchy")
+            modified_dimensions = self._changes_by(changeset, ChangeType.MODIFY, "Dimension")
+
+            assert any(h.name == "AltHierarchyNoParentModify" for h in removed_hierarchies)
+            assert not modified_dimensions
+        finally:
+            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+
+    def test_compare_ignores_leaf_elements(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        leaf_element_name = "zz_leaf_noise_elem"
+        try:
+            self.tm1_service.elements.delete(
+                hierarchy_name="Leaves",
+                dimension_name="TestDimMultiHier",
+                element_name=leaf_element_name
+            )
+        except Exception:
+            pass
+
+        self.tm1_service.elements.create(
+            hierarchy_name="Leaves",
+            dimension_name="TestDimMultiHier",
+            element=TM1py.Element(name=leaf_element_name, element_type="Numeric")
+        )
+        model = export_check_no_errors(self, self._f_no_meta_obj)
+        try:
+            changeset = self.compare(model, fixture_model)
+            leaf_element_changes = [
+                c for c in changeset.changes
+                if c.body.__class__.__name__ == "Element" and "/Leaves.json/" in c.source_path
+            ]
+            assert not leaf_element_changes
+        finally:
+            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+
 
     # -----------------------------------------------------------------------
     # TI Process tests

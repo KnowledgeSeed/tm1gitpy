@@ -2,7 +2,7 @@ import logging
 from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
 
 from tm1_git_py.changeset import Changeset, Change, ChangeType, ObjectType
-from tm1_git_py.model import Hierarchy, MDXView, Subset, Element, Edge, Rule
+from tm1_git_py.model import Hierarchy, MDXView, NativeView, Subset, Element, Edge, Rule
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -16,11 +16,6 @@ logger = logging.getLogger(__name__)
 def _dimensions_equal_shallow(old_dimension: Dimension, new_dimension: Dimension) -> bool:
     try:
         if old_dimension.name != new_dimension.name:
-            return False
-
-        old_hierarchy_names = {hier.name for hier in old_dimension.hierarchies}
-        new_hierarchy_names = {hier.name for hier in new_dimension.hierarchies}
-        if old_hierarchy_names != new_hierarchy_names:
             return False
 
         old_default = getattr(old_dimension.defaultHierarchy, "name", None)
@@ -37,25 +32,7 @@ def _dimensions_equal_shallow(old_dimension: Dimension, new_dimension: Dimension
 
 def _hierarchies_equal_shallow(old_hierarchy: Hierarchy, new_hierarchy: Hierarchy) -> bool:
     try:
-        if old_hierarchy.name != new_hierarchy.name:
-            return False
-
-        old_element_names = {element.name for element in old_hierarchy.elements}
-        new_element_names = {element.name for element in new_hierarchy.elements}
-        if old_element_names != new_element_names:
-            return False
-
-        old_edge_names = {edge.name for edge in old_hierarchy.edges}
-        new_edge_names = {edge.name for edge in new_hierarchy.edges}
-        if old_edge_names != new_edge_names:
-            return False
-
-        old_subset_names = {subset.name for subset in old_hierarchy.subsets}
-        new_subset_names = {subset.name for subset in new_hierarchy.subsets}
-        if old_subset_names != new_subset_names:
-            return False
-
-        return True
+        return old_hierarchy.name == new_hierarchy.name
 
     except AttributeError as exc:
         logger.error("Hierarchy comparison failed due to missing attributes: %s", exc)
@@ -72,16 +49,32 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
         if old_dim_names != new_dim_names:
             return False
 
-        old_view_names = {view.name for view in old_cube.views}
-        new_view_names = {view.name for view in new_cube.views}
-        if old_view_names != new_view_names:
-            return False
-
         return True
 
     except AttributeError as exc:
         logger.error("Cube comparison failed due to missing attributes: %s", exc)
         return False
+
+
+def _is_leaf_hierarchy(hierarchy_obj: Any) -> bool:
+    return getattr(hierarchy_obj, "name", "").strip().lower() == "leaves"
+
+
+def _object_identity(obj: Any) -> str:
+    obj_type = obj.__class__.__name__
+    if isinstance(obj, Edge):
+        return f"{obj_type}:{getattr(obj, 'parent', '')}:{getattr(obj, 'name', '')}"
+    if isinstance(obj, Rule):
+        return f"{obj_type}:{getattr(obj, 'name', '')}:{getattr(obj, 'area', '')}"
+
+    name = getattr(obj, "name", None)
+    if name is not None:
+        return f"{obj_type}:{name}"
+
+    source_path = getattr(obj, "source_path", None)
+    if source_path:
+        return f"{obj_type}:{source_path}"
+    raise AttributeError(f"Object '{obj}' has neither source_path nor name.")
 
 
 def _normalize_filter(
@@ -114,7 +107,7 @@ class Comparator:
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
         Hierarchy: [("subsets", Subset), ("elements", Element), ("edges", Edge)],
-        Cube: [("views", MDXView), ("rules", Rule)],
+        Cube: [("views", MDXView), ("views", NativeView), ("rules", Rule)],
     }
 
     _EQUALITY_OVERRIDES: Mapping[type, Callable[[Any, Any], bool]] = {
@@ -214,8 +207,17 @@ class Comparator:
         if child_relations and parent_pairs:
             for old_obj, new_obj in parent_pairs.values():
                 for child_attr, child_cls in child_relations:
-                    old_children = getattr(old_obj, child_attr, None) or []
-                    new_children = getattr(new_obj, child_attr, None) or []
+                    # "Leaves" hierarchy elements are auto-managed by TM1 and should not be diffed.
+                    if isinstance(new_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(new_obj):
+                        continue
+                    old_children = [
+                        child for child in (getattr(old_obj, child_attr, None) or [])
+                        if isinstance(child, child_cls)
+                    ]
+                    new_children = [
+                        child for child in (getattr(new_obj, child_attr, None) or [])
+                        if isinstance(child, child_cls)
+                    ]
                     try:
                         self._compare_with_children(old_children, new_children, child_cls, changeset, mode)
                     except Exception as exc:
@@ -233,10 +235,10 @@ class Comparator:
                               equals_fn: Optional[Callable[[Any, Any], bool]] = None) -> dict[str, tuple[Any, Any]]:
 
         try:
-            old_map = {obj.name: obj for obj in old_list}
-            new_map = {obj.name: obj for obj in new_list}
+            old_map = {_object_identity(obj): obj for obj in old_list}
+            new_map = {_object_identity(obj): obj for obj in new_list}
         except AttributeError as exc:
-            logger.error("Objects missing 'name' attribute in %s comparison: %s", object_type_name, exc)
+            logger.error("Objects missing identity fields in %s comparison: %s", object_type_name, exc)
             raise
 
         new_names = set(new_map.keys())

@@ -25,6 +25,7 @@ from tm1_git_py.filter import filter_changeset
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element
+from tm1_git_py.model.nativeview import NativeView
 
 T = TypeVar('T', Cube, Dimension, Process, Chore)
 
@@ -344,7 +345,7 @@ class TestComparator:
         removed = self._changes_by_type(changeset, ChangeType.REMOVE)
 
         assert len(added) == 6
-        assert len(modified) == 10
+        assert len(modified) == 5
         assert len(removed) == 0
 
 
@@ -359,7 +360,7 @@ class TestComparator:
         removed = self._changes_by_type(changeset, ChangeType.REMOVE)
 
         assert len(added) == 6
-        assert len(modified) == 10
+        assert len(modified) == 5
         assert len(removed) == 5
 
 
@@ -368,16 +369,13 @@ class TestComparator:
         model1, error1 = deserialize_model(str(test_model_dir_base))
         model2, error2 = deserialize_model(str(test_model_dir_diff))
 
-        expected_hierarchies = ["testbenchMeasureSales", "testbenchVersion", "testbenchPeriod", "testbenchPeriod_All_Period"]
-
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
         added = self._bodies_by(self._changes_by_type(changeset, ChangeType.ADD), Subset)
         modified = self._bodies_by(self._changes_by_type(changeset, ChangeType.MODIFY), Hierarchy)
 
         assert (isinstance(added[0], Subset) and added[0].name == "}Temp_Subset_Discount")
-        for hier in modified:
-            assert (isinstance(hier, Hierarchy) and hier.name in expected_hierarchies )
+        assert not modified
 
 
     def test_comparator_cubes_change_propagation(self):
@@ -399,7 +397,7 @@ class TestComparator:
         new_cube = next(c for c in model2.cubes if c.name == "testbenchSales")
 
         assert (isinstance(added[0], MDXView) and added[0].name == "tm1_bedrock_py_gp0vkg064lilmmga")
-        assert (isinstance(modified[0], Cube) and modified[0].name == "testbenchSales")
+        assert not modified
         assert (old_cube.rules != new_cube.rules)
         assert len(modified_rules) == 1
         unified_rule = modified_rules[0]
@@ -408,6 +406,62 @@ class TestComparator:
         assert unified_rule.source_path == "cubes/testbenchSales.rules"
         assert unified_rule.full_statement == new_cube.get_rule_text()
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
+
+    def test_comparator_ignores_leaf_hierarchy_elements(self):
+        model1 = build_mock_model()
+        model2 = build_mock_model()
+
+        leaf_hierarchy_old = Hierarchy(
+            name="Leaves",
+            elements=[Element(name="LeafA", type="Numeric", source_path="dimensions/MockDim.hierarchies/Leaves.json/LeafA")],
+            edges=[],
+            subsets=[],
+            source_path="dimensions/MockDim.hierarchies/Leaves.json"
+        )
+        leaf_hierarchy_new = Hierarchy(
+            name="Leaves",
+            elements=[
+                Element(name="LeafA", type="Numeric", source_path="dimensions/MockDim.hierarchies/Leaves.json/LeafA"),
+                Element(name="LeafB", type="Numeric", source_path="dimensions/MockDim.hierarchies/Leaves.json/LeafB"),
+            ],
+            edges=[],
+            subsets=[],
+            source_path="dimensions/MockDim.hierarchies/Leaves.json"
+        )
+        model1.dimensions[0].hierarchies.append(leaf_hierarchy_old)
+        model2.dimensions[0].hierarchies.append(leaf_hierarchy_new)
+
+        changeset = Comparator().compare(model1, model2, mode='full')
+        leaf_element_changes = [
+            change for change in changeset.changes
+            if change.object_type == ObjectType.ELEMENT and "/Leaves.json/" in change.source_path
+        ]
+        assert not leaf_element_changes
+
+    def test_comparator_tracks_native_view_changes(self):
+        model1 = build_mock_model()
+        model2 = build_mock_model()
+
+        model2.cubes[0].views.append(
+            NativeView(
+                name="DefaultNative",
+                columns=[],
+                rows=[],
+                titles=[],
+                suppress_empty_columns=True,
+                suppress_empty_rows=True,
+                format_string="0.#########",
+                source_path="cubes/MockCube.views/DefaultNative.json",
+            )
+        )
+
+        changeset = Comparator().compare(model1, model2, mode='full')
+        native_adds = [
+            change for change in changeset.changes
+            if change.change_type == ChangeType.ADD and change.object_type == ObjectType.NATIVE_VIEW
+        ]
+        assert len(native_adds) == 1
+        assert native_adds[0].body.name == "DefaultNative"
 
 
     def test_comparator_process_change_propagation(self):
@@ -541,8 +595,8 @@ class TestChangeset:
         ]
 
         # For updates, precedence is:
-        # dimensions -> hierarchies -> subsets -> elements -> edges -> cubes -> mdx_views -> rules -> processes -> chores
-        assert updated_types == [Hierarchy, Hierarchy, Hierarchy, Hierarchy, Subset, Cube, Cube, MDXView, Process, Chore]
+        # subsets -> cubes (including synthesized rule updates) -> mdx_views -> processes -> chores
+        assert updated_types == [Subset, Cube, MDXView, Process, Chore]
 
 
     def test_export_persists_expected_payload(self, tmp_path):
