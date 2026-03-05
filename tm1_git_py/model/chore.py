@@ -320,8 +320,46 @@ def _normalize_start_time(start_time: Union[str, None]) -> str:
     return f"{value}T00:00:00+00:00"
 
 
+def _normalize_task_parameters_for_process(tm1_service: TM1Service, task: Task) -> Task:
+    """
+    TM1 requires chore task parameter count/order to match the referenced process.
+    Build a normalized parameter list from live process metadata when available.
+    """
+    try:
+        process_obj = tm1_service.processes.get(task.process_name)
+        process_parameters = getattr(process_obj, "parameters", []) or []
+        if not process_parameters:
+            return Task(process_name=task.process_name, parameters=[])
+
+        provided_by_name: dict[str, Any] = {}
+        for payload in task.parameters or []:
+            name = payload.get("Name") or payload.get("name")
+            if name is not None:
+                provided_by_name[str(name)] = payload.get("Value") if "Value" in payload else payload.get("value")
+
+        normalized_parameters: list[dict[str, Any]] = []
+        for process_param in process_parameters:
+            param_name = process_param.get("Name") or process_param.get("name")
+            if param_name is None:
+                continue
+            default_value = process_param.get("Value") if "Value" in process_param else process_param.get("value")
+            normalized_parameters.append({
+                "Name": param_name,
+                "Value": provided_by_name.get(param_name, default_value)
+            })
+
+        return Task(process_name=task.process_name, parameters=normalized_parameters)
+    except Exception:
+        # If process metadata is unavailable, keep original payload and let TM1 validate.
+        return task
+
+
 def create_chore(tm1_service: TM1Service, chore: Chore) -> Response:
-    chore_tasks = [create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(chore.tasks)]
+    normalized_tasks = [
+        _normalize_task_parameters_for_process(tm1_service=tm1_service, task=chore_task)
+        for chore_task in chore.tasks
+    ]
+    chore_tasks = [create_chore_task(task=chore_task, step=i) for i, chore_task in enumerate(normalized_tasks)]
     frequency = chore.frequency
     start_time = _normalize_start_time(chore.start_time)
     chore_object = TM1py.Chore(
@@ -333,7 +371,7 @@ def create_chore(tm1_service: TM1Service, chore: Chore) -> Response:
         frequency=ChoreFrequency.from_string(frequency),
         tasks=chore_tasks
     )
-    task_names = [proc.process_name for proc in chore.tasks]
+    task_names = [proc.process_name for proc in normalized_tasks]
     logger.info(f"Creating Chore: {chore.name} with Tasks: {task_names}.")
 
     return tm1_service.chores.create(chore_object)

@@ -112,6 +112,14 @@ class TestProcessChoreChangesetApply:
         chore_obj = self.tm1_service.chores.get(chore_name=chore_name)
         return [self._process_name_from_task(task) for task in getattr(chore_obj, "tasks", [])]
 
+    def _task_parameters(self, chore_name: str) -> list[list[dict]]:
+        chore_obj = self.tm1_service.chores.get(chore_name=chore_name)
+        params_per_task: list[list[dict]] = []
+        for task in getattr(chore_obj, "tasks", []):
+            body = getattr(task, "body_as_dict", {}) or {}
+            params_per_task.append(body.get("Parameters", []) or [])
+        return params_per_task
+
     @staticmethod
     def _git_chore(
             name: str,
@@ -613,6 +621,44 @@ class TestProcessChoreChangesetApply:
 
         with pytest.raises(AssertionError):
             self.apply(changeset)
+
+    def test_apply_chore_normalizes_partial_task_parameters(self):
+        """
+        Validate chore apply normalizes task parameter payload to process parameter schema.
+        This protects against TM1 error 248 (parameter count mismatch).
+        """
+        process_name = "zz_proc_param_schema"
+        chore_name = "zz_chore_param_schema"
+        self._cleanup_chore(chore_name)
+        self._ensure_process_with_parameters(process_name, ["pA", "pB", "pC"])
+
+        changeset = Changeset("chore_param_schema_normalization")
+        changeset.changes = [Change(
+            change_type=ChangeType.ADD,
+            object_type=ObjectType.CHORE,
+            source_path=f"chores/{chore_name}.json",
+            body=self._git_chore(
+                chore_name,
+                tasks=[
+                    # Intentionally incomplete payload (only one parameter provided).
+                    Task(process_name=process_name, parameters=[{"Name": "pB", "Value": "B_custom"}]),
+                ]
+            ),
+        )]
+
+        try:
+            self.apply(changeset)
+            assert self._chore_exists(chore_name)
+            params = self._task_parameters(chore_name)[0]
+            param_names = [p.get("Name") for p in params]
+            assert param_names == ["pA", "pB", "pC"]
+            assert next(p for p in params if p.get("Name") == "pB").get("Value") == "B_custom"
+        finally:
+            self._cleanup_chore(chore_name)
+            try:
+                self.tm1_service.processes.delete(process_name)
+            except Exception:
+                pass
 
     def compare(self, source, target, mode: str = 'full'):
         comparator = Comparator()
