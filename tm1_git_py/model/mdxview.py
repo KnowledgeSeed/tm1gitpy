@@ -97,28 +97,26 @@ def _view_context_from_path(source_path: str) -> Tuple[str, str]:
     return cube_name, view_name
 
 
-def create_mdx_view(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
+def create_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
     cube_name, _ = _view_context_from_path(mdx_view.source_path)
     mdx_view_object = TM1py.MDXView(cube_name=cube_name, view_name=mdx_view.name, MDX=mdx_view.mdx)
     logger.info(f"Creating MDXView: {mdx_view.name} for Cube: {cube_name}.")
     return tm1_service.views.create(mdx_view_object)
 
 
-def update_mdx_view(tm1_service: TM1Service, mdx_view: Dict[str, Any]) -> Response:
-    mdx_view_new = mdx_view.get('new')
+def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
+    cube_name, _ = _view_context_from_path(mdx_view.source_path)
 
-    cube_name, _ = _view_context_from_path(mdx_view_new.source_path)
-
-    mdx_view_object = tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=mdx_view_new.name)
-    mdx_view_object.mdx = mdx_view_new.mdx
-    logger.info(f"Updating MDXView: {mdx_view_new.name} for Cube: {cube_name}.")
+    mdx_view_object = tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=mdx_view.name)
+    mdx_view_object.mdx = mdx_view.mdx
+    logger.info(f"Updating MDXView: {mdx_view.name} for Cube: {cube_name}.")
     return tm1_service.views.update(mdx_view_object)
 
 
-def delete_mdx_view(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
+def delete_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
     cube_name, _ = _view_context_from_path(mdx_view.source_path)
     logger.info(f"Deleting View: {mdx_view.name} from Cube: {cube_name}.")
-    return tm1_service.views.delete(mdx_view.name)
+    return tm1_service.views.delete(view_name=mdx_view.name, cube_name=cube_name)
 
 
 # ------------------------------------------------------------------------------------------------------------
