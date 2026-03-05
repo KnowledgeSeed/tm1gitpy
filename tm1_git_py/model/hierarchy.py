@@ -85,6 +85,9 @@ class Hierarchy:
             frozenset(self.edges),
             frozenset(self.subsets)
         ))
+    
+    def __repr__(self):
+        return f"{self.type}('{self.name}')"
 
     def to_dict(self):
         return {

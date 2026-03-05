@@ -100,6 +100,9 @@ class Process:
             json.dumps(self.variables, sort_keys=True),
             self.ti
         ))
+    
+    def __repr__(self):
+        return f"{self.type}('{self.name}')"
 
     def to_dict(self):
         return {

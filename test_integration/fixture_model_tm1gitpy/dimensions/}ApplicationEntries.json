@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}ApplicationEntries",
+	"Hierarchies@Code.links": [
+		"}ApplicationEntries.hierarchies/}ApplicationEntries.json"
+	],
+	"DefaultHierarchy": "Dimensions('}ApplicationEntries')/Hierarchies('}ApplicationEntries')"
+}

@@ -1,0 +1,72 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}ClientSettings",
+	"Elements":
+	[
+		{
+			"Name":"Web Home Page Object",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Home Page Object Type",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Home Page Object Description",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Home Page Object Allow Overwrite",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Hide NavTree",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Hide NavTree Allow Overwrite",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Collapse NavTree OnStart",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Toggle NavTree Allow Overwrite",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Hide TabBar",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Hide TabBar Allow Overwrite",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Hide Websheet ToolBar",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Hide Websheet ToolBar Allow Overwrite",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Hide Cubeviewer ToolBar",
+			"Type":"String"
+		},
+		{
+			"Name":"Web Hide Cubeviewer ToolBar Allow Overwrite",
+			"Type":"String"
+		},
+		{
+			"Name":"Web User Style",
+			"Type":"String"
+		},
+		{
+			"Name":"Web User Style Allow Overwrite",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}

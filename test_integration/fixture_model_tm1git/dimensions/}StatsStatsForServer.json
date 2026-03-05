@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}StatsStatsForServer",
+	"Hierarchies@Code.links":
+	[
+		"}StatsStatsForServer.hierarchies/}StatsStatsForServer.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}StatsStatsForServer')/Hierarchies('}StatsStatsForServer')"
+	}
+}

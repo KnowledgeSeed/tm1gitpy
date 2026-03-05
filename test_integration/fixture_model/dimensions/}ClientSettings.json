@@ -1,8 +1,0 @@
-{
-	"@type": "Dimension",
-	"Name": "}ClientSettings",
-	"Hierarchies@Code.links": [
-		"}ClientSettings.hierarchies/<tm1_git_py.model.hierarchy.Hierarchy object at 0x110b35f10>.json"
-	],
-	"DefaultHierarchy": "Dimensions('}ClientSettings')/Hierarchies('}ClientSettings')"
-}

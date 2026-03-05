@@ -1,0 +1,36 @@
+{
+	"@type": "Hierarchy",
+	"Name": "Leaves",
+	"Elements": [
+		{
+			"name": "Hier1Elem1",
+			"type": "Numeric"
+		},
+		{
+			"name": "Hier2Elem1",
+			"type": "Numeric"
+		},
+		{
+			"name": "Hier1Elem2",
+			"type": "Numeric"
+		},
+		{
+			"name": "DimElem1",
+			"type": "Numeric"
+		},
+		{
+			"name": "DimElem2",
+			"type": "Numeric"
+		},
+		{
+			"name": "a",
+			"type": "Numeric"
+		},
+		{
+			"name": "b",
+			"type": "Numeric"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

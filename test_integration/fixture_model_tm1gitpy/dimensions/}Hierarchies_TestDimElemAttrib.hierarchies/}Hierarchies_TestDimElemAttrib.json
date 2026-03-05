@@ -1,0 +1,12 @@
+{
+	"@type": "Hierarchy",
+	"Name": "}Hierarchies_TestDimElemAttrib",
+	"Elements": [
+		{
+			"name": "TestDimElemAttrib",
+			"type": "String"
+		}
+	],
+	"Edges": [],
+	"Subsets@Code.links": []
+}

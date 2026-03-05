@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}Hierarchies_TestDim1",
+	"Hierarchies@Code.links": [
+		"}Hierarchies_TestDim1.hierarchies/}Hierarchies_TestDim1.json"
+	],
+	"DefaultHierarchy": "Dimensions('}Hierarchies_TestDim1')/Hierarchies('}Hierarchies_TestDim1')"
+}

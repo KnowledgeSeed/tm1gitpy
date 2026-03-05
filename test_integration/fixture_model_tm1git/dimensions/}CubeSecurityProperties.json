@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}CubeSecurityProperties",
+	"Hierarchies@Code.links":
+	[
+		"}CubeSecurityProperties.hierarchies/}CubeSecurityProperties.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}CubeSecurityProperties')/Hierarchies('}CubeSecurityProperties')"
+	}
+}

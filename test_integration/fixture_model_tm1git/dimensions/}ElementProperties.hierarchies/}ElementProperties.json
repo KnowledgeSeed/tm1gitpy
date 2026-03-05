@@ -1,0 +1,12 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}ElementProperties",
+	"Elements":
+	[
+		{
+			"Name":"LOCK",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}

@@ -1,0 +1,12 @@
+{
+	"@type":"MDXView",
+	"Name":"testcube3withview_view1",
+	"MDX@Code.link":"testcube3withview_view1.mdx",
+	"FormatString" : "0.#########",
+	"Meta" : 
+	{
+		"Aliases" : {},
+		"ContextSets" : {},
+		"ExpandAboves" : {}
+	}
+}

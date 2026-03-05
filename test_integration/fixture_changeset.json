@@ -1,0 +1,49 @@
+{
+  "changeset_name": null,
+  "summary": {
+    "added": 1,
+    "removed": 0,
+    "modified": 0
+  },
+  "changes": [
+    {
+      "change_type": "added",
+      "object_type": "Cube",
+      "source_path": "cubes/mycube.json",
+      "body": {
+        "Name": "TestCube2WithRule",
+        "Dimensions": [
+          {
+            "@id": "Dimensions('mydim1')"
+          },
+          {
+            "@id": "Dimensions('mydim2')"
+          }
+        ]
+      }
+    },
+    {
+      "change_type": "updated",
+      "object_type": "View",
+      "source_path": "cubes/mycube.views/myview.json",
+      "body": {
+        "MDX": "SELECT NON EMPTY {[TestDim2].[TestDim2].Members} DIMENSION PROPERTIES MEMBER_NAME ON 0, NON EMPTY {[TestDim1].[TestDim1].Members} DIMENSION PROPERTIES MEMBER_NAME ON 1 FROM [testcube3withview]"
+      }
+    },
+    {
+      "change_type": "updated",
+      "object_type": "Rule",
+      "source_path": "cubes/mycube.rules",
+      "body": {}
+    },
+    {
+      "change_type": "added",
+      "object_type": "Element",
+      "source_path": "dimensions/mydim.hierarchies/myhier.json/myelem",
+      "body": {
+        "Name": "myelem",
+        "Type": "Numeric"
+      }
+    }
+  ]
+}

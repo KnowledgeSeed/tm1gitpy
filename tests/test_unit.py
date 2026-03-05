@@ -680,11 +680,17 @@ class TestChangeset:
                     "color": "red",
                     "sign": True
                 },
+                 "NativeView": {
+                     "color": None,
+                     "sign": None
+                 },
             },
             "errors": {}
         }
 
-        assert exported_payload == expected_payload
+        exported_payload_pretty = json.dumps(exported_payload, sort_keys=True, indent=2)
+        expected_payload_pretty = json.dumps(expected_payload, sort_keys=True, indent=2)
+        assert exported_payload_pretty == expected_payload_pretty
 
 
     def test_import_changeset(self, tmp_path):

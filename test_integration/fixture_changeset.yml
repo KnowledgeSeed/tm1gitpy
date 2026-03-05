@@ -1,0 +1,124 @@
+changeset_name: null
+summary:
+  added: 1
+  removed: 0
+  modified: 0
+changes:
+  - change_type: added
+    object_type: Cube
+    source_path: cubes/mycube.json
+    body:
+      Name: TestCube2WithRule
+      Dimensions:
+        # Probably we could reference dimensions using their source_path
+        - dimensions/mydim1.json
+        - dimensions/mydim2.json
+        # This was the original way to reference dimensions
+        # - "@id": "Dimensions('mydim1')"
+        # - "@id": "Dimensions('mydim2')"
+
+  # CUBE UPDATE NOT DEFINED NATIVELY, ONLY WITH TM1_BEDROCK_PY
+  # - change_type: updated
+  #   object_type: Cube
+  #   #source_path: cubes/mycube.json
+  #   body:
+  #     Name: TestCube2WithRule
+  #     Dimensions:
+  #       - "@id": "Dimensions('mydim1')"
+  #       - "@id": "Dimensions('mydim2')"
+
+  - change_type: remove
+    object_type: Cube
+    source_path: cubes/mycube.json
+    body:
+      Name: TestCube2WithRule
+
+  - change_type: added
+    object_type: Hierarchy
+    source_path: dimensions/mydim.hieararchies/myhier.json
+    body:
+      Name: mydim
+
+  - change_type: added
+    object_type: Element
+    source_path: dimensions/mydim.hierarchies/myhier.json/myelem1
+    body:
+      Name: myelem1
+      Type: Numeric
+
+  - change_type: added
+    object_type: Dimension
+    source_path: dimensions/mydim.json
+    body:
+      Name: mydim
+      Hierarchies: 
+        - dimensions/mydim.hieararchies/myhier.json
+      DefaultHierarchy: dimensions/mydim.hieararchies/myhier.json 
+
+  - change_type: added
+    object_type: Element
+    source_path: dimensions/mydim.hierarchies/myhier.json/myelem2
+    body:
+      Name: myelem2
+      Type: Numeric
+
+  - change_type: updated
+    object_type: MDXView
+    source_path: cubes/mycube.views/myview.json
+    body:
+      # If we add CubeName, source_path could be derived.
+      # CubeName: mycube
+      Name: myview
+      MDX: >-
+        SELECT NON EMPTY {[TestDim2].[TestDim2].Members} DIMENSION PROPERTIES MEMBER_NAME ON 0,
+        NON EMPTY {[TestDim1].[TestDim1].Members} DIMENSION PROPERTIES MEMBER_NAME ON 1
+        FROM [testcube3withview]
+
+  - change_type: added
+    object_type: Rule
+    source_path: cubes/mycube.rules
+    body:
+      # Rule doesn't have implicit name unless we start defining subrules referenced by name.
+      Name: default
+      Rule: >-
+        SKIPCHECK;
+        ['TestDim1'] = N: 1;
+        ['TestDim2'] = N: 1;
+
+  # - change_type: added
+  #   object_type: Rule
+  #   source_path: cubes/mycube.rules/mysubrule1
+  #   body:
+  #     # Rule doesn't have implicit name unless we start defining subrules referenced by name.
+  #     Name: mysubrule1
+  #     Rule: >-
+  #       SKIPCHECK;
+  #       ['TestDim1'] = N: 1;
+
+  # - change_type: added
+  #   object_type: Rule
+  #   source_path: cubes/mycube.rules/mysubrule2
+  #   body:
+  #     # Rule doesn't have implicit name unless we start defining subrules referenced by name.
+  #     Name: mysubrule2
+  #     Rule: >-
+  #       ['TestDim2'] = N: 1;
+
+  - change_type: added
+    object_type: Process
+    source_path: processes/myprocess.json
+    body:
+      Name: "myprocess2"
+      HasSecurityAccess: false
+      DataSource:
+        Type: "None"
+      Parameters: []
+      Variables: []
+      Prolog: >-
+        # Prolog code here
+      Data: >-
+        # Data code here
+      Metadata: >-
+        # Metadata code here
+      Epilog: >-
+        # Epilog code here

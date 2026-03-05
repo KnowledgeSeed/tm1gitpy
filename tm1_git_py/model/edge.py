@@ -26,6 +26,9 @@ class Edge:
     def __hash__(self) -> int:
         return hash((self.parent, self.name, self.weight))
 
+    def __repr__(self):
+        return f"Edge('{self.name}')"
+
     def to_dict(self):
         return {
             'parentName': self.parent,

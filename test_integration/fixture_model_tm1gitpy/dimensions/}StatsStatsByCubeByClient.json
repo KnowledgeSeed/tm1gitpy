@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}StatsStatsByCubeByClient",
+	"Hierarchies@Code.links": [
+		"}StatsStatsByCubeByClient.hierarchies/}StatsStatsByCubeByClient.json"
+	],
+	"DefaultHierarchy": "Dimensions('}StatsStatsByCubeByClient')/Hierarchies('}StatsStatsByCubeByClient')"
+}

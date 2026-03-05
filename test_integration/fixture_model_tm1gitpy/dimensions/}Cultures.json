@@ -1,0 +1,8 @@
+{
+	"@type": "Dimension",
+	"Name": "}Cultures",
+	"Hierarchies@Code.links": [
+		"}Cultures.hierarchies/}Cultures.json"
+	],
+	"DefaultHierarchy": "Dimensions('}Cultures')/Hierarchies('}Cultures')"
+}

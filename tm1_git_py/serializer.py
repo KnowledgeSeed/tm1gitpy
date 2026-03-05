@@ -82,10 +82,12 @@ def serialize_cubes(cubes: List[Cube], cubes_dir):
             views_dir = os.path.join(cubes_dir, cube.name + '.views')
             os.makedirs(views_dir, exist_ok=True)
             for view in cube.views:
-                with open(os.path.join(views_dir, view.name + '.json'), 'w', encoding='utf-8') as mdxjson_file:
-                    mdxjson_file.write(view.as_json())
-                with open(os.path.join(views_dir, view.name + '.mdx'), 'w', encoding='utf-8') as mdx_file:
-                    mdx_file.write(view.mdx)
+                view_type = getattr(view, 'type', '').lower()
+                with open(os.path.join(views_dir, view.name + '.json'), 'w', encoding='utf-8') as view_json_file:
+                    view_json_file.write(view.as_json())
+                if view_type == 'mdxview':
+                    with open(os.path.join(views_dir, view.name + '.mdx'), 'w', encoding='utf-8') as mdx_file:
+                        mdx_file.write(view.mdx)
 
         with open(cubes_dir + '/' + cube.name + '.json', 'w', encoding='utf-8') as cube_file:
             cube_file.write(cube.as_json())

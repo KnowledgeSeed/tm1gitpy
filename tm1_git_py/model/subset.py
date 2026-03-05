@@ -38,6 +38,9 @@ class Subset:
     def __hash__(self) -> int:
         return hash((self.name, self.expression))
 
+    def __repr__(self):
+        return f"{self.type}('{self.name}')"
+
     def to_dict(self):
         return {
             'name': self.name,

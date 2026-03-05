@@ -90,6 +90,9 @@ class Cube:
             frozenset(self.views)
         ))
 
+    def __repr__(self):
+        return f"{self.type}('{self.name}')"
+
     def to_dict(self):
         return {
             'name': self.name,

@@ -1,0 +1,10 @@
+﻿283,100
+284,"Hier1Subset1"
+11,20260225064331
+274,
+18,0
+275,124
+{DRILLDOWNMEMBER({TM1SUBSETALL([TestDimMultiHier].[TestDimMultiHier])}, {[TestDimMultiHier].[TestDimMultiHier].[DimElemC]})}
+278,0
+281,0
+270,0
