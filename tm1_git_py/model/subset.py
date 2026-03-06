@@ -100,13 +100,16 @@ def create_subset(tm1_service: TM1Service, subset: Subset) -> Response:
     return tm1_service.subsets.create(subset_object)
 
 
-def update_subset(tm1_service: TM1Service, subset: Dict[str, Any]) -> Response:
-    subset_new = subset.get('new')
-    dimension_name, hierarchy_name = _subset_context_from_path(subset_new.source_path)
+def update_subset(tm1_service: TM1Service, subset: Subset) -> Response:
+    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
 
-    subset_object = tm1_service.subsets.get(subset_name=subset_new.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name)
-    subset_object.expression = subset_new.expression
-    logger.info(f"Updating Subset: {subset_new.name} in Hierarchy: {hierarchy_name}.")
+    subset_object = tm1_service.subsets.get(
+        subset_name=subset.name,
+        dimension_name=dimension_name,
+        hierarchy_name=hierarchy_name
+    )
+    subset_object.expression = subset.expression
+    logger.info(f"Updating Subset: {subset.name} in Hierarchy: {hierarchy_name}.")
 
     return tm1_service.subsets.update(subset_object)
 
@@ -115,4 +118,8 @@ def delete_subset(tm1_service: TM1Service, subset: Subset) -> Response:
     dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
 
     logger.info(f"Deleting Subset: {subset.name} from Hierarchy: {hierarchy_name}.")
-    return tm1_service.subsets.delete(subset_name=subset.name, dimension_name=dimension_name, hierarchy_name=hierarchy_name)
+    return tm1_service.subsets.delete(
+        subset_name=subset.name,
+        dimension_name=dimension_name,
+        hierarchy_name=hierarchy_name
+    )

@@ -129,7 +129,7 @@ def cubes_to_model(tm1_conn : TM1Service, _dimensions: Dict[str, Dimension]) -> 
                 except (json.JSONDecodeError, AttributeError):
                     rule_text = raw_body if isinstance(raw_body, str) else ""
 
-            rules_list = _parse_rules(rule_text)
+            rules_list = _parse_rules(rule_text, cube_name=cube_name)
             _cube = Cube(
                 name=cube_name,
                 dimensions=[],
@@ -198,9 +198,10 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
 
         for hierarchy in dim.hierarchies:
             _hierarchy = Hierarchy(name=hierarchy.name,
-                                   elements=[Element(json.loads(v.body))
+                                   elements=[Element(name=v.name, type=v.element_type.value,
+                                                     dimension_name=dim_name, hierarchy_name=hierarchy.name)
                                              for k, v in hierarchy.elements.items()],
-                                   edges=[Edge(k[0], k[1], v)
+                                   edges=[Edge(k[0], k[1], v, dimension_name=dim_name, hierarchy_name=hierarchy.name)
                                           for k, v in hierarchy.edges.items()],
                                    subsets=[],
                                    source_path=os.path.join('dimensions', f"{dim_name}.hierarchies",
@@ -224,23 +225,48 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
     return _dimensions, _errors
 
 
-def _parse_rules(rule_text: str) -> List[Rule]:
+def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
     if not rule_text: return []
     rules = []
+    seen_names: dict[str, int] = {}
+
+    def _unique_rule_name(area: str) -> str:
+        base = Rule.name_from_area(area)
+        seen_names[base] = seen_names.get(base, 0) + 1
+        if seen_names[base] == 1:
+            return base
+        return f"{base}_{seen_names[base]}"
+
     pattern = re.compile(r"(?P<comment>(?:#.*(?:\r\n|\n|$)\s*)*)?(?P<statement>\[.*?\][^;]*;)", re.DOTALL)
     header_match = re.match(r'^(.*?)(?=\[|#|$)', rule_text, re.DOTALL)
     last_pos = 0
     if header_match:
         header_text = header_match.group(1).strip()
         if header_text:
-            rules.append(Rule(area="[HEADER]", full_statement=header_text, comment=""))
+            rules.append(
+                Rule(
+                    name=_unique_rule_name("[HEADER]"),
+                    area="[HEADER]",
+                    full_statement=header_text,
+                    comment="",
+                    cube_name=cube_name
+                )
+            )
         last_pos = header_match.end()
     for match in pattern.finditer(rule_text, last_pos):
         comment = (match.group('comment') or "").strip()
         statement_text = match.group('statement').strip()
         area_match = re.search(r'(\[.*?\])', statement_text)
         area = area_match.group(1) if area_match else "[UNKNOWN]"
-        rules.append(Rule(area=area, full_statement=statement_text, comment=comment))
+        rules.append(
+            Rule(
+                name=_unique_rule_name(area),
+                area=area,
+                full_statement=statement_text,
+                comment=comment,
+                cube_name=cube_name
+            )
+        )
     return rules
 
 

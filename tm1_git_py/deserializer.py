@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
+from tm1_git_py.model import Edge
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -35,7 +36,7 @@ def _handle_long_path(file_path) -> str:
     return file_path
 
 
-def deserialize_model(dir) -> Model:
+def deserialize_model(dir: str) -> tuple[Model, dict[str, str]]:
     dir = _handle_long_path(dir)
 
     dimensions_dir = dir + '/dimensions'
@@ -181,8 +182,9 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
                 continue
 
         try:
+            dim_name = dim_json['Name']
             relative_path = os.path.join('dimensions', file_name).replace('\\', '/')
-            _dimension = Dimension(name=dim_json['Name'], hierarchies=[], defaultHierarchy=None,
+            _dimension = Dimension(name=dim_name, hierarchies=[], defaultHierarchy=None,
                                    source_path=relative_path)
         except Exception as e:
             dimension_errors[dim_link] = e.__repr__()
@@ -214,10 +216,38 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
                     data = file.read()
                     hier_json = json.loads(data)
                     hier_relative_path = os.path.join('dimensions', hier_dir_name, hier_file_name).replace('\\', '/')
+                    hier_name = hier_json.get('Name')
+                    elements = []
+                    for payload in hier_json.get("Elements", []):
+                        element_name = payload.get("name") or payload.get("Name")
+                        element_path = Element.as_link(dim_name, hier_name, element_name)
+                        elements.append(
+                            Element.from_dict(
+                                payload,
+                                source_path=element_path,
+                                dimension_name=dim_name,
+                                hierarchy_name=hier_name
+                            )
+                        )
+
+                    edges = []
+                    for payload in hier_json.get("Edges", []):
+                        parent_name = payload.get("parentName") or payload.get("ParentName") or payload.get("parent")
+                        component_name = payload.get("componentName") or payload.get("ComponentName") or payload.get("name")
+                        edge_path = Edge.as_link(dim_name, hier_name, component_name, parent_name)
+                        edges.append(
+                            Edge.from_dict(
+                                payload,
+                                source_path=edge_path,
+                                dimension_name=dim_name,
+                                hierarchy_name=hier_name
+                            )
+                        )
+
                     _hierarchy = Hierarchy(
-                        name=hier_json.get('Name'),
-                        elements=[Element(v) for v in hier_json.get('Elements', [])],
-                        edges=[Element(v) for v in hier_json.get('Edges', [])],
+                        name=hier_name,
+                        elements=elements,
+                        edges=edges,
                         subsets=[],
                         source_path=hier_relative_path
                     )
@@ -284,7 +314,7 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
             if os.path.exists(rule_file_path):
                 with open(rule_file_path, 'r', encoding='utf-8') as file:
                     rule_text = file.read()
-                    rules_list = _parse_rules(rule_text)
+                    rules_list = _parse_rules(rule_text, cube_name=file_name_base)
             relative_path = os.path.join('cubes', file_name_base).replace('\\', '/')
             _cube = Cube(name=cube_json['Name'], dimensions=[], rules=rules_list, views=[], source_path=relative_path)
 
@@ -356,23 +386,48 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
     return cubes, cube_errors
 
 
-def _parse_rules(rule_text: str) -> List[Rule]:
+def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
     if not rule_text: return []
     rules = []
+    seen_names: dict[str, int] = {}
+
+    def _unique_rule_name(area: str) -> str:
+        base = Rule.name_from_area(area)
+        seen_names[base] = seen_names.get(base, 0) + 1
+        if seen_names[base] == 1:
+            return base
+        return f"{base}_{seen_names[base]}"
+
     pattern = re.compile(r"(?P<comment>(?:#.*(?:\r\n|\n|$)\s*)*)?(?P<statement>\[.*?\][^;]*;)", re.DOTALL)
     header_match = re.match(r'^(.*?)(?=\[|#|$)', rule_text, re.DOTALL)
     last_pos = 0
     if header_match:
         header_text = header_match.group(1).strip()
         if header_text:
-            rules.append(Rule(area="[HEADER]", full_statement=header_text, comment=""))
+            rules.append(
+                Rule(
+                    name=_unique_rule_name("[HEADER]"),
+                    area="[HEADER]",
+                    full_statement=header_text,
+                    comment="",
+                    cube_name=cube_name
+                )
+            )
         last_pos = header_match.end()
     for match in pattern.finditer(rule_text, last_pos):
         comment = (match.group('comment') or "").strip()
         statement_text = match.group('statement').strip()
         area_match = re.search(r'(\[.*?\])', statement_text)
         area = area_match.group(1) if area_match else "[UNKNOWN]"
-        rules.append(Rule(area=area, full_statement=statement_text, comment=comment))
+        rules.append(
+            Rule(
+                name=_unique_rule_name(area),
+                area=area,
+                full_statement=statement_text,
+                comment=comment,
+                cube_name=cube_name
+            )
+        )
     return rules
 
 

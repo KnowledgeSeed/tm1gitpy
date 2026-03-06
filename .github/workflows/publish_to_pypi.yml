@@ -1,0 +1,34 @@
+name: Publish To PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install build dependencies
+        run: |
+         python -m pip install --upgrade pip
+         pip install build twine
+
+      - name: Update version with release tag
+        run: python -c "from tm1_git_py.__init__ import update_version; update_version('${{ github.event.release.tag_name }}')"
+
+      - name: Build
+        run: python -m build
+
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Publish to PyPI
+        run: python -m twine upload dist/* -u__token__ -p${{ secrets.PYPI_TOKEN }} --non-interactive --verbose

@@ -97,7 +97,7 @@ class Cube:
         return {
             'name': self.name,
             'dimensions': [d.to_dict() for d in self.dimensions],
-            'rules': [r.__dict__ for r in self.rules],
+            'rules': [r.to_dict() for r in self.rules],
             'views': [v.to_dict() for v in self.views]
         }
 
@@ -116,13 +116,9 @@ class Cube:
         dimensions = [Dimension.from_dict(payload) for payload in dimension_payloads]
 
         rule_payloads = data.get("rules") or data.get("Rules") or []
+        rule_base_path = resolved_path[:-5] if resolved_path.endswith(".json") else resolved_path
         rules = [
-            Rule(
-                area=payload.get("area") or payload.get("Area") or "",
-                full_statement=payload.get("full_statement") or payload.get("fullStatement") or payload.get(
-                    "statement") or "",
-                comment=payload.get("comment") or payload.get("Comment") or ""
-            )
+            Rule.from_dict(payload, source_path=f"{rule_base_path}.rules", cube_name=name)
             for payload in rule_payloads
         ]
 
@@ -156,13 +152,12 @@ def create_cube(tm1_service: TM1Service, cube: Cube) -> Response:
     return tm1_service.cubes.create(cube_object)
 
 
-def update_cube(tm1_service: TM1Service, cube: Dict[str, Any], **kwargs) -> Response:
-    cube_new = cube.get('new')
-    cube_old = cube.get('old')
-    dimensions_new = [d.name for d in cube_new.dimensions]
-    dimensions_old = [d.name for d in cube_old.dimensions]
-    cube_object = tm1_service.cubes.get(cube_new.name)
+def update_cube(tm1_service: TM1Service, cube: Cube) -> Response:
+    cube_object = tm1_service.cubes.get(cube.name)
 
+    #dimensions_new = [d.name for d in cube.dimensions]
+    #dimensions_old = [d.name for d in cube_old.dimensions]
+    """
     if dimensions_new != dimensions_old:
         if set(dimensions_new) == set(dimensions_old):
             tm1_service.cubes.update_storage_dimension_order(
@@ -192,18 +187,18 @@ def update_cube(tm1_service: TM1Service, cube: Dict[str, Any], **kwargs) -> Resp
                     **kwargs
                 )
                 cube_object = tm1_service.cubes.get(cube_new.name)
-
-    new_rule_text = cube_new.get_rule_text()
+    """
+    new_rule_text = cube.get_rule_text()
     if not cube_object.rules or cube_object.rules.body != new_rule_text:
         cube_object.rules = TM1py.Rules(new_rule_text)
-        logger.info(f"Updated Rules for Cube: {cube_new.name}.")
+        logger.info(f"Updated Rules for Cube: {cube.name}.")
 
     return tm1_service.cubes.update(cube_object)
 
 
-def delete_cube(tm1_service: TM1Service, cube_name: str) -> Response:
-    logger.warning(f"Deleting Cube: {cube_name}.")
-    return tm1_service.cubes.delete(cube_name)
+def delete_cube(tm1_service: TM1Service, cube: Cube) -> Response:
+    logger.warning(f"Deleting Cube: {cube.name}.")
+    return tm1_service.cubes.delete(cube.name)
 
 
 # ------------------------------------------------------------------------------------------------------------
@@ -340,7 +335,7 @@ def _add_dimensions_to_cube(
 
     # 3) Delete the original cube and recreate it with the new dimensionality
     logger.warning(f"Deleting original Cube '{cube_name}' before recreation.")
-    delete_cube(tm1_service=tm1_service, cube_name=cube_name)
+    delete_cube(tm1_service=tm1_service, cube=cube_old)
 
     logger.info(
         f"Recreating Cube '{cube_name}' with new Dimensions: {dims_new} and rules "
@@ -576,7 +571,7 @@ def _delete_dimensions_from_cube(
 
     # 2) Delete the original cube and recreate it with the reduced dimension set
     logger.warning(f"Deleting original Cube '{cube_name}' before recreation.")
-    delete_cube(tm1_service=tm1_service, cube_name=cube_name)
+    delete_cube(tm1_service=tm1_service, cube=cube_old)
 
     logger.info(
         f"Recreating Cube '{cube_name}' with new Dimensions: {dims_new} and rules "

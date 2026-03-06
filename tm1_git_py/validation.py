@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, TypeVar, Optional
 
 from TM1py import TM1Service
 
+from tm1_git_py.changeset import ChangeType
 from tm1_git_py.model import Cube, Dimension, Process, Chore, Hierarchy, Subset, MDXView
 
 if TYPE_CHECKING:
@@ -76,6 +77,11 @@ def validate_create(tm1_service: TM1Service, object_instance: T, changeset_objec
     object_type = __normalize_for_view(object_instance)
     func_object_exists = getattr(getattr(tm1_service, f"{_TYPE_MAP[object_type]}"), "exists")
     object_args = __build_args(object_instance, object_type)
+    to_be_added = [
+        change.body
+        for change in changeset_object.changes
+        if ChangeType.from_raw(change.change_type) == ChangeType.ADD
+    ]
 
     parent_type = _PARENT_RELATIONS.get(object_instance.type)
     if parent_type:
@@ -86,7 +92,7 @@ def validate_create(tm1_service: TM1Service, object_instance: T, changeset_objec
         parent_exists = func_parent_exists(**parent_args)
         parent_to_update = {
             f"{added.type}.{added.name}": added
-            for added in changeset_object.added if added.type == parent_type
+            for added in to_be_added if added.type == parent_type
         }
 
         parent_name = parent_args.get(f"{parent_type.lower()}_name") or None
@@ -104,7 +110,7 @@ def validate_create(tm1_service: TM1Service, object_instance: T, changeset_objec
                 object_args = __build_args(child, child_type.lower(), object_args)
                 child_exists = func_child_exists(**object_args)
 
-                if not (child_exists or child in changeset_object.added):
+                if not (child_exists or child in to_be_added):
                     raise ValueError(f"Cannot update {object_type}: '{object_instance.name}' with {child_type}."
                                      f" {child_type}: '{child.name}' does not exist.")
 
@@ -126,6 +132,12 @@ def validate_update(tm1_service: TM1Service, object_instance: T, changeset_objec
     if not func_object_exists(**object_args):
         raise ValueError(f"Cannot update {object_type}: '{object_instance.name}, {object_type} does not exist.")
 
+    to_be_added = [
+        change.body
+        for change in changeset_object.changes
+        if ChangeType.from_raw(change.change_type) == ChangeType.ADD
+    ]
+
     child_types = _CHILD_RELATIONS.get(object_instance.type)
     if child_types:
         for child_type in child_types:
@@ -134,7 +146,7 @@ def validate_update(tm1_service: TM1Service, object_instance: T, changeset_objec
                 object_args = __build_args(child, child_type.lower(), object_args)
                 child_exists = func_child_exists(**object_args)
 
-                if not (child_exists or child in changeset_object.added):
+                if not (child_exists or child in to_be_added):
                     raise ValueError(f"Cannot update {object_type}: '{object_instance.name}' with {child_type}."
                                      f" {child_type}: '{child.name}' does not exist.")
 
@@ -158,11 +170,24 @@ def validate_changeset(tm1_service: TM1Service, changeset_object: Changeset, fai
 
     changeset_object.errors.pop("validation", None)
 
-    for added in changeset_object.added:
+    added_changes = [
+        change for change in changeset_object.changes
+        if ChangeType.from_raw(change.change_type) == ChangeType.ADD
+    ]
+    modified_changes = [
+        change for change in changeset_object.changes
+        if ChangeType.from_raw(change.change_type) == ChangeType.MODIFY
+    ]
+    removed_changes = [
+        change for change in changeset_object.changes
+        if ChangeType.from_raw(change.change_type) == ChangeType.REMOVE
+    ]
+
+    for added in added_changes:
         try:
             validate_create(
                 tm1_service=tm1_service,
-                object_instance=added,
+                object_instance=added.body,
                 changeset_object=changeset_object
             )
         except Exception as exc:
@@ -172,11 +197,11 @@ def validate_changeset(tm1_service: TM1Service, changeset_object: Changeset, fai
                 changeset_object.errors["validation"] = errors
                 raise ValueError(error_msg) from exc
 
-    for modified in changeset_object.modified:
+    for modified in modified_changes:
         try:
             validate_update(
                 tm1_service=tm1_service,
-                object_instance=modified["new"],
+                object_instance=modified.body,
                 changeset_object=changeset_object
             )
         except Exception as exc:
@@ -186,9 +211,9 @@ def validate_changeset(tm1_service: TM1Service, changeset_object: Changeset, fai
                 changeset_object.errors["validation"] = errors
                 raise ValueError(error_msg) from exc
 
-    for removed in changeset_object.removed:
+    for removed in removed_changes:
         try:
-            validate_delete(tm1_service=tm1_service, object_instance=removed)
+            validate_delete(tm1_service=tm1_service, object_instance=removed.body)
         except Exception as exc:
             error_msg = str(exc)
             errors.append(error_msg)

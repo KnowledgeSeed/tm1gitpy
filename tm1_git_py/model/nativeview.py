@@ -49,7 +49,7 @@ class NativeView:
         self.name = name
         self.columns = [view_axis_selection_to_dict(item) for item in columns]
         self.rows = [view_axis_selection_to_dict(item) for item in rows]
-        self.titles = titles
+        self.titles = [view_axis_selection_to_dict(item) for item in titles]
         self.suppress_empty_columns = suppress_empty_columns
         self.suppress_empty_rows = suppress_empty_rows
         self.format_string = format_string
@@ -202,14 +202,13 @@ def create_native_view(tm1_service: TM1Service, native_view: NativeView) -> Resp
     return tm1_service.views.create(native_view_object)
 
 
-def update_native_view(tm1_service: TM1Service, native_view: Dict[str, Any]) -> Response:
-    native_view_new = native_view.get('new')
-    cube_name, _ = _native_view_context_from_path(native_view_new.source_path)
+def update_native_view(tm1_service: TM1Service, native_view: NativeView) -> Response:
+    cube_name, _ = _native_view_context_from_path(native_view.source_path)
     native_view_object = TM1py.NativeView.from_dict(
-        view_as_dict=_to_tm1py_native_view_dict(native_view_new),
+        view_as_dict=_to_tm1py_native_view_dict(native_view),
         cube_name=cube_name,
     )
-    logger.info(f"Updating NativeView: {native_view_new.name} for Cube: {cube_name}.")
+    logger.info(f"Updating NativeView: {native_view.name} for Cube: {cube_name}.")
     return tm1_service.views.update(native_view_object)
 
 

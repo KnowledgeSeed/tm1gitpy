@@ -1,15 +1,165 @@
 changeset_name: null
 summary:
-  added: 1
-  removed: 0
-  modified: 0
+  add: 11
+  remove: 10
+  modify: 7
 changes:
-  - change_type: added
+# First DELETE: Cube subtree -> Dimension subtree -> Chores -> Processes
+  - change_type: remove
+    object_type: MDXView
+    source_path: cubes/old_cube.views/old_view_add.json
+    body:
+      name: old_view_add
+
+  - change_type: remove
+    object_type: Rule
+    source_path: cubes/old_cube.rules
+    body:
+      name: default
+
+  - change_type: remove
     object_type: Cube
     source_path: cubes/mycube.json
     body:
-      Name: TestCube2WithRule
-      Dimensions:
+      name: TestCube2WithRule
+
+  - change_type: remove
+    object_type: Subset
+    source_path: dimensions/old_dim.hierarchies/old_hier.subsets/old_subset.json
+    body:
+      name: old_subset
+
+  - change_type: remove
+    object_type: Edge
+    source_path: dimensions/old_dim.hierarchies/old_hier.edges/old_elem1:old_elem2
+    body:
+      name: old_elem1:old_elem2
+
+  - change_type: remove
+    object_type: Element
+    source_path: dimensions/old_dim.hierarchies/old_hier.json/old_elem1
+    body:
+      name: old_elem1
+
+  - change_type: remove
+    object_type: Hierarchy
+    source_path: dimensions/old_dim.hierarchies/old_hier.json
+    body:
+      name: old_hier
+
+  - change_type: remove
+    object_type: Dimension
+    source_path: dimensions/old_dim.json
+    body:
+      name: old_dim
+
+  - change_type: remove
+    object_type: Chore
+    source_path: chores/old_chore.json
+    body:
+      name: old_chore
+
+  - change_type: remove
+    object_type: Process
+    source_path: processes/old_process.json
+    body:
+      name: old_process2
+
+# SECOND: Add Dimension subtree: create dim /w empty hier -> add hier -> add elements, edges, subsets
+# Updating the Dimension subtree follows the same precedence
+  - change_type: add
+    object_type: Dimension
+    source_path: dimensions/mydim.json
+    body:
+      name: mydim
+      hierarchies:
+        - dimensions/mydim.hierarchies/myhier.json
+      default_hierarchy: dimensions/mydim.hierarchies/myhier.json
+
+  - change_type: add
+    object_type: Hierarchy
+    source_path: dimensions/mydim.hierarchies/myhier.json
+    body:
+      name: mydim
+
+  - change_type: add
+    object_type: Element
+    source_path: dimensions/mydim.hierarchies/myhier.json/myelem1
+    body:
+      name: myelem1
+      type: Numeric
+
+  - change_type: add
+    object_type: Element
+    source_path: dimensions/mydim.hierarchies/myhier.json/myelem2
+    body:
+      name: myelem2
+      type: Numeric
+
+  - change_type: add
+    object_type: Edge
+    source_path: dimensions/mydim.hierarchies/myhier.json/myelem1:myelem2
+    body:
+      parent_name: myelem1
+      component_name: myelem2
+      weight: 1
+
+  - change_type: add
+    object_type: Subset
+    source_path: dimensions/mydim.hierarchies/myhier.subsets/mysubset.json
+    body:
+      name: mysubset
+      expression: >-
+        {[mydim].[myhier].Members}
+
+  - change_type: modify
+    object_type: Dimension
+    source_path: dimensions/mydim.json
+    body:
+      name: mod_dim
+      hierarchies:
+        - dimensions/mydim.hierarchies/myhier.json
+        - dimensions/mydim.hierarchies/myhier2.json
+      default_hierarchy: dimensions/mydim.hierarchies/myhier.json
+
+#   HIERARCHY UPDATE NOT DEFINED: modification is handled by children for add/remove
+#  - change_type: modify
+#    object_type: Hierarchy
+#    source_path: dimensions/mydim.hierarchies/myhier.json
+#    body:
+#      name: mydim
+
+#   ELEMENT UPDATE NOT DEFINED: cannot change neither name nor type, only add/remove
+#  - change_type: modify
+#    object_type: Element
+#    source_path: dimensions/mydim.hierarchies/myhier.json/myelem2
+#    body:
+#      name: myelem2
+#      type: Numeric
+
+  - change_type: modify
+    object_type: Edge
+    source_path: dimensions/mydim.hierarchies/myhier.json/myelem1:myelem2
+    body:
+      parent_name: myelem1
+      component_name: myelem2
+      weight: 0
+
+  - change_type: modify
+    object_type: Subset
+    source_path: dimensions/mydim.hierarchies/myhier.subsets/mysubset2.json
+    body:
+      name: mysubset2
+      expression: >-
+        {[mydim].[myhier].Leaves}
+
+# THIRD: Add and Update Cube subtree
+  - change_type: add
+    object_type: Cube
+    source_path: cubes/mycube.json
+    body:
+      name: TestCube2WithRule
+      dimensions:
         # Probably we could reference dimensions using their source_path
         - dimensions/mydim1.json
         - dimensions/mydim2.json
@@ -17,108 +167,145 @@ changes:
         # - "@id": "Dimensions('mydim1')"
         # - "@id": "Dimensions('mydim2')"
 
-  # CUBE UPDATE NOT DEFINED NATIVELY, ONLY WITH TM1_BEDROCK_PY
-  # - change_type: updated
-  #   object_type: Cube
-  #   #source_path: cubes/mycube.json
-  #   body:
-  #     Name: TestCube2WithRule
-  #     Dimensions:
-  #       - "@id": "Dimensions('mydim1')"
-  #       - "@id": "Dimensions('mydim2')"
-
-  - change_type: remove
-    object_type: Cube
-    source_path: cubes/mycube.json
-    body:
-      Name: TestCube2WithRule
-
-  - change_type: added
-    object_type: Hierarchy
-    source_path: dimensions/mydim.hieararchies/myhier.json
-    body:
-      Name: mydim
-
-  - change_type: added
-    object_type: Element
-    source_path: dimensions/mydim.hierarchies/myhier.json/myelem1
-    body:
-      Name: myelem1
-      Type: Numeric
-
-  - change_type: added
-    object_type: Dimension
-    source_path: dimensions/mydim.json
-    body:
-      Name: mydim
-      Hierarchies: 
-        - dimensions/mydim.hieararchies/myhier.json
-      DefaultHierarchy: dimensions/mydim.hieararchies/myhier.json 
-
-  - change_type: added
-    object_type: Element
-    source_path: dimensions/mydim.hierarchies/myhier.json/myelem2
-    body:
-      Name: myelem2
-      Type: Numeric
-
-  - change_type: updated
-    object_type: MDXView
-    source_path: cubes/mycube.views/myview.json
-    body:
-      # If we add CubeName, source_path could be derived.
-      # CubeName: mycube
-      Name: myview
-      MDX: >-
-        SELECT NON EMPTY {[TestDim2].[TestDim2].Members} DIMENSION PROPERTIES MEMBER_NAME ON 0,
-        NON EMPTY {[TestDim1].[TestDim1].Members} DIMENSION PROPERTIES MEMBER_NAME ON 1
-        FROM [testcube3withview]
-
-  - change_type: added
+  - change_type: add
     object_type: Rule
     source_path: cubes/mycube.rules
     body:
       # Rule doesn't have implicit name unless we start defining subrules referenced by name.
-      Name: default
-      Rule: >-
+      name: default
+      rule: >-
         SKIPCHECK;
         ['TestDim1'] = N: 1;
         ['TestDim2'] = N: 1;
 
-  # - change_type: added
+  # - change_type: add
   #   object_type: Rule
   #   source_path: cubes/mycube.rules/mysubrule1
   #   body:
   #     # Rule doesn't have implicit name unless we start defining subrules referenced by name.
-  #     Name: mysubrule1
-  #     Rule: >-
+  #     name: mysubrule1
+  #     rule: >-
   #       SKIPCHECK;
   #       ['TestDim1'] = N: 1;
 
-  # - change_type: added
+  # - change_type: add
   #   object_type: Rule
   #   source_path: cubes/mycube.rules/mysubrule2
   #   body:
   #     # Rule doesn't have implicit name unless we start defining subrules referenced by name.
-  #     Name: mysubrule2
-  #     Rule: >-
+  #     name: mysubrule2
+  #     rule: >-
   #       ['TestDim2'] = N: 1;
 
-  - change_type: added
+  - change_type: add
+    object_type: MDXView
+    source_path: cubes/mycube.views/myview_add.json
+    body:
+      name: myview_add
+      mdx: >-
+        SELECT NON EMPTY {[mydim].[myhier].Members} ON 0
+        FROM [mycube]
+
+  # CUBE UPDATE NOT DEFINED NATIVELY, ONLY WITH TM1_BEDROCK_PY
+  # - change_type: modify
+  #   object_type: Cube
+  #   #source_path: cubes/mycube.json
+  #   body:
+  #     name: TestCube2WithRule
+  #     dimensions:
+  #       - "@id": "Dimensions('mydim1')"
+  #       - "@id": "Dimensions('mydim2')"
+
+  - change_type: modify
+    object_type: Rule
+    source_path: cubes/mycube.rules
+    body:
+      name: default
+      rule: >-
+        SKIPCHECK;
+        ['TestDim1'] = N: 1;
+        ['TestDim2'] = N: 1;
+        ['TestDim3'] = N: 1;
+
+  - change_type: modify
+    object_type: MDXView
+    source_path: cubes/mycube.views/myview.json
+    body:
+      name: myview
+      mdx: >-
+        SELECT NON EMPTY {[TestDim2].[TestDim2].Members} DIMENSION PROPERTIES MEMBER_NAME ON 0,
+        NON EMPTY {[TestDim1].[TestDim1].Members} DIMENSION PROPERTIES MEMBER_NAME ON 1
+        FROM [testcube3withview]
+
+# Last: Add and Update Processes then Chores: only trough API calls, cannot be translated to TI
+  - change_type: add
     object_type: Process
     source_path: processes/myprocess.json
     body:
-      Name: "myprocess2"
-      HasSecurityAccess: false
-      DataSource:
-        Type: "None"
-      Parameters: []
-      Variables: []
-      Prolog: >-
+      name: "myprocess2"
+      has_security_access: false
+      data_source:
+        type: "None"
+      parameters: []
+      variables: []
+      prolog: >-
         # Prolog code here
-      Data: >-
+      data: >-
         # Data code here
-      Metadata: >-
+      metadata: >-
         # Metadata code here
-      Epilog: >-
+      epilog: >-
         # Epilog code here
+
+  - change_type: modify
+    object_type: Process
+    source_path: processes/modprocess.json
+    body:
+      name: "mod_process"
+      has_security_access: false
+      data_source:
+        type: "None"
+      parameters: [
+        {
+          "name": "pViewname",
+          "prompt": "",
+          "value": "",
+          "type": "String"
+        }
+      ]
+      variables: []
+      prolog: >-
+        # Prolog code here
+      data: >-
+        # Data code here
+      metadata: >-
+        # Metadata code here
+      epilog: >-
+        # Epilog code here
+
+  - change_type: add
+    object_type: Chore
+    source_path: chores/mychore.json
+    body:
+      name: mychore
+      active: false
+      start_date: "2024-01-01"
+      dst_sensitive: false,
+      execution_mode: "SingleCommit"
+      frequency: "P01DT00H00M00S"
+      tasks:
+        - processes/myprocess.json
+        - processes/myprocess2.json
+
+  - change_type: modify
+    object_type: Chore
+    source_path: chores/mychore2.json
+    body:
+      name: mychore2
+      active: false
+      start_date: "2024-01-01"
+      dst_sensitive: false,
+      execution_mode: "SingleCommit"
+      frequency: "P02DT00H00M00S"
+      tasks:
+        - processes/myprocess.json

@@ -1,10 +1,10 @@
 import json
 import logging
 import re
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional
 
 import TM1py
-from TM1py import TM1Service, Element
+from TM1py import TM1Service
 from requests import Response
 
 # {
@@ -14,10 +14,19 @@ from requests import Response
 
 
 class Element:
-    def __init__(self, name, type):
+    def __init__(
+        self,
+        name: str,
+        type: str,
+        *,
+        source_path: Optional[str] = None,
+        dimension_name: Optional[str] = None,
+        hierarchy_name: Optional[str] = None
+    ):
         self.name = name
         self.type = type
-
+        self.source_path = source_path or self.as_link(dimension_name, hierarchy_name, name)
+    """
     def __init__(self, data: dict):
         for key, value in data.items():
             setattr(self, key.lower(), value)
@@ -26,7 +35,7 @@ class Element:
                 self.name = None
             if not hasattr(self, 'type'):
                self.type = None
-
+    """
     def as_json(self):
         return json.dumps({
             "Name": self.name,
@@ -52,12 +61,24 @@ class Element:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Element":
+    def from_dict(cls, data: Dict[str, Any], *,
+                  source_path: Optional[str] = None,
+                  dimension_name: Optional[str] = None,
+                  hierarchy_name: Optional[str] = None
+    ) -> "Element":
+        name = data.get("name") or data.get("Name") or None
         return cls(
-            name=data.get("name") or data.get("Name"),
-            type=data.get("type") or data.get("Type")
+            name=name,
+            type=data.get("type") or data.get("Type") or None,
+            source_path=source_path or cls.as_link(dimension_name, hierarchy_name, name)
         )
 
+    @staticmethod
+    def as_link(dimension_name_base: Optional[str], hierarchy_name_base: Optional[str], name: Optional[str]) -> Optional[str]:
+        # dimensions/Dimension_A.hierarchies/Dimension_A.json/element1
+        if dimension_name_base and hierarchy_name_base and name:
+            return f"dimensions/{dimension_name_base}.hierarchies/{hierarchy_name_base}.json/{name}"
+        return None
 
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
@@ -65,19 +86,31 @@ class Element:
 
 logger = logging.getLogger(__name__)
 
-def create_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element: Element) -> Response:
+def _edge_context_from_path(source_path: str) -> tuple[str, str]:
+    normalized_path = (source_path or "").replace("\\", "/").lstrip("/")
+    match = re.search(r"dimensions/([^/]+)\.hierarchies/([^/]+)\.json(?:/|$)", normalized_path)
+    if not match:
+        raise ValueError(f"Invalid element source_path format: '{source_path}'")
+    dimension_name, hierarchy_name = match.groups()
+    return dimension_name, hierarchy_name
+
+
+def create_element(tm1_service: TM1Service, element: Element) -> Response:
+    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
     element_object = TM1py.Element(name=element.name, element_type=element.type)
     logger.debug(f"Creating Element: {element.name} in Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.create(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element=element_object)
 
 
-def update_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element: Element) -> Response:
+def update_element(tm1_service: TM1Service, element: Element) -> Response:
+    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
     element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name)
     element_object.element_type = element.type
     logger.debug(f"Updating Element: {element.name} in Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.update(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element=element_object)
 
 
-def delete_element(tm1_service: TM1Service, hierarchy_name: str, dimension_name: str, element_name: str) -> Response:
-    logger.debug(f"Deleting Element: {element_name} of Hierarchy: {hierarchy_name}.")
-    return tm1_service.elements.delete(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element_name=element_name)
+def delete_element(tm1_service: TM1Service, element: Element) -> Response:
+    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
+    logger.debug(f"Deleting Element: {element.name} of Hierarchy: {hierarchy_name}.")
+    return tm1_service.elements.delete(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element_name=element.name)
