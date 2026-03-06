@@ -86,7 +86,7 @@ class Element:
 
 logger = logging.getLogger(__name__)
 
-def _edge_context_from_path(source_path: str) -> tuple[str, str]:
+def _element_context_from_path(source_path: str) -> tuple[str, str]:
     normalized_path = (source_path or "").replace("\\", "/").lstrip("/")
     match = re.search(r"dimensions/([^/]+)\.hierarchies/([^/]+)\.json(?:/|$)", normalized_path)
     if not match:
@@ -96,14 +96,14 @@ def _edge_context_from_path(source_path: str) -> tuple[str, str]:
 
 
 def create_element(tm1_service: TM1Service, element: Element) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
+    dimension_name, hierarchy_name = _element_context_from_path(source_path=element.source_path)
     element_object = TM1py.Element(name=element.name, element_type=element.type)
     logger.debug(f"Creating Element: {element.name} in Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.create(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element=element_object)
 
 
 def update_element(tm1_service: TM1Service, element: Element) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
+    dimension_name, hierarchy_name = _element_context_from_path(source_path=element.source_path)
     element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name)
     element_object.element_type = element.type
     logger.debug(f"Updating Element: {element.name} in Hierarchy: {hierarchy_name}.")
@@ -111,7 +111,7 @@ def update_element(tm1_service: TM1Service, element: Element) -> Response:
 
 
 def delete_element(tm1_service: TM1Service, element: Element) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
+    dimension_name, hierarchy_name = _element_context_from_path(source_path=element.source_path)
     logger.debug(f"Deleting Element: {element.name} of Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.delete(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element_name=element.name)
 
@@ -146,13 +146,10 @@ def _map_ti_type(api_type: str) -> str:
 
 def build_element_create_ti(
     element: Element,
-    dimension_name: str,
-    hierarchy_name: str,
     insertion_point: Optional[str] = ''
 ) -> str:
 
-    if not dimension_name or not hierarchy_name:
-        raise ValueError("Element create requires dimension and hierarchy context.")
+    dimension_name, hierarchy_name = _element_context_from_path(source_path=element.source_path)
 
     dim_clean = _escape_ti(dimension_name)
     hier_clean = _escape_ti(hierarchy_name)
@@ -179,53 +176,34 @@ def build_element_create_ti(
     return "\r\n".join(lines)
 
 
-def build_element_update_ti(
-    element_old: Element,
-    element_new: Element,
-    dimension_name: str,
-    hierarchy_name: str,
-) -> str:
+def build_element_update_ti(element: Element) -> str:
     """
     Generates TI code to rename an element while RETAINING DATA.
     Uses 'DimensionElementPrincipalNameChange'.
     """
-    if not dimension_name or not hierarchy_name:
-        raise ValueError("Element create requires dimension and hierarchy context.")
-
-    old_clean = _escape_ti(element_old.name)
-    new_clean = _escape_ti(element_new.name)
+    dimension_name, hierarchy_name = _element_context_from_path(source_path=element.source_path)
+    element_clean = _escape_ti(element.name)
 
     lines = []
-    lines.append(f"# --- Update (Recreate) Element: '{old_clean}' -> '{new_clean}' ---")
-    snippet = build_element_delete_ti(
-        hierarchy_name=hierarchy_name,
-        dimension_name=dimension_name,
-        element_name=old_clean
-    )
+    lines.append(f"# --- Update (Recreate) Element: '{element_clean}' ---")
+    snippet = build_element_delete_ti(element=element)
     lines.append(snippet)
 
-    snippet = build_element_create_ti(
-        hierarchy_name=hierarchy_name,
-        dimension_name=dimension_name,
-        element=element_new
-    )
+    snippet = build_element_create_ti(element=element)
     lines.append(snippet)
 
     return "\r\n".join(lines)
 
 
-def build_element_delete_ti(
-        dimension_name: str,
-        hierarchy_name: str,
-        element_name: str
-) -> str:
+def build_element_delete_ti(element: Element) -> str:
     """
     Generates TI code to delete an element from a specific hierarchy.
     """
+    dimension_name, hierarchy_name = _element_context_from_path(source_path=element.source_path)
 
     dim_clean = _escape_ti(dimension_name)
     hier_clean = _escape_ti(hierarchy_name)
-    el_clean = _escape_ti(element_name)
+    el_clean = _escape_ti(element.name)
 
     lines = []
     lines.append(f"# --- Delete Element: {el_clean} ---")

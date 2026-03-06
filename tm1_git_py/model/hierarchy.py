@@ -246,107 +246,18 @@ def build_hierarchy_create_ti(hierarchy: Hierarchy, dimension_name: Optional[str
         lines.append(f"   HierarchyCreate('{dim_clean}', '{hier_clean}');")
         lines.append(f"ENDIF;")
 
-    # 4. Create Elements
-    for element in hierarchy.elements:
-        element_ti = build_element_create_ti(
-            element=element,
-            dimension_name=dimension_name,
-            hierarchy_name=hierarchy_name
-        )
-        lines.append(element_ti)
-
-    # 5. Create Edges (Parent-Child relationships)
-    for edge in hierarchy.edges:
-        edge_ti = build_edge_create_ti(
-            dimension_name=dimension_name,
-            hierarchy_name=hierarchy_name,
-            edge=edge
-        )
-        lines.append(edge_ti)
-
     return "\r\n".join(lines)
 
 
 def build_hierarchy_update_ti(
-        hierarchy: Dict[str, Any]
+        hierarchy: Hierarchy
 ) -> str:
     """
-    Generates a TI script to synchronize elements between two hierarchy states.
-    Handles Removes, Updates (Type changes), and Creates.
+    Generates TI placeholder code to update a Hierarchy.
+    Contained objects are updated by their respective modules (elements, edges and subsets).
     """
-
-    hierarchy_new = hierarchy.get("new")
-    hierarchy_old = hierarchy.get("old")
-
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy_new.source_path)
-    hierarchy_name = hierarchy_new.name
-
-    elements_new = hierarchy_new.elements
-    elements_old = hierarchy_old.elements
-    # 1. Map Names to Objects for easy lookup
-    old_map: Dict[str, Element] = {e.name: e for e in elements_old}
-    new_map: Dict[str, Element] = {e.name: e for e in elements_new}
-
-    old_names = set(old_map.keys())
-    new_names = set(new_map.keys())
-
-    # 2. Determine Actions based on Names
-    names_to_remove = old_names - new_names
-    names_to_create = new_names - old_names
-    names_to_update = old_names.intersection(new_names)
-
-    lines = []
-    lines.append(f"# --- Synchronizing Elements for {dimension_name}:{hierarchy_name} ---")
-
-    # 3. Handle REMOVALS
-    if names_to_remove:
-        lines.append(f"# -- removing {len(names_to_remove)} elements --")
-        for name in names_to_remove:
-            snippet = build_element_delete_ti(
-                hierarchy_name=hierarchy_name,
-                dimension_name=dimension_name,
-                element_name=name
-            )
-            lines.append(snippet)
-
-    # 4. Handle UPDATES
-    # We pass the NEW element definition (target state) to the builder.
-    # If an element has a type change, it gets recreated.
-    # Type changes cause data loss!
-    if names_to_update:
-        lines.append(f"# -- checking updates for {len(names_to_update)} elements --")
-        for name in names_to_update:
-            target_element = new_map[name]
-            source_element = old_map[name]
-            if target_element.type != source_element.type:
-                snippet = build_element_update_ti(
-                    hierarchy_name=hierarchy_name,
-                    dimension_name=dimension_name,
-                    element_old=source_element,
-                    element_new=target_element
-                )
-                lines.append(snippet)
-
-    # 5. Handle CREATIONS
-    if names_to_create:
-        lines.append(f"# -- creating {len(names_to_create)} elements (Reverse processing) --")
-        for i in range(len(elements_new) - 1, -1, -1):
-            element = elements_new[i]
-
-            if element.name in names_to_create:
-                if i == len(elements_new) - 1:
-                    insertion_point = ''
-                else:
-                    insertion_point = elements_new[i + 1].name
-
-                snippet = build_element_create_ti(
-                    hierarchy_name=hierarchy_name,
-                    dimension_name=dimension_name,
-                    element=element,
-                    insertion_point=insertion_point
-                )
-                lines.append(snippet)
-
+    hierarchy_clean = _escape_ti(hierarchy.name)
+    lines = [f"# --- Update Hierarchy: {hierarchy_clean} ---"]
     return "\r\n".join(lines)
 
 

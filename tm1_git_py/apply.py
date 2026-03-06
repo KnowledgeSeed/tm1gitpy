@@ -231,6 +231,8 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
     temp.changes = execution_changes
     temp.sort()
     return temp.changes
+
+
 # --------------------------------------------------------------------------------
 # Master TI for batch update and rollback functionality
 # --------------------------------------------------------------------------------
@@ -240,37 +242,51 @@ def build_master_changeset_ti(changeset: Changeset) -> str:
     """
     Compiles a Changeset object into a single Atomic TurboIntegrator script.
     """
-    ti_lines = []
+    ti_lines: list[str] = [
+        "# **** Atomic Changeset Execution ****",
+        "",
+    ]
 
-    ti_lines.append("# **** Atomic Changeset Execution ****")
-    ti_lines.append("")
+    # Keep execution order aligned with the regular apply pipeline.
+    execution_changes = _prepare_execution_changes(changeset.changes)
+    action_to_suffix = {
+        ChangeType.ADD: "create",
+        ChangeType.MODIFY: "update",
+        ChangeType.REMOVE: "delete",
+    }
 
-    operations: list[tuple[str, Any]] = []
-    operations += [("DELETE", obj) for obj in changeset.removed]
-    operations += [("UPDATE", obj) for obj in changeset.modified]
-    operations += [("CREATE", obj) for obj in changeset.added]
+    for change in execution_changes:
+        action = ChangeType.from_raw(change.change_type)
+        builder_suffix = action_to_suffix[action]
+        obj = change.body
+        module = importlib.import_module(obj.__class__.__module__)
+        object_type = change.object_type.value
 
-    for action, obj in operations:
-        snippet = ""
+        candidates = [
+            object_type.lower(),
+            _camel_to_snake(object_type),
+            obj.__class__.__name__.lower(),
+            _camel_to_snake(obj.__class__.__name__),
+        ]
 
-        if isinstance(obj, dict):
-            object_type = obj["new"].type.lower()
-            module = importlib.import_module(obj["new"].__class__.__module__)
-        else:
-            object_type = obj.type.lower()
-            module = importlib.import_module(obj.__class__.__module__)
+        builder = None
+        for candidate in dict.fromkeys(candidates):
+            fn = getattr(module, f"build_{candidate}_{builder_suffix}_ti", None)
+            if fn is not None:
+                builder = fn
+                break
 
+        if builder is None:
+            logger.debug(
+                "Skipping TI snippet build for %s %s: no build_*_%s_ti function in %s",
+                action.value,
+                object_type,
+                builder_suffix,
+                module.__name__,
+            )
+            continue
 
-        if action == "CREATE":
-            create = getattr(module, f"build_{object_type}_create_ti")
-            snippet = create(obj)
-        elif action == "DELETE":
-            update = getattr(module, f"build_{object_type}_delete_ti")
-            snippet = update(obj)
-        elif action == "UPDATE":
-            delete = getattr(module, f"build_{object_type}_update_ti")
-            snippet = delete(obj)
-
+        snippet = builder(obj)
         if snippet:
             ti_lines.append(snippet)
             ti_lines.append("")

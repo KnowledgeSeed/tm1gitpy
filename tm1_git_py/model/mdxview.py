@@ -155,23 +155,17 @@ def build_mdxview_create_ti(mdx_view: MDXView) -> str:
     return "\r\n".join(lines)
 
 
-def build_mdxview_update_ti(mdx_view: Dict[str, Any]) -> str:
+def build_mdxview_update_ti(mdx_view: MDXView) -> str:
     """
     Generates TI code to update an MDX View.
     Strategy: Delete existing view -> Recreate with new MDX.
     This ensures type safety (converting Static -> MDX if necessary).
     """
-
-    view_new = mdx_view.get('new')
-
-    if not view_new:
-        return "# Error: Missing 'new' state for MDX View update."
-
-    cube_name, _ = _view_context_from_path(view_new.source_path)
+    cube_name, _ = _view_context_from_path(mdx_view.source_path)
 
     cube_clean = _escape_ti(cube_name)
-    view_clean = _escape_ti(view_new.name)
-    mdx_clean = _escape_ti(view_new.mdx)
+    view_clean = _escape_ti(mdx_view.name)
+    mdx_clean = _escape_ti(mdx_view.mdx)
 
     lines = []
     lines.append(f"# --- Update MDX View: {view_clean} in Cube: {cube_clean} ---")

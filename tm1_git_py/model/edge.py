@@ -138,11 +138,13 @@ def _escape_ti(value: str) -> str:
     return str(value).replace("'", "''") if value else ""
 
 
-def build_edge_create_ti(dimension_name: str, hierarchy_name: str, edge: Edge) -> str:
+def build_edge_create_ti(edge: Edge, *, operation: Optional[str] = "Create") -> str:
     """
     Generates TI to add a component (child) to a parent.
     Acts as an Upsert (Updates weight if edge already exists).
     """
+    dimension_name, hierarchy_name = _edge_context_from_path(source_path=edge.source_path)
+
     # 1. Sanitize Inputs
     dim_clean = _escape_ti(dimension_name)
     hier_clean = _escape_ti(hierarchy_name)
@@ -151,7 +153,7 @@ def build_edge_create_ti(dimension_name: str, hierarchy_name: str, edge: Edge) -
     weight = edge.weight
 
     lines = []
-    lines.append(f"# --- Add/Update Edge: {parent_clean} -> {child_clean} (Weight: {weight}) ---")
+    lines.append(f"# --- {operation} Edge: {parent_clean} -> {child_clean} (Weight: {weight}) ---")
     lines.append(f"IF( ElementIsComponent('{dim_clean}', '{hier_clean}', '{child_clean}', '{parent_clean}') = 0 );")
 
     # 2. Add Component
@@ -164,10 +166,19 @@ def build_edge_create_ti(dimension_name: str, hierarchy_name: str, edge: Edge) -
     return "\r\n".join(lines)
 
 
-def build_edge_delete_ti(dimension_name: str, hierarchy_name: str, edge: Edge) -> str:
+def build_edge_update_ti(edge: Edge) -> str:
+    """
+    Interface for Component Upsert via the build_edge_create_ti function.
+    """
+    return build_edge_create_ti(edge=edge, operation="Update")
+
+
+def build_edge_delete_ti(edge: Edge) -> str:
     """
     Generates TI to remove a component (child) from a parent.
     """
+    dimension_name, hierarchy_name = _edge_context_from_path(source_path=edge.source_path)
+
     # 1. Sanitize Inputs
     dim_clean = _escape_ti(dimension_name)
     hier_clean = _escape_ti(hierarchy_name)

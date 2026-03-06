@@ -166,40 +166,26 @@ def build_subset_create_ti(subset: Subset) -> str:
     return "\r\n".join(lines)
 
 
-def build_subset_update_ti(subset: Dict[str, Any]) -> str:
+def build_subset_update_ti(subset: Subset) -> str:
     """
     Generates TI code to update a Subset's MDX expression.
     Expects the 'subset' dict to contain a 'new' key with the target Subset object.
     """
 
-    # 1. Extract the Target Object
-    # Based on your input structure: subset = {'new': SubsetObject, ...}
-    subset_new = subset.get('new')
-
-    if not subset_new:
-        return "# Error: Missing 'new' state for subset update."
-
-    # 2. Resolve Context
-    dimension_name, hierarchy_name = _subset_context_from_path(subset_new.source_path)
+    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
 
     dim_name_clean = _escape_ti(dimension_name)
     hier_name_clean = _escape_ti(hierarchy_name)
-    sub_name_clean = _escape_ti(subset_new.name)
+    sub_name_clean = _escape_ti(subset.name)
 
     # Critical: MDX expressions often contain single quotes (e.g., [Dim].[Hier].[Elem]).
     # _escape_ti turns "'" into "''" ensuring the TI string doesn't break.
-    mdx_clean = _escape_ti(subset_new.expression)
+    mdx_clean = _escape_ti(subset.expression)
 
     lines = []
     lines.append(f"# --- Update Subset: {sub_name_clean} in {dim_name_clean} ---")
-
-    # 5. Check Existence
     lines.append(f"IF( HierarchySubsetExists('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}') = 1 );")
-
-    # 6. Apply Expression
-    # This updates the definition. If mdx_clean is empty, the subset becomes static.
     lines.append(f"    HierarchySubsetMDXSet('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{mdx_clean}');")
-
     lines.append(f"ENDIF;")
 
     return "\r\n".join(lines)

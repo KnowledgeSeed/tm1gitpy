@@ -161,12 +161,6 @@ def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
     return body
 
 
-def _native_view_context_from_path(source_path: str) -> Tuple[str, str]:
-    cube_name = re.search(r'/([^/]+)\.views', source_path).group(1)
-    view_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
-    return cube_name, view_name
-
-
 def _to_tm1py_native_view_dict(native_view: NativeView) -> Dict[str, Any]:
     payload = {
         "Name": native_view.name,
@@ -189,7 +183,16 @@ def _to_tm1py_native_view_dict(native_view: NativeView) -> Dict[str, Any]:
     return payload
 
 
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between TM1py and tm1_git_py for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
 logger = logging.getLogger(__name__)
+
+def _native_view_context_from_path(source_path: str) -> Tuple[str, str]:
+    cube_name = re.search(r'/([^/]+)\.views', source_path).group(1)
+    view_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+    return cube_name, view_name
 
 
 def create_native_view(tm1_service: TM1Service, native_view: NativeView) -> Response:
@@ -216,3 +219,107 @@ def delete_native_view(tm1_service: TM1Service, native_view: NativeView) -> Resp
     cube_name, _ = _native_view_context_from_path(native_view.source_path)
     logger.info(f"Deleting NativeView: {native_view.name} from Cube: {cube_name}.")
     return tm1_service.views.delete(view_name=native_view.name, cube_name=cube_name)
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str) -> str:
+    if value is None: return ""
+    return str(value).replace("'", "''")
+
+
+def build_native_view_create_ti(native_view: NativeView) -> str:
+    """
+    Generates TI code to create a Native View, assign dimensions to axes,
+    and assign subsets.
+    """
+    cube_name, _ = _native_view_context_from_path(native_view.source_path)
+
+    cube_clean = _escape_ti(cube_name)
+    view_clean = _escape_ti(native_view.name)
+
+    lines = []
+    lines.append(f"# --- Create Native View: {view_clean} in Cube: {cube_clean} ---")
+
+    # 1. Create the base View container (0 = Permanent view)
+    lines.append(f"IF( ViewExists('{cube_clean}', '{view_clean}') = 0 );")
+    lines.append(f"    ViewCreate('{cube_clean}', '{view_clean}', 0);")
+    lines.append(f"ENDIF;")
+
+    # 2. Assign Columns
+    # TI Stack Positions are 1-based, so we use enumerate(..., start=1)
+    if hasattr(native_view, 'columns') and native_view.columns:
+        lines.append(f"# -- Setup Columns --")
+        for i, axis in enumerate(native_view.columns, start=1):
+            dim_clean = _escape_ti(axis.dimension_name)
+            lines.append(f"ViewColumnDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}', {i});")
+
+            # Assign subset if specified
+            if hasattr(axis, 'subset_name') and axis.subset_name:
+                sub_clean = _escape_ti(axis.subset_name)
+                lines.append(f"ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+
+    # 3. Assign Rows
+    if hasattr(native_view, 'rows') and native_view.rows:
+        lines.append(f"# -- Setup Rows --")
+        for i, axis in enumerate(native_view.rows, start=1):
+            dim_clean = _escape_ti(axis.dimension_name)
+            lines.append(f"ViewRowDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}', {i});")
+
+            if hasattr(axis, 'subset_name') and axis.subset_name:
+                sub_clean = _escape_ti(axis.subset_name)
+                lines.append(f"ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+
+    # 4. Assign Titles (Context/Filters)
+    if hasattr(native_view, 'titles') and native_view.titles:
+        lines.append(f"# -- Setup Titles --")
+        for axis in native_view.titles:
+            dim_clean = _escape_ti(axis.dimension_name)
+            # Titles don't have a stack position in the TI function
+            lines.append(f"ViewTitleDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}');")
+
+            if hasattr(axis, 'subset_name') and axis.subset_name:
+                sub_clean = _escape_ti(axis.subset_name)
+                lines.append(f"ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+
+    # 5. Optional Properties (Suppress Zeroes, formatting, etc.)
+    # If your model tracks suppress zeroes, you map it here.
+    # TI uses ViewExtractSkipZeroesSet (which historically affects UI in older TM1 clients too)
+    if hasattr(native_view, 'suppress_zeroes'):
+        flag = "1" if native_view.suppress_zeroes else "0"
+        lines.append(f"ViewExtractSkipZeroesSet('{cube_clean}', '{view_clean}', {flag});")
+
+    return "\r\n".join(lines)
+
+
+def build_native_view_update_ti(native_view: NativeView) -> str:
+    """
+    Generates TI code to update a Native View.
+    Strategy: Delete existing view -> Recreate with new definition.
+    """
+    lines = []
+    lines.append(build_native_view_delete_ti(native_view))
+    lines.append(build_native_view_create_ti(native_view))
+
+    return "\r\n".join(lines)
+
+
+def build_native_view_delete_ti(native_view: NativeView) -> str:
+    """
+    Generates TI code to safely delete a Native View.
+    """
+    cube_name, _ = _native_view_context_from_path(native_view.source_path)
+
+    cube_clean = _escape_ti(cube_name)
+    view_clean = _escape_ti(native_view.name)
+
+    lines = []
+    lines.append(f"# --- Delete Native View: {view_clean} from Cube: {cube_clean} ---")
+
+    lines.append(f"IF( ViewExists('{cube_clean}', '{view_clean}') = 1 );")
+    lines.append(f"    ViewDestroy('{cube_clean}', '{view_clean}');")
+    lines.append(f"ENDIF;")
+
+    return "\r\n".join(lines)
