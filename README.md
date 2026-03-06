@@ -8,7 +8,7 @@ A utility for exporting and comparing TM1 models in Git-friendly formats, enabli
 - Export TM1 models (cubes, dimensions, processes, chores) to a structured folder format
 - Filter exports to include only specific objects
 - Serialize models to Git-friendly formats for version control
-- Compare model versions to track changes
+- Compare model versions to track changes (Python API)
 
 ## Installation
 
@@ -22,11 +22,10 @@ pip install -e .
 
 ### Requirements
 
-- Python 3.9 or higher
+- Python 3.10 or higher
 - TM1py >= 2.1, < 3.0
-- PyYAML >= 6.0
 - requests >= 2.25
-- tm1_bedrock_py >= 0.4.1
+- tm1_bedrock_py >= 1.1.4
 
 ## Configuration
 
@@ -101,6 +100,8 @@ See the [examples](examples/) directory for usage examples:
 - [config_usage.py](examples/config_usage.py) - Server configuration examples
 - [filter.txt](examples/filter.txt) - Filter pattern examples
 
+For model comparison and changeset workflows, use the Python API (`tm1_git_py.comparator`, `tm1_git_py.changeset`, `tm1_git_py.apply`).
+
 ## Building Binary
 
 Build a standalone executable using Nuitka:
@@ -117,6 +118,12 @@ python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-e
 pytest tests/
 ```
 
+Integration tests (TM1 container/local TM1 required):
+
+```bash
+PYTHONPATH=. pytest test_integration/
+```
+
 ### Project Structure
 
 ```
@@ -128,6 +135,9 @@ tm1_git_py/
 │   ├── serializer.py    # Model serialization
 │   ├── deserializer.py  # Model deserialization
 │   ├── filter.py        # Object filtering
+│   ├── comaprator.py    # Compare TM1 models
+│   ├── changeset.py     # Build changeset
+│   ├── apply.py         # Apply changeset
 │   └── model/           # Model data structures
 ├── examples/            # Usage examples
 ├── docs/               # Documentation
@@ -135,5 +145,6 @@ tm1_git_py/
 ```
 
 ## License
+
 
 See LICENSE file for details.
