@@ -24,7 +24,7 @@ from tm1_git_py.changeset import Change, ChangeType, Changeset, ObjectType, impo
 from tm1_git_py.filter import filter_changeset
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
-from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element
+from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element, nativeview
 from tm1_git_py.model.nativeview import NativeView
 
 T = TypeVar('T', Cube, Dimension, Process, Chore)
@@ -2226,3 +2226,462 @@ class TestChoreCRUD:
         tm1_service.chores.delete.assert_called_once_with("Chore_DateOnly")
         tm1_service.chores.create.assert_called_once_with(tm1py_chore_instance)
         assert result == "create-result"
+
+
+class TestTITranspilerPhase1:
+
+    @staticmethod
+    def _ti(*lines: str) -> str:
+        return "\r\n".join(lines)
+
+    @staticmethod
+    def _rule_cube(rule_text: str) -> Cube:
+        rules = [Rule(area="[A]", full_statement=rule_text)] if rule_text else []
+        return Cube(
+            name="RuleCube",
+            dimensions=[],
+            rules=rules,
+            views=[],
+            source_path="/cubes/RuleCube.json",
+        )
+
+    @pytest.mark.parametrize(
+        ("actual", "expected"),
+        [
+            pytest.param(
+                lambda: dimension.build_dimension_create_ti(
+                    Dimension(name="O'Neill", hierarchies=[], defaultHierarchy=None, source_path="/dimensions/O_Neill.json")
+                ),
+                _ti(
+                    "# --- Create Dimension: O''Neill ---",
+                    "IF( DimensionExists('O''Neill') = 0 );",
+                    "    DimensionCreate('O''Neill');",
+                    "ENDIF;",
+                ),
+                id="dimension-create",
+            ),
+            pytest.param(
+                lambda: dimension.build_dimension_update_ti(
+                    Dimension(name="O'Neill", hierarchies=[], defaultHierarchy=None, source_path="/dimensions/O_Neill.json")
+                ),
+                _ti("# --- Update Dimension: O''Neill ---"),
+                id="dimension-update",
+            ),
+            pytest.param(
+                lambda: dimension.build_dimension_delete_ti(
+                    Dimension(name="O'Neill", hierarchies=[], defaultHierarchy=None, source_path="/dimensions/O_Neill.json")
+                ),
+                _ti(
+                    "# --- Delete Dimension: O''Neill ---",
+                    "IF( DimensionExists('O''Neill') = 1 );",
+                    "    DimensionDestroy('O''Neill');",
+                    "ENDIF;",
+                ),
+                id="dimension-delete",
+            ),
+            pytest.param(
+                lambda: hierarchy.build_hierarchy_create_ti(
+                    Hierarchy(
+                        name="Hier'O",
+                        elements=[],
+                        edges=[],
+                        subsets=[],
+                        source_path="/dimensions/Dim.hierarchies/HierO.json",
+                    )
+                ),
+                _ti(
+                    "# --- Create Hierarchy: Dim:Hier''O ---",
+                    "IF( HierarchyExists('Dim', 'Hier''O') = 0 );",
+                    "   HierarchyCreate('Dim', 'Hier''O');",
+                    "ENDIF;",
+                ),
+                id="hierarchy-create",
+            ),
+            pytest.param(
+                lambda: hierarchy.build_hierarchy_update_ti(
+                    Hierarchy(
+                        name="Hier'O",
+                        elements=[],
+                        edges=[],
+                        subsets=[],
+                        source_path="/dimensions/Dim.hierarchies/HierO.json",
+                    )
+                ),
+                _ti("# --- Update Hierarchy: Hier''O ---"),
+                id="hierarchy-update",
+            ),
+            pytest.param(
+                lambda: hierarchy.build_hierarchy_delete_ti(
+                    Hierarchy(
+                        name="Hier'O",
+                        elements=[],
+                        edges=[],
+                        subsets=[],
+                        source_path="/dimensions/Dim.hierarchies/HierO.json",
+                    )
+                ),
+                _ti(
+                    "# --- Delete Hierarchy: Hier''O ---",
+                    "IF( HierarchyExists('Dim', 'Hier''O') = 1 );",
+                    "   HierarchyDestroy('Dim', 'Hier''O');",
+                    "ENDIF;",
+                ),
+                id="hierarchy-delete",
+            ),
+            pytest.param(
+                lambda: element.build_element_create_ti(
+                    Element(
+                        name="El'O",
+                        type="String",
+                        source_path="dimensions/Dim.hierarchies/Hier.json/ElO",
+                    )
+                ),
+                _ti(
+                    "# --- Create Element: El''O ---",
+                    "IF( HierarchyElementExists('Dim', 'Hier', 'El''O') = 0 );",
+                    "    HierarchyElementInsert('Dim', 'Hier', '', 'El''O', 'S');",
+                    "ENDIF;",
+                ),
+                id="element-create",
+            ),
+            pytest.param(
+                lambda: element.build_element_update_ti(
+                    Element(
+                        name="El'O",
+                        type="String",
+                        source_path="dimensions/Dim.hierarchies/Hier.json/ElO",
+                    )
+                ),
+                _ti(
+                    "# --- Update (Recreate) Element: 'El''O' ---",
+                    "# --- Delete Element: El''O ---",
+                    "IF( HierarchyElementExists('Dim', 'Hier', 'El''O') = 1 );",
+                    "   HierarchyElementDelete('Dim', 'Hier', 'El''O');",
+                    "ENDIF;",
+                    "# --- Create Element: El''O ---",
+                    "IF( HierarchyElementExists('Dim', 'Hier', 'El''O') = 0 );",
+                    "    HierarchyElementInsert('Dim', 'Hier', '', 'El''O', 'S');",
+                    "ENDIF;",
+                ),
+                id="element-update",
+            ),
+            pytest.param(
+                lambda: element.build_element_delete_ti(
+                    Element(
+                        name="El'O",
+                        type="String",
+                        source_path="dimensions/Dim.hierarchies/Hier.json/ElO",
+                    )
+                ),
+                _ti(
+                    "# --- Delete Element: El''O ---",
+                    "IF( HierarchyElementExists('Dim', 'Hier', 'El''O') = 1 );",
+                    "   HierarchyElementDelete('Dim', 'Hier', 'El''O');",
+                    "ENDIF;",
+                ),
+                id="element-delete",
+            ),
+            pytest.param(
+                lambda: edge.build_edge_create_ti(
+                    Edge(
+                        parent="Parent'O",
+                        name="Child'O",
+                        weight=1.5,
+                        source_path="dimensions/Dim.hierarchies/Hier.json/Parent:Child",
+                    )
+                ),
+                _ti(
+                    "# --- Create Edge: Parent''O -> Child''O (Weight: 1.5) ---",
+                    "IF( ElementIsComponent('Dim', 'Hier', 'Child''O', 'Parent''O') = 0 );",
+                    "    HierarchyElementComponentAdd('Dim', 'Hier', 'Parent''O', 'Child''O', 1.5);",
+                    "ENDIF;",
+                ),
+                id="edge-create",
+            ),
+            pytest.param(
+                lambda: edge.build_edge_update_ti(
+                    Edge(
+                        parent="Parent'O",
+                        name="Child'O",
+                        weight=1.5,
+                        source_path="dimensions/Dim.hierarchies/Hier.json/Parent:Child",
+                    )
+                ),
+                _ti(
+                    "# --- Update (Recreate) Edge: Parent''O -> Child''O ---",
+                    "# --- Remove Edge: Parent''O -> Child''O ---",
+                    "IF( ElementIsComponent('Dim', 'Hier', 'Child''O', 'Parent''O') = 1 );",
+                    "    HierarchyElementComponentDelete('Dim', 'Hier', 'Parent''O', 'Child''O');",
+                    "ENDIF;",
+                    "# --- Create Edge: Parent''O -> Child''O (Weight: 1.5) ---",
+                    "IF( ElementIsComponent('Dim', 'Hier', 'Child''O', 'Parent''O') = 0 );",
+                    "    HierarchyElementComponentAdd('Dim', 'Hier', 'Parent''O', 'Child''O', 1.5);",
+                    "ENDIF;",
+                ),
+                id="edge-update",
+            ),
+            pytest.param(
+                lambda: edge.build_edge_delete_ti(
+                    Edge(
+                        parent="Parent'O",
+                        name="Child'O",
+                        weight=1.5,
+                        source_path="dimensions/Dim.hierarchies/Hier.json/Parent:Child",
+                    )
+                ),
+                _ti(
+                    "# --- Remove Edge: Parent''O -> Child''O ---",
+                    "IF( ElementIsComponent('Dim', 'Hier', 'Child''O', 'Parent''O') = 1 );",
+                    "    HierarchyElementComponentDelete('Dim', 'Hier', 'Parent''O', 'Child''O');",
+                    "ENDIF;",
+                ),
+                id="edge-delete",
+            ),
+            pytest.param(
+                lambda: subset.build_subset_create_ti(
+                    Subset(
+                        name="Sub'O",
+                        expression="{[Dim].[Hier].[E's]}",
+                        source_path="/dimensions/Dim.hierarchies/Hier.subsets/Sub.json",
+                    )
+                ),
+                _ti(
+                    "# --- Create Subset: Sub''O in Hier ---",
+                    "IF( HierarchySubsetExists('Dim', 'Hier', 'Sub''O') = 0 );",
+                    "    HierarchySubsetCreate('Dim', 'Hier', 'Sub''O', 0);",
+                    "ENDIF;",
+                    "HierarchySubsetMDXSet('Dim', 'Hier', 'Sub''O', '{[Dim].[Hier].[E''s]}');",
+                ),
+                id="subset-create",
+            ),
+            pytest.param(
+                lambda: subset.build_subset_update_ti(
+                    Subset(
+                        name="Sub'O",
+                        expression="{[Dim].[Hier].[E's]}",
+                        source_path="/dimensions/Dim.hierarchies/Hier.subsets/Sub.json",
+                    )
+                ),
+                _ti(
+                    "# --- Update Subset: Sub''O in Dim ---",
+                    "IF( HierarchySubsetExists('Dim', 'Hier', 'Sub''O') = 1 );",
+                    "    HierarchySubsetMDXSet('Dim', 'Hier', 'Sub''O', '{[Dim].[Hier].[E''s]}');",
+                    "ENDIF;",
+                ),
+                id="subset-update",
+            ),
+            pytest.param(
+                lambda: subset.build_subset_delete_ti(
+                    Subset(
+                        name="Sub'O",
+                        expression="{[Dim].[Hier].[E's]}",
+                        source_path="/dimensions/Dim.hierarchies/Hier.subsets/Sub.json",
+                    )
+                ),
+                _ti(
+                    "# --- Delete Subset: Sub''O from Dim ---",
+                    "IF( HierarchySubsetExists('Dim', 'Hier', 'Sub''O') = 1 );",
+                    "    HierarchySubsetDestroy('Dim', 'Hier', 'Sub''O');",
+                    "ENDIF;",
+                ),
+                id="subset-delete",
+            ),
+            pytest.param(
+                lambda: cube.build_cube_create_ti(
+                    Cube(
+                        name="Cube'O",
+                        dimensions=[
+                            Dimension(name="D1", hierarchies=[], defaultHierarchy=None, source_path="/dimensions/D1.json"),
+                            Dimension(name="D'2", hierarchies=[], defaultHierarchy=None, source_path="/dimensions/D2.json"),
+                        ],
+                        rules=[],
+                        views=[],
+                        source_path="/cubes/Cube.json",
+                    )
+                ),
+                _ti(
+                    "# --- Create Cube: Cube''O ---",
+                    "IF( CubeExists('Cube''O') = 0 );",
+                    "    CubeCreate('Cube''O', 'D1', 'D''2');",
+                    "ENDIF;",
+                ),
+                id="cube-create",
+            ),
+            pytest.param(
+                lambda c=_rule_cube("['A']=N:2;"): cube.build_cube_update_ti(c),
+                _ti(
+                    "# --- Update Cube Rules: RuleCube ---",
+                    "IF( CubeExists('RuleCube') = 1 );",
+                    "    CubeRuleSet('RuleCube', '[''A'']=N:2;');",
+                    "ENDIF;",
+                ),
+                id="cube-update",
+            ),
+            pytest.param(
+                lambda: cube.build_cube_delete_ti(
+                    Cube(
+                        name="Cube'O",
+                        dimensions=[],
+                        rules=[],
+                        views=[],
+                        source_path="/cubes/Cube.json",
+                    )
+                ),
+                _ti(
+                    "# --- Delete Cube: Cube''O ---",
+                    "IF( CubeExists('Cube''O') = 1 );",
+                    "    CubeDestroy('Cube''O');",
+                    "ENDIF;",
+                ),
+                id="cube-delete",
+            ),
+            pytest.param(
+                lambda: mdxview.build_mdxview_create_ti(
+                    MDXView(
+                        name="View'O",
+                        mdx="SELECT {[Dim].[Hier].[E's]} ON 0 FROM [Cube]",
+                        source_path="/cubes/Cube.views/View.json",
+                    )
+                ),
+                _ti(
+                    "# --- Create MDX View: View''O in Cube: Cube ---",
+                    "IF( ViewExists('Cube', 'View''O') = 0 );",
+                    "    ViewCreateByMDX('Cube', 'View''O', 'SELECT {[Dim].[Hier].[E''s]} ON 0 FROM [Cube]', 0);",
+                    "ENDIF;",
+                ),
+                id="mdxview-create",
+            ),
+            pytest.param(
+                lambda: mdxview.build_mdxview_update_ti(
+                    MDXView(
+                        name="View'O",
+                        mdx="SELECT {[Dim].[Hier].[E's]} ON 0 FROM [Cube]",
+                        source_path="/cubes/Cube.views/View.json",
+                    )
+                ),
+                _ti(
+                    "# --- Update MDX View: View''O in Cube: Cube ---",
+                    "IF( ViewExists('Cube', 'View''O') = 1 );",
+                    "    ViewDestroy('Cube', 'View''O');",
+                    "ENDIF;",
+                    "ViewCreateByMDX('Cube', 'View''O', 'SELECT {[Dim].[Hier].[E''s]} ON 0 FROM [Cube]', 0);",
+                ),
+                id="mdxview-update",
+            ),
+            pytest.param(
+                lambda: mdxview.build_mdxview_delete_ti(
+                    MDXView(
+                        name="View'O",
+                        mdx="SELECT {[Dim].[Hier].[E's]} ON 0 FROM [Cube]",
+                        source_path="/cubes/Cube.views/View.json",
+                    )
+                ),
+                _ti(
+                    "# --- Delete MDX View: View''O in Cube: Cube ---",
+                    "IF( ViewExists('Cube', 'View''O') = 1 );",
+                    "    ViewDestroy('Cube', 'View''O');",
+                    "ENDIF;",
+                ),
+                id="mdxview-delete",
+            ),
+            pytest.param(
+                lambda: nativeview.build_native_view_create_ti(
+                    NativeView(
+                        name="Native'O",
+                        columns=[],
+                        rows=[],
+                        titles=[],
+                        suppress_empty_columns=True,
+                        suppress_empty_rows=True,
+                        format_string="0.#########",
+                        source_path="/cubes/Cube.views/Native.json",
+                    )
+                ),
+                _ti(
+                    "# --- Create Native View: Native''O in Cube: Cube ---",
+                    "IF( ViewExists('Cube', 'Native''O') = 0 );",
+                    "    ViewCreate('Cube', 'Native''O', 0);",
+                    "ENDIF;",
+                ),
+                id="nativeview-create",
+            ),
+            pytest.param(
+                lambda: nativeview.build_native_view_update_ti(
+                    NativeView(
+                        name="Native'O",
+                        columns=[],
+                        rows=[],
+                        titles=[],
+                        suppress_empty_columns=True,
+                        suppress_empty_rows=True,
+                        format_string="0.#########",
+                        source_path="/cubes/Cube.views/Native.json",
+                    )
+                ),
+                _ti(
+                    "# --- Delete Native View: Native''O from Cube: Cube ---\r\n"
+                    "IF( ViewExists('Cube', 'Native''O') = 1 );\r\n"
+                    "    ViewDestroy('Cube', 'Native''O');\r\n"
+                    "ENDIF;",
+                    "# --- Create Native View: Native''O in Cube: Cube ---\r\n"
+                    "IF( ViewExists('Cube', 'Native''O') = 0 );\r\n"
+                    "    ViewCreate('Cube', 'Native''O', 0);\r\n"
+                    "ENDIF;",
+                ),
+                id="nativeview-update",
+            ),
+            pytest.param(
+                lambda: nativeview.build_native_view_delete_ti(
+                    NativeView(
+                        name="Native'O",
+                        columns=[],
+                        rows=[],
+                        titles=[],
+                        suppress_empty_columns=True,
+                        suppress_empty_rows=True,
+                        format_string="0.#########",
+                        source_path="/cubes/Cube.views/Native.json",
+                    )
+                ),
+                _ti(
+                    "# --- Delete Native View: Native''O from Cube: Cube ---",
+                    "IF( ViewExists('Cube', 'Native''O') = 1 );",
+                    "    ViewDestroy('Cube', 'Native''O');",
+                    "ENDIF;",
+                ),
+                id="nativeview-delete",
+            ),
+            pytest.param(
+                lambda c=_rule_cube("['A']=N:1;"): cube.build_cube_update_ti(c),
+                _ti(
+                    "# --- Update Cube Rules: RuleCube ---",
+                    "IF( CubeExists('RuleCube') = 1 );",
+                    "    CubeRuleSet('RuleCube', '[''A'']=N:1;');",
+                    "ENDIF;",
+                ),
+                id="rule-create-via-cube-update",
+            ),
+            pytest.param(
+                lambda c=_rule_cube("['A']=N:2;"): cube.build_cube_update_ti(c),
+                _ti(
+                    "# --- Update Cube Rules: RuleCube ---",
+                    "IF( CubeExists('RuleCube') = 1 );",
+                    "    CubeRuleSet('RuleCube', '[''A'']=N:2;');",
+                    "ENDIF;",
+                ),
+                id="rule-update-via-cube-update",
+            ),
+            pytest.param(
+                lambda c=_rule_cube(""): cube.build_cube_update_ti(c),
+                _ti(
+                    "# --- Update Cube Rules: RuleCube ---",
+                    "IF( CubeExists('RuleCube') = 1 );",
+                    "    CubeRuleSet('RuleCube', '');",
+                    "ENDIF;",
+                ),
+                id="rule-delete-via-cube-update",
+            ),
+        ],
+    )
+    def test_builders_generate_exact_ti(self, actual, expected):
+        assert actual() == expected

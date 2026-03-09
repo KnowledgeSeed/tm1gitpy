@@ -1,14 +1,13 @@
 import filecmp
+import tempfile
 from pathlib import Path
-import pytest
 
+import pytest
+from TM1py import TM1Service
 
 from test_integration.test_base import load_fixture_model_tm1gitpy, export_check_no_errors, tm1_service
-from TM1py import TM1Service
 from tm1_git_py.serializer import serialize_model
 
-import tempfile
-import filecmp
 
 @pytest.mark.usefixtures("tm1_service")
 class TestExport:

@@ -242,7 +242,7 @@ def build_hierarchy_create_ti(hierarchy: Hierarchy, dimension_name: Optional[str
         # Only needed for named hierarchies.
         # The 'Leaves' hierarchy (same name as dim) is created automatically with the Dimension.
 
-        lines.append(f"IF( HierarchyExists('{dim_clean}', '{hier_clean}') = 1 );")
+        lines.append(f"IF( HierarchyExists('{dim_clean}', '{hier_clean}') = 0 );")
         lines.append(f"   HierarchyCreate('{dim_clean}', '{hier_clean}');")
         lines.append(f"ENDIF;")
 

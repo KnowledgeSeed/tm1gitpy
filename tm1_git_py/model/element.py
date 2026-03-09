@@ -181,7 +181,6 @@ def build_element_update_ti(element: Element) -> str:
     Generates TI code to rename an element while RETAINING DATA.
     Uses 'DimensionElementPrincipalNameChange'.
     """
-    dimension_name, hierarchy_name = _element_context_from_path(source_path=element.source_path)
     element_clean = _escape_ti(element.name)
 
     lines = []

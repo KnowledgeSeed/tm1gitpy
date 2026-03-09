@@ -2,11 +2,14 @@ import logging
 import os
 import socket
 import sys
+import uuid
 from pathlib import Path
 from typing import Optional
 
 import pytest
 import requests
+import TM1py
+from TM1py import TM1Service
 from testcontainers.compose import DockerCompose
 
 from tm1_git_py.config import TM1ServerConfig, TM1ServersConfig
@@ -131,3 +134,40 @@ def export_check_no_errors(self, filter_rules: list[str] = None)  -> Model:
         assert not category_errors, f"Found errors in {category}: {category_errors}"
     return filter(model, filter_rules) if filter_rules else model
 
+
+def execute_ephemeral_ti(tm1_client, prolog_code: str) -> str:
+    """
+    Execute TI code in a transient process and always clean up the process artifact.
+
+    Returns the generated process name for optional post-assertions in tests.
+    """
+    process_name = f"}}git_test_{uuid.uuid4().hex}"
+    process = TM1py.Process(
+        name=process_name,
+        prolog_procedure=prolog_code,
+        has_security_access=True,
+    )
+
+    try:
+        tm1_client.processes.create(process)
+        tm1_client.processes.execute(process_name)
+        return process_name
+    finally:
+        if tm1_client.processes.exists(process_name):
+            tm1_client.processes.delete(process_name)
+
+
+@pytest.mark.usefixtures("tm1_service")
+class TestTIEphemeralHelper:
+
+    @pytest.fixture(autouse=True)
+    def _tm1_service(self, tm1_service):
+        self.tm1_service: TM1Service = tm1_service
+
+    def test_execute_ephemeral_ti_uses_tm1_service_fixture_and_cleans_up_process(self):
+        process_name = execute_ephemeral_ti(
+            tm1_client=self.tm1_service,
+            prolog_code="# no-op integration smoke test",
+        )
+
+        assert not self.tm1_service.processes.exists(process_name)

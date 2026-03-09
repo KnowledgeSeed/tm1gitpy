@@ -4,7 +4,7 @@ import uuid
 import re
 import TM1py
 from pathlib import Path
-from typing import Optional, Union, TypeVar, Any
+from typing import Optional, Union, TypeVar
 
 from TM1py import TM1Service
 from requests import Response
