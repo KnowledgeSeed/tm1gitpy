@@ -1,8 +1,12 @@
 import fnmatch
+import logging
 from typing import Any, List, Mapping, Optional
 
 from tm1_git_py.changeset import Change, Changeset, ChangeType, normalize_source_path
 from tm1_git_py.model import Model
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_TM1_TECHNICAL_OBJECTS = []
@@ -30,6 +34,7 @@ def import_filter(path: str) -> List[str]:
     filter_rules = []
     with open(rules_path, 'r', encoding='utf-8') as f:
         filter_rules = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+    logger.info("Loaded %d filter rule(s) from '%s'", len(filter_rules), path)
     return filter_rules
 
 
@@ -91,8 +96,17 @@ def _expand_removed_paths(paths_to_remove: set[str], all_paths: List[str]) -> se
 
 def filter(model: Model, filter_rules: List[str]) -> Model:
     if not filter_rules:
+        logger.debug("No filter rules provided, returning original model")
         return model
 
+    logger.info(
+        "Applying model filter rules (rules=%d dimensions=%d cubes=%d processes=%d chores=%d)",
+        len(filter_rules),
+        len(model.dimensions),
+        len(model.cubes),
+        len(model.processes),
+        len(model.chores),
+    )
     all_objects = model.get_all_objects_with_paths()
     paths_to_remove = set()
 
@@ -145,6 +159,14 @@ def filter(model: Model, filter_rules: List[str]) -> Model:
     )
 
     # _perform_dependency_check(filtered_model)
+    logger.info(
+        "Filter finished (removed_paths=%d dimensions=%d cubes=%d processes=%d chores=%d)",
+        len(expanded_paths_to_remove),
+        len(filtered_model.dimensions),
+        len(filtered_model.cubes),
+        len(filtered_model.processes),
+        len(filtered_model.chores),
+    )
 
     return filtered_model
 
@@ -170,6 +192,7 @@ def filter_changeset(
         filter_children: Optional[bool] = False
 ) -> Changeset:
     if not filter_rules:
+        logger.debug("No changeset filter rules provided, returning original changeset")
         return changeset
 
     def _change_path(change: Change) -> str:
@@ -221,5 +244,11 @@ def filter_changeset(
     filtered_changeset.errors = dict(changeset.errors)
     filtered_changeset.last_execution_id = changeset.last_execution_id
     filtered_changeset.sort()
+    logger.info(
+        "Filtered changeset from %d to %d change(s) (filter_children=%s)",
+        len(changeset.changes),
+        len(filtered_changeset.changes),
+        filter_children,
+    )
 
     return filtered_changeset

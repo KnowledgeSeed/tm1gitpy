@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import List
@@ -8,6 +9,8 @@ from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
 
+
+logger = logging.getLogger(__name__)
 
 
 def _handle_long_path(file_path) -> str:
@@ -26,6 +29,14 @@ def _handle_long_path(file_path) -> str:
 
 
 def serialize_model(model: Model, dir):
+    logger.info(
+        "Serializing model to '%s' (dimensions=%d cubes=%d processes=%d chores=%d)",
+        dir,
+        len(model.dimensions),
+        len(model.cubes),
+        len(model.processes),
+        len(model.chores),
+    )
     os.makedirs(dir, exist_ok=True)
 
     dir = _handle_long_path(dir)
@@ -49,9 +60,11 @@ def serialize_model(model: Model, dir):
     if (model.chores):
         os.makedirs(chores_dir, exist_ok=True)
     serialize_chores(model.chores, chores_dir)
+    logger.info("Model serialization finished for '%s'", dir)
 
 
 def serialize_dimensions(dimensions: List[Dimension], dim_dir):
+    logger.debug("Serializing %d dimension(s) into '%s'", len(dimensions), dim_dir)
     for dim in dimensions:
         for _hierarchy in dim.hierarchies:
             hierarchy_dir = dim_dir + '/' + dim.name + '.hierarchies'
@@ -68,6 +81,7 @@ def serialize_dimensions(dimensions: List[Dimension], dim_dir):
 
 
 def serialize_cubes(cubes: List[Cube], cubes_dir):
+    logger.debug("Serializing %d cube(s) into '%s'", len(cubes), cubes_dir)
     for cube in cubes:
         if cube.rules:
             rule_text = cube.get_rule_text()
@@ -90,6 +104,7 @@ def serialize_cubes(cubes: List[Cube], cubes_dir):
                         mdx_file.write(view.mdx)
 
 def serialize_processes(processes: List[Process], process_dir):
+    logger.debug("Serializing %d process(es) into '%s'", len(processes), process_dir)
     for process in processes:
         with open(process_dir + '/' + process.name + '.ti', 'w', encoding='utf-8', newline='\n') as processti_file:
             processti_file.write(process.ti.ti_as_string())
@@ -99,6 +114,7 @@ def serialize_processes(processes: List[Process], process_dir):
 
 
 def serialize_chores(chores: List[Chore], chores_dir):
+    logger.debug("Serializing %d chore(s) into '%s'", len(chores), chores_dir)
     for chore in chores:
         with open(chores_dir + '/' + chore.name + '.json', 'w', encoding='utf-8') as chore_file:
             chore_file.write(chore.as_json())

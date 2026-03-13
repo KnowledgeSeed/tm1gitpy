@@ -92,7 +92,10 @@ Options:
   -mo, --model_output_folder    Output model folder (default: export)
   -o, --overwrite              Overwrite existing folder
   -f, --filter FILE            Filter file path
+  --log-level LEVEL            Log level: DEBUG, INFO, WARNING, ERROR
 ```
+
+Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment; `--log-level` takes precedence.
 
 ## Examples
 
