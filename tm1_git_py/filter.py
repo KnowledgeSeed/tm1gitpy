@@ -5,7 +5,32 @@ from tm1_git_py.changeset import Change, Changeset, ChangeType, normalize_source
 from tm1_git_py.model import Model
 
 
-DEFAULT_TM1_TECHNICAL_OBJECTS = []
+DEFAULT_TM1_TECHNICAL_OBJECTS = ["-/cubes/}*", "-/dimensions/}*", "-/processes/}*"]
+
+
+def _normalize_match_text(text: str) -> str:
+    return (text or "").replace("\\", "/").lstrip("/").lower()
+
+
+def _normalize_rule_for_matching(rule: str) -> str:
+    if not rule:
+        return rule
+    op = rule[0]
+    if op not in {"+", "-"}:
+        return _normalize_match_text(rule)
+    pattern = rule[1:].lstrip("/")
+    return f"{op}{pattern.lower()}"
+
+
+def should_exclude_path(path: str, filter_rules: List[str]) -> bool:
+    """Return True when the effective winning rule excludes the provided object path."""
+    if not filter_rules:
+        return False
+
+    normalized_path = _normalize_match_text(path)
+    normalized_rules = [_normalize_rule_for_matching(rule) for rule in filter_rules]
+    winning_rule = _get_winning_rule(normalized_path, normalized_rules)
+    return bool(winning_rule and winning_rule["op"] == "-")
 
 def _perform_dependency_check(model: Model):
     kept_dim_names = {d.name for d in model.dimensions}
