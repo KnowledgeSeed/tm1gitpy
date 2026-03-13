@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from typing import Dict, List
@@ -21,7 +22,12 @@ from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 
 
+logger = logging.getLogger(__name__)
+
+
 def export(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
+    logger.info("TM1 export started")
+
     _dimensions, _dim_errors = dimensions_to_model(tm1_conn)
 
     _cubes, _cube_errors = cubes_to_model(tm1_conn, _dimensions)
@@ -42,6 +48,18 @@ def export(tm1_conn: TM1Service) -> tuple[Model, Dict[str, str]]:
     _errors['process'] = _process_errors
     _errors['chore'] = _chore_errors
 
+    total_errors = sum(len(category_errors) for category_errors in _errors.values())
+    if total_errors:
+        logger.warning(
+            "TM1 export completed with errors: dimensions=%d cubes=%d processes=%d chores=%d",
+            len(_dim_errors),
+            len(_cube_errors),
+            len(_process_errors),
+            len(_chore_errors),
+        )
+    else:
+        logger.info("TM1 export completed without errors")
+
     return _model, _errors
 
 
@@ -49,6 +67,7 @@ def chores_to_model(tm1_conn) -> tuple[Dict[str, Chore], Dict[str, str]]:
     all_chores = tm1_conn.chores.get_all_names()
     _chores: Dict[str, Chore] = {}
     _errors: Dict[str, str] = {}
+    logger.info("Exporting %d chores", len(all_chores))
 
     for chore_name in all_chores:
         chore = tm1_conn.chores.get(chore_name=chore_name)
@@ -91,6 +110,7 @@ def procs_to_model(tm1_conn) -> tuple[Dict[str, Process], Dict[str, str]]:
 
     _processes: Dict[str, Process] = {}
     _errors: Dict[str, str] = {}
+    logger.info("Exporting %d processes", len(all_procs))
 
     for process_name in all_procs:
         process = tm1_conn.processes.get(name_process=process_name)
@@ -108,11 +128,15 @@ def procs_to_model(tm1_conn) -> tuple[Dict[str, Process], Dict[str, str]]:
     return _processes, _errors
 
 
-def cubes_to_model(tm1_conn : TM1Service, _dimensions: Dict[str, Dimension]) -> tuple[Dict[str, Cube], Dict[str, str]]:
+def cubes_to_model(
+    tm1_conn: TM1Service,
+    _dimensions: Dict[str, Dimension],
+) -> tuple[Dict[str, Cube], Dict[str, str]]:
     all_cubes = tm1_conn.cubes.get_all_names(skip_control_cubes=False)
 
     _cubes: Dict[str, Cube] = {}
     _errors: Dict[str, str] = {}
+    logger.info("Exporting %d cubes", len(all_cubes))
 
     for cube_name in all_cubes:
         try:
@@ -143,6 +167,11 @@ def cubes_to_model(tm1_conn : TM1Service, _dimensions: Dict[str, Dimension]) -> 
                 for dimension in cube.dimensions:
                     _dimension = _dimensions.get(dimension)
                     if not _dimension:
+                        logger.warning(
+                            "Cube '%s' references missing dimension '%s'",
+                            cube_name,
+                            dimension,
+                        )
                         _errors[cube_name] = f"Dimension '{dimension}' not found"
                     else:
                         _cube.dimensions.append(_dimension)
@@ -175,6 +204,7 @@ def cubes_to_model(tm1_conn : TM1Service, _dimensions: Dict[str, Dimension]) -> 
 
 
         except Exception as e:
+            logger.error("Failed to export cube '%s'", cube_name, exc_info=True)
             _errors[cube_name] = str(e)
 
     return _cubes, _errors
@@ -187,6 +217,7 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
 
     _errors: Dict[str, str] = {}
     _dimensions: Dict[str, Dimension] = {}
+    logger.info("Exporting %d dimensions", len(all_dims))
     for dim_name in all_dims:
         dim = tm1_conn.dimensions.get(dimension_name=dim_name)
         default_hierarchy = Hierarchy.from_dict(dim.default_hierarchy.body_as_dict, dimension_name=dim_name)
@@ -217,10 +248,17 @@ def dimensions_to_model(tm1_conn) -> tuple[Dict[str, Dimension], Dict[str, str]]
                         _subset = Subset(name=subset_name,
                                          expression=subset.expression,
                                          source_path=os.path.join('dimensions', f"{dim_name}.hierarchies",
-                                                                  f"{hierarchy.name}.subsets",
-                                                                  f"{subset.name}.json").replace('\\', '/'))
+                                                                 f"{hierarchy.name}.subsets",
+                                                                 f"{subset.name}.json").replace('\\', '/'))
                         _hierarchy.subsets.append(_subset)
                     except Exception as e:
+                        logger.error(
+                            "Failed to export subset '%s' for dimension '%s' hierarchy '%s'",
+                            subset_name,
+                            dim_name,
+                            hierarchy.name,
+                            exc_info=True,
+                        )
                         _errors[dim_name] = str(e)
     return _dimensions, _errors
 
