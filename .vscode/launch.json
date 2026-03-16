@@ -27,7 +27,25 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
-            "args": ["export", "--server=local", "--model_output_folder=export", "--overwrite"]
+            "args": ["export", "--server=seederbpsp", "--model_output_folder=export2", "--overwrite"]
+        },
+        {
+            "name": "Compare",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tm1_git_py/main.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "compare",
+                "--source=export",
+                "--target=export2",
+                "--output=changeset.yml",
+                "--mode=full",
+                "--format=yaml"
+            ]
         }
     ]
 }

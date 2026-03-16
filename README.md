@@ -14,10 +14,22 @@ A utility for exporting and comparing TM1 models in Git-friendly formats, enabli
 
 ### From Source
 
+To **use** the package (runtime dependencies only):
+
 ```bash
 git clone <repository-url>
 cd tm1_git_py
 pip install -e .
+```
+
+Or install from a requirements file: `pip install -r requirements.txt` then `pip install -e .`
+
+To **run tests** or develop (runtime + test dependencies):
+
+```bash
+pip install -r requirements-dev.txt
+# or
+pip install -e ".[dev]"
 ```
 
 ### Requirements
@@ -25,7 +37,7 @@ pip install -e .
 - Python 3.10 or higher
 - TM1py >= 2.1, < 3.0
 - requests >= 2.25
-- tm1_bedrock_py >= 1.1.4
+- PyYAML >= 6.0
 
 ## Configuration
 

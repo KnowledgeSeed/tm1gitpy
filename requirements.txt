@@ -1,8 +1,3 @@
 TM1py>=2.1,<3.0
-PyYAML>=6.0
-pytest>=7.0
-nuitka
-pytest-mock
-tm1-bedrock-py>=1.1.4
 requests>=2.25
-testcontainers>=4.0.0
+PyYAML>=6.0
