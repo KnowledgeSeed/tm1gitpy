@@ -168,6 +168,7 @@ class Changeset:
         - full_statement: full unified rule text for the cube
         """
         cube_rule_texts = cube_rule_texts or {}
+        before_count = len(self.changes)
         grouped_rule_changes: dict[str, list[Change]] = {}
         non_rule_changes: list[Change] = []
 
@@ -206,6 +207,12 @@ class Changeset:
             )
 
         self.changes = non_rule_changes + unified_rule_changes
+        logger.debug(
+            "Unified rule changes (before=%d after=%d cubes=%d)",
+            before_count,
+            len(self.changes),
+            len(unified_rule_changes),
+        )
 
     def apply(
             self,
@@ -230,6 +237,7 @@ class Changeset:
 
     def sort(self):
         if self.has_changes():
+            before_count = len(self.changes)
             def _change_key(change: Change) -> tuple[int, int, str, str]:
                 body = change.body
                 source_path = change.source_path or getattr(body, "source_path", "") or ""
@@ -256,21 +264,30 @@ class Changeset:
                 )
 
             self.changes.sort(key=_change_key)
+            logger.debug("Sorted changeset entries (count=%d)", before_count)
 
 
     def export(self, file_path: Union[str, Path]) -> None:
         """Export changeset in fixture-compatible flat YAML format."""
 
+        logger.info("Exporting changeset '%s' to '%s'", self.changeset_name, file_path)
         payload = self.to_json()
 
         output_path = Path(file_path).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+        logger.info("Exported changeset '%s' with %d change(s)", self.changeset_name, len(self.changes))
 
     def to_json(self, changeset_name: Optional[str] = None) -> dict[str, Any]:
         """Build a fixture-compatible changeset payload as a JSON-serializable dict."""
 
         self.sort()
+        effective_name = changeset_name or self.changeset_name
+        logger.info(
+            "Serializing changeset '%s' to payload (changes=%d)",
+            effective_name,
+            len(self.changes),
+        )
 
         export_entries = []
         summary = {"add": 0, "remove": 0, "modify": 0}
@@ -286,11 +303,18 @@ class Changeset:
             })
             summary[change_type] = summary.get(change_type, 0) + 1
 
-        return {
-            "changeset_name": changeset_name or self.changeset_name,
+        payload = {
+            "changeset_name": effective_name,
             "summary": summary,
             "changes": export_entries
         }
+        logger.debug(
+            "Serialized changeset summary add=%d remove=%d modify=%d",
+            summary.get("add", 0),
+            summary.get("remove", 0),
+            summary.get("modify", 0),
+        )
+        return payload
 
 
 # --------------------------------------------------------------------------------
@@ -308,12 +332,12 @@ def normalize_source_path(source_path: str) -> str:
     return normalized
 
 
-def _iter_changeset_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _iter_changeset_entries(payload: dict[str, Any]) -> list[Any]:
     """Return fixture-style changeset entries from payload['changes']."""
     changes = payload.get("changes", [])
     if not isinstance(changes, list):
         raise ValueError("changeset payload must contain a list under 'changes'")
-    return [entry for entry in changes if isinstance(entry, dict)]
+    return changes
 
 
 def _path_stem(source_path: Optional[str]) -> str:
@@ -536,16 +560,18 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
         source_path: <path>
         body: <object payload>
     """
+    logger.info("Importing changeset from '%s'", changeset_file)
     try:
         payload = _load_changeset_payload(changeset_file)
     except Exception as exc:
-        logger.error("Failed to load changeset payload from '%s': %s", changeset_file, exc)
+        logger.error("Failed to load changeset payload from '%s': %s", changeset_file, exc, exc_info=True)
         raise
 
     entries = _iter_changeset_entries(payload)
 
     payload_name = payload.get("changeset_name") if isinstance(payload, dict) else None
     changeset = Changeset(changeset_name=payload_name or None)
+    logger.debug("Loaded raw changeset payload '%s' with %d entrie(s)", payload_name or "", len(entries))
 
     for entry in entries:
         if not isinstance(entry, dict):
@@ -574,7 +600,12 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
                 )
             )
         except Exception as exc:
-            logger.warning("Skipping unsupported/malformed changeset entry: %s (%s)", entry, exc)
+            logger.warning(
+                "Skipping unsupported/malformed changeset entry object_type=%s source_path=%s error=%s",
+                entry.get("object_type"),
+                entry.get("source_path"),
+                exc,
+            )
             changeset.errors.setdefault("import", []).append({
                 "entry": entry,
                 "error": str(exc),
@@ -582,6 +613,12 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
             continue
 
     changeset.sort()
+    logger.info(
+        "Imported changeset '%s' with %d change(s), import errors=%d",
+        changeset.changeset_name,
+        len(changeset.changes),
+        len(changeset.errors.get("import", [])),
+    )
     return changeset
 
 
@@ -696,4 +733,3 @@ def _deserialize_object_from_payload(object_type: Optional[str],
     if builder is None:
         raise ValueError(f"Unsupported object type '{object_type}' in changeset import.")
     return builder(payload, source_path)
-

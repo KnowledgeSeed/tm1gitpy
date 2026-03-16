@@ -11,7 +11,8 @@ if TYPE_CHECKING:
     from tm1_git_py.comparator import Comparator
     from tm1_git_py.deserializer import deserialize_model
     from tm1_git_py.exporter import export
-    from tm1_git_py.filter import filter
+    from tm1_git_py.filter import filter as apply_filter
+    from tm1_git_py.filter import filter_changeset, should_exclude_path
     from tm1_git_py.serializer import serialize_model
 
 __all__ = [
@@ -19,6 +20,9 @@ __all__ = [
     "Comparator",
     "deserialize_model",
     "filter",
+    "apply_filter",
+    "filter_changeset",
+    "should_exclude_path",
     "serialize_model",
     "export",
 ]
@@ -27,13 +31,20 @@ _LAZY_IMPORTS = {
     "Changeset": ("tm1_git_py.changeset", "Changeset"),
     "Comparator": ("tm1_git_py.comparator", "Comparator"),
     "deserialize_model": ("tm1_git_py.deserializer", "deserialize_model"),
-    "filter": ("tm1_git_py.filter", "filter"),
+    "apply_filter": ("tm1_git_py.filter", "filter"),
+    "filter_changeset": ("tm1_git_py.filter", "filter_changeset"),
+    "should_exclude_path": ("tm1_git_py.filter", "should_exclude_path"),
     "serialize_model": ("tm1_git_py.serializer", "serialize_model"),
     "export": ("tm1_git_py.exporter", "export"),
 }
 
 
 def __getattr__(name: str) -> Any:
+    if name == "filter":
+        module = import_module("tm1_git_py.filter")
+        globals()[name] = module
+        return module
+
     if name in _LAZY_IMPORTS:
         module_name, attr_name = _LAZY_IMPORTS[name]
         module = import_module(module_name)
