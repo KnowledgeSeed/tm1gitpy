@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -20,6 +21,9 @@ from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 
 
+logger = logging.getLogger(__name__)
+
+
 
 def _handle_long_path(file_path) -> str:
     file_path = os.path.abspath(file_path)
@@ -37,6 +41,7 @@ def _handle_long_path(file_path) -> str:
 
 
 def deserialize_model(dir: str) -> tuple[Model, dict[str, str]]:
+    logger.info("Deserializing model from '%s'", dir)
     dir = _handle_long_path(dir)
 
     dimensions_dir = dir + '/dimensions'
@@ -57,13 +62,24 @@ def deserialize_model(dir: str) -> tuple[Model, dict[str, str]]:
                    processes=list(_processes.values()),
                    chores=list(_chores.values()))
     _errors = _dim_errors | _cube_errors | _process_errors | _chore_errors
+    logger.info(
+        "Deserialized model from '%s' (dimensions=%d cubes=%d processes=%d chores=%d errors=%d)",
+        dir,
+        len(_dimensions),
+        len(_cubes),
+        len(_processes),
+        len(_chores),
+        len(_errors),
+    )
     return _model, _errors
 
 
 def deserialize_chores(chore_dir) -> tuple[Dict[str, Chore], Dict[str, str]]:
     chores: Dict[str, Chore] = {}
     chores_errors: Dict[str, str] = {}
-    if not os.path.exists(chore_dir): return chores, chores_errors
+    logger.debug("Deserializing chores from '%s'", chore_dir)
+    if not os.path.exists(chore_dir):
+        return chores, chores_errors
 
     for file_name in os.listdir(chore_dir):
         if not file_name.endswith('.json'): continue
@@ -89,12 +105,14 @@ def deserialize_chores(chore_dir) -> tuple[Dict[str, Chore], Dict[str, str]]:
         except Exception as e:
             chores_link = Chore.as_link(file_name)
             chores_errors[chores_link] = str(e)
+            logger.warning("Failed to deserialize chore '%s': %s", file_name, e, exc_info=True)
     return chores, chores_errors
 
 
 def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, str]]:
     processes: Dict[str, Process] = {}
     process_errors: Dict[str, str] = {}
+    logger.debug("Deserializing processes from '%s'", process_dir)
 
     files = directory_to_dict(process_dir)
     for file_name in list(files.keys()):
@@ -104,6 +122,7 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
 
         if file_name_ext != 'json' and file_name_ext != 'ti':
             process_errors[process_link] = 'not a process json or ti file'
+            logger.warning("Skipping non-process artifact: '%s'", file_name)
             continue
         if file_name_ext != 'json':
             continue
@@ -118,11 +137,13 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
                 process_json = json.loads(data)
             except Exception as e:
                 process_errors[process_link] = e.__repr__()
+                logger.warning("Failed to parse process json '%s': %s", file_name, e, exc_info=True)
                 continue
 
         ti_file_name = file_name_base + '.ti'
         if ti_file_name not in files:
             process_errors[process_link] = 'related ti not found at ' + Process.as_link(ti_file_name)
+            logger.warning("Missing TI pair for process json '%s'", file_name)
             continue
 
         with open(os.path.join(process_dir, ti_file_name), 'r', encoding='utf-8') as file:
@@ -131,6 +152,7 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
                 process_ti = TI.from_string(data)
             except Exception as e:
                 process_errors[process_link] = e.__repr__()
+                logger.warning("Failed to parse process TI '%s': %s", ti_file_name, e, exc_info=True)
             finally:
                 files.pop(ti_file_name, None)
 
@@ -151,6 +173,7 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
             processes[process_json['Name']] = _process
         except Exception as e:
             process_errors[process_link] = e.__repr__()
+            logger.warning("Failed to build process object for '%s': %s", file_name, e, exc_info=True)
 
     return processes, process_errors
 
@@ -158,6 +181,7 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
 def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[str, str]]:
     dimensions: Dict[str, Dimension] = {}
     dimension_errors: Dict[str, str] = {}
+    logger.debug("Deserializing dimensions from '%s'", dimension_dir)
 
     files = directory_to_dict(dimension_dir)
     for file_name in list(files.keys()):
@@ -166,6 +190,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
 
         if file_name_ext not in ['json', 'hierarchies']:
             dimension_errors[dim_link] = 'not a dimension json or .hierarchies folder'
+            logger.warning("Skipping non-dimension artifact: '%s'", file_name)
             continue
         if file_name_ext != 'json':
             continue
@@ -179,6 +204,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
                 dim_json = json.loads(data)
             except Exception as e:
                 dimension_errors[dim_link] = e.__repr__()
+                logger.warning("Failed to parse dimension json '%s': %s", file_name, e, exc_info=True)
                 continue
 
         try:
@@ -188,6 +214,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
                                    source_path=relative_path)
         except Exception as e:
             dimension_errors[dim_link] = e.__repr__()
+            logger.warning("Failed to build dimension object for '%s': %s", file_name, e, exc_info=True)
             continue
 
         hier_dir_name = file_name_base + '.hierarchies'
@@ -195,6 +222,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
 
         if hier_dir_name not in files and not os.path.isdir(hier_dir_path):
             dimension_errors[dim_link] = 'no hierarchies found'
+            logger.warning("No hierarchy directory found for dimension '%s'", file_name)
             continue
 
         hiers = files.get(hier_dir_name)
@@ -204,6 +232,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
 
             if file_name_ext not in ['json', 'subsets']:
                 dimension_errors[hier_link] = 'not a hierarchy json or .subset folder'
+                logger.warning("Skipping non-hierarchy artifact: '%s'", hier_file_name)
                 continue
             if file_name_ext != 'json':
                 continue
@@ -261,6 +290,13 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
                             _dimension.defaultHierarchy = _hierarchy
                 except Exception as e:
                     dimension_errors[hier_link] = e.__repr__()
+                    logger.warning(
+                        "Failed to parse/build hierarchy '%s' for dimension '%s': %s",
+                        hier_file_name,
+                        file_name,
+                        e,
+                        exc_info=True,
+                    )
 
                 subset_dir_name = hier_file_name_base + '.subsets'
                 subset_dir_path = os.path.join(hier_dir_path, subset_dir_name)
@@ -281,9 +317,17 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
                                 _hierarchy.subsets.append(_subset)
                             except Exception as e:
                                 dimension_errors[subset_link] = e.__repr__()
+                                logger.warning(
+                                    "Failed to parse subset '%s' for hierarchy '%s': %s",
+                                    subset_file_name,
+                                    hier_file_name_base,
+                                    e,
+                                    exc_info=True,
+                                )
 
         if not _dimension.defaultHierarchy:
             dimension_errors[dim_link] = 'no default hierarchy'
+            logger.warning("No default hierarchy resolved for dimension '%s'", file_name)
             continue
         dimensions[_dimension.name] = _dimension
     return dimensions, dimension_errors
@@ -292,6 +336,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
 def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dict[str, Cube], Dict[str, str]]:
     cubes: Dict[str, Cube] = {}
     cube_errors: Dict[str, str] = {}
+    logger.debug("Deserializing cubes from '%s'", cubes_dir)
 
     files = directory_to_dict(cubes_dir)
     for file_name in list(files.keys()):
@@ -300,6 +345,7 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
 
         if file_name_ext not in ['json', 'rules', 'views']:
             cube_errors[cube_link] = 'not a dimension json or .rules or .views folder'
+            logger.warning("Skipping non-cube artifact: '%s'", file_name)
             continue
         if file_name_ext != 'json':
             continue
@@ -343,6 +389,13 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                             view = json.loads(data)
                         except Exception as e:
                             cube_errors[file_name_base + '.views/' + view_file_name] = e.__repr__()
+                            logger.warning(
+                                "Failed to parse view '%s' for cube '%s': %s",
+                                view_file_name,
+                                file_name_base,
+                                e,
+                                exc_info=True,
+                            )
                 else:
                     continue
 
@@ -357,6 +410,13 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                                 mdx = file.read()
                             except Exception as e:
                                 cube_errors[file_name_base + '.mdx'] = e.__repr__()
+                                logger.warning(
+                                    "Failed to parse mdx '%s' for cube '%s': %s",
+                                    mdx_file_name,
+                                    file_name_base,
+                                    e,
+                                    exc_info=True,
+                                )
                         files.pop(mdx_file_name, None)
                     else:
                         cube_errors[mdx_file_name] = 'mdx not found'
@@ -382,6 +442,11 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                     )
                 else:
                     cube_errors[file_name_base + '.views/' + view_file_name] = "unsupported view type"
+                    logger.warning(
+                        "Unsupported view type for '%s' in cube '%s'",
+                        view_file_name,
+                        file_name_base,
+                    )
         cubes[_cube.name] = _cube
     return cubes, cube_errors
 
@@ -433,6 +498,9 @@ def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
 
 def directory_to_dict(path):
     """Converts a directory structure to a nested dictionary."""
+    if not os.path.isdir(path):
+        logger.debug("Directory '%s' not found, returning empty structure", path)
+        return {}
     directory_dict = {}
     for item in os.listdir(path):
         item_path = os.path.join(path, item)

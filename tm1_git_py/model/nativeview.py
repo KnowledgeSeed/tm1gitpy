@@ -49,7 +49,7 @@ class NativeView:
         self.name = name
         self.columns = [view_axis_selection_to_dict(item) for item in columns]
         self.rows = [view_axis_selection_to_dict(item) for item in rows]
-        self.titles = [view_axis_selection_to_dict(item) for item in titles]
+        self.titles = [view_title_selection_to_dict(item) for item in titles]
         self.suppress_empty_columns = suppress_empty_columns
         self.suppress_empty_rows = suppress_empty_rows
         self.format_string = format_string
@@ -147,6 +147,25 @@ def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
         body = dict(axis_selection)
     else:
         body = dict(axis_selection.body_as_dict)
+    subset = body.get("Subset")
+
+    if isinstance(subset, dict):
+        subset_dict = dict(subset)
+        hierarchy_bind = subset_dict.pop("Hierarchy@odata.bind", None)
+
+        if hierarchy_bind:
+            subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
+
+        body["Subset"] = subset_dict
+
+    return body
+
+
+def view_title_selection_to_dict(title_selection) -> Dict[str, Any]:
+    if isinstance(title_selection, dict):
+        body = dict(title_selection)
+    else:
+        body = dict(title_selection._construct_body())
     subset = body.get("Subset")
 
     if isinstance(subset, dict):
