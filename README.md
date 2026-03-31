@@ -77,16 +77,55 @@ python tm1_git_py/main.py filter --filter examples/filter.txt --model_folder mod
 Filter file format (one pattern per line, `#` for comments):
 
 ```
-# Include specific dimensions
-}Dimensions/}TimeDay
-}Dimensions/}TimePeriods
+# Exclude technical dimensions
+Dimensions('}*')
 
-# Include all cubes starting with "Sales"
-}Cubes/Sales*
+# Force-include all BW dimensions
+!Dimensions('BW*')
 
-# Include specific processes
-}Processes/bedrock.*
+# Exclude BW Comp dimensions
+Dimensions('BW Comp*')
+
+# Exclude technical hierarchies for all dimensions
+Dimensions('*')/Hierarchies('}*')
+
+# Chore task rules target the underlying process_name
+Chores('Daily*')/Tasks('LoadData')
 ```
+
+#### Filter Rule Logic
+
+- Each rule line is a TM1 URL-style selector, optionally prefixed with `!`.
+- No prefix means **exclude**.
+- `!` prefix means **force include**.
+- Wildcards in quoted identifiers are supported:
+  - `a*` -> starts with `a`
+  - `*a` -> ends with `a`
+  - `a` -> exact match
+- Rules are evaluated per entity level (dimensions, hierarchies, elements, subsets, cubes, views, processes, chores, tasks).
+- Hierarchy traversal is parent-first: if a parent is excluded, descendants are not evaluated (`parent_blocks_child`).
+- At each level, filter expression is composed as:
+  - base excludes: `not (<exclude_1>) and not (<exclude_2>) and ...`
+  - plus force includes: `or (<include_group>)`
+  - effective shape: `(not (<exclude_1>) and not (<exclude_2>) and ...) or (<include_group>)`
+
+#### Supported Rule Patterns
+
+| Level | Pattern |
+| --- | --- |
+| Dimension | `Dimensions('<pattern>')` |
+| Hierarchy | `Dimensions('<dim_pattern>')/Hierarchies('<hier_pattern>')` |
+| Element | `Dimensions('<dim_pattern>')/Hierarchies('<hier_pattern>')/Elements('<elem_pattern>')` |
+| Subset | `Dimensions('<dim_pattern>')/Hierarchies('<hier_pattern>')/Subsets('<subset_pattern>')` |
+| Edge | `Dimensions('<dim_pattern>')/Hierarchies('<hier_pattern>')/Edges(...)` |
+| Cube | `Cubes('<pattern>')` |
+| View | `Cubes('<cube_pattern>')/Views('<view_pattern>')` |
+| Rule | `Cubes('<cube_pattern>')/Rules(...)` |
+| Process | `Processes('<pattern>')` |
+| Chore | `Chores('<pattern>')` |
+| Task | `Chores('<chore_pattern>')/Tasks('<process_name_pattern>')` |
+
+Use `!` prefix on any supported pattern to force-include matching objects.
 
 ### Command-Line Arguments
 
@@ -96,7 +135,7 @@ python tm1_git_py/main.py <command> [options]
 Commands:
   export    Export TM1 model from server
   filter    Filter an existing model export
-  compare   Compare two model versions
+  compare   Compare two model versions (Python API only; not yet implemented in CLI)
 
 Options:
   -s, --server SERVER           TM1 server name from tm1servers.yaml
@@ -116,6 +155,8 @@ See the [examples](examples/) directory for usage examples:
 - [filter.txt](examples/filter.txt) - Filter pattern examples
 
 For model comparison and changeset workflows, use the Python API (`tm1_git_py.comparator`, `tm1_git_py.changeset`, `tm1_git_py.apply`).
+
+For paginated element/subset fetching (e.g., large hierarchies), use `tm1_git_py.get_elements`, `tm1_git_py.get_subsets`, and related functions.
 
 ## Building Binary
 
@@ -147,16 +188,29 @@ tm1_git_py/
 │   ├── main.py          # CLI entry point
 │   ├── config.py        # Server configuration
 │   ├── exporter.py      # TM1 model export
+│   ├── hierarchy_export.py  # Hierarchy export logic
 │   ├── serializer.py    # Model serialization
 │   ├── deserializer.py  # Model deserialization
 │   ├── filter.py        # Object filtering
-│   ├── comaprator.py    # Compare TM1 models
+│   ├── comparator.py    # Compare TM1 models
 │   ├── changeset.py     # Build changeset
 │   ├── apply.py         # Apply changeset
+│   ├── logging_config.py   # Logging setup
+│   ├── changeset_status.py # Changeset status tracking
+│   ├── validation.py    # Validation utilities
+│   ├── tm1project_to_filter.py  # TM1 project to filter conversion
+│   ├── tm1py_ext/       # TM1py extensions and paginated services
+│   │   ├── paginated_element_service.py
+│   │   ├── paginated_subset_service.py
+│   │   └── paginated_edge_service.py
 │   └── model/           # Model data structures
+│       ├── element_attribute.py
+│       ├── task_summary.py
+│       └── ...
 ├── examples/            # Usage examples
 ├── docs/               # Documentation
-└── tests/              # Test suite
+├── tests/              # Test suite
+└── test_integration/   # Integration tests
 ```
 
 ## License

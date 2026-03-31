@@ -17,15 +17,10 @@ class Element:
     def __init__(
         self,
         name: str,
-        type: str,
-        *,
-        source_path: Optional[str] = None,
-        dimension_name: Optional[str] = None,
-        hierarchy_name: Optional[str] = None
+        type: str
     ):
         self.name = name
         self.type = type
-        self.source_path = source_path or self.as_link(dimension_name, hierarchy_name, name)
     """
     def __init__(self, data: dict):
         for key, value in data.items():
@@ -61,24 +56,23 @@ class Element:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], *,
-                  source_path: Optional[str] = None,
-                  dimension_name: Optional[str] = None,
-                  hierarchy_name: Optional[str] = None
-    ) -> "Element":
+    def from_dict(cls, data: Dict[str, Any]) -> "Element":
         name = data.get("name") or data.get("Name") or None
         return cls(
             name=name,
             type=data.get("type") or data.get("Type") or None,
-            source_path=source_path or cls.as_link(dimension_name, hierarchy_name, name)
         )
 
     @staticmethod
-    def as_link(dimension_name_base: Optional[str], hierarchy_name_base: Optional[str], name: Optional[str]) -> Optional[str]:
-        # dimensions/Dimension_A.hierarchies/Dimension_A.json/element1
-        if dimension_name_base and hierarchy_name_base and name:
-            return f"dimensions/{dimension_name_base}.hierarchies/{hierarchy_name_base}.json/{name}"
+    def uri_for(dimension_name: Optional[str], hierarchy_name: Optional[str], element_name: Optional[str]) -> Optional[str]:
+        if dimension_name and hierarchy_name and element_name:
+            return f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')/Elements('{element_name}')"
         return None
+
+    def uri(self, dimension_name: str, hierarchy_name: str) -> Optional[str]:
+        if not dimension_name or not hierarchy_name or not self.name:
+            return None
+        return self.uri_for(dimension_name, hierarchy_name, self.name)
 
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
@@ -95,22 +89,22 @@ def _edge_context_from_path(source_path: str) -> tuple[str, str]:
     return dimension_name, hierarchy_name
 
 
-def create_element(tm1_service: TM1Service, element: Element) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
+def create_element(tm1_service: TM1Service, element: Element, source_path: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _edge_context_from_path(source_path=source_path)
     element_object = TM1py.Element(name=element.name, element_type=element.type)
     logger.debug(f"Creating Element: {element.name} in Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.create(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element=element_object)
 
 
-def update_element(tm1_service: TM1Service, element: Element) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
+def update_element(tm1_service: TM1Service, element: Element, source_path: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _edge_context_from_path(source_path=source_path)
     element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name)
     element_object.element_type = element.type
     logger.debug(f"Updating Element: {element.name} in Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.update(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element=element_object)
 
 
-def delete_element(tm1_service: TM1Service, element: Element) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=element.source_path)
+def delete_element(tm1_service: TM1Service, element: Element, source_path: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _edge_context_from_path(source_path=source_path)
     logger.debug(f"Deleting Element: {element.name} of Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.delete(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element_name=element.name)

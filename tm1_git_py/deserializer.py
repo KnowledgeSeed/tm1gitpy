@@ -14,6 +14,7 @@ from tm1_git_py.model.hierarchy import Hierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.model import Model
+from tm1_git_py.model.disk_backed_list import DiskBackedList
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
 from tm1_git_py.model.subset import Subset
@@ -22,6 +23,110 @@ from tm1_git_py.model.ti import TI
 
 
 logger = logging.getLogger(__name__)
+
+
+def _hierarchy_jsonl_paths(hier_dir_path: str, hier_name: str) -> tuple[str, str, str]:
+    dimensions_dir = os.path.dirname(hier_dir_path)
+    model_root = os.path.dirname(dimensions_dir)
+    internal_hier_dir_path = os.path.join(model_root, ".dimensions", os.path.basename(hier_dir_path))
+    os.makedirs(internal_hier_dir_path, exist_ok=True)
+    return (
+        os.path.join(internal_hier_dir_path, f".{hier_name}.elements.jsonl"),
+        os.path.join(internal_hier_dir_path, f".{hier_name}.edges.jsonl"),
+        os.path.join(internal_hier_dir_path, f".{hier_name}.subsets.jsonl"),
+    )
+
+
+def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path: str) -> int:
+    decoder = json.JSONDecoder()
+    key_token = f'"{array_key}"'
+    waiting_for_open = False
+    in_array = False
+    buffer = ""
+    written = 0
+
+    with open(hierarchy_json_path, "r", encoding="utf-8") as src, open(jsonl_path, "w", encoding="utf-8") as dst:
+        for line in src:
+            if not in_array:
+                if waiting_for_open:
+                    open_idx = line.find("[")
+                    if open_idx == -1:
+                        continue
+                    in_array = True
+                    waiting_for_open = False
+                    buffer += line[open_idx + 1:]
+                else:
+                    key_idx = line.find(key_token)
+                    if key_idx == -1:
+                        continue
+                    open_idx = line.find("[", key_idx)
+                    if open_idx == -1:
+                        waiting_for_open = True
+                        continue
+                    in_array = True
+                    buffer += line[open_idx + 1:]
+            else:
+                buffer += line
+
+            while in_array:
+                buffer = buffer.lstrip()
+                if not buffer:
+                    break
+                if buffer[0] == "]":
+                    return written
+                if buffer[0] == ",":
+                    buffer = buffer[1:]
+                    continue
+                try:
+                    payload, end_pos = decoder.raw_decode(buffer)
+                except json.JSONDecodeError:
+                    break
+                dst.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+                dst.write("\n")
+                written += 1
+                buffer = buffer[end_pos:]
+
+    return written
+
+
+def _initialize_subset_jsonl_from_subset_dir(subset_dir_path: str, subset_jsonl_path: str) -> int:
+    written = 0
+    with open(subset_jsonl_path, "w", encoding="utf-8") as dst:
+        if not os.path.isdir(subset_dir_path):
+            return written
+        for subset_file_name in sorted(os.listdir(subset_dir_path)):
+            if not subset_file_name.endswith(".json"):
+                continue
+            subset_path = os.path.join(subset_dir_path, subset_file_name)
+            with open(subset_path, "r", encoding="utf-8") as src:
+                subset_json = json.load(src)
+            payload = {
+                "name": subset_json.get("Name") or subset_json.get("name"),
+                "expression": subset_json.get("Expression") or subset_json.get("expression"),
+            }
+            dst.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+            dst.write("\n")
+            written += 1
+    return written
+
+
+def _ensure_hierarchy_jsonls(
+    *,
+    hierarchy_json_path: str,
+    hier_dir_path: str,
+    hierarchy_name: str,
+    subset_dir_path: str,
+) -> tuple[str, str, str]:
+    elements_jsonl_path, edges_jsonl_path, subsets_jsonl_path = _hierarchy_jsonl_paths(hier_dir_path, hierarchy_name)
+
+    if not os.path.exists(elements_jsonl_path):
+        _stream_array_to_jsonl(hierarchy_json_path, "Elements", elements_jsonl_path)
+    if not os.path.exists(edges_jsonl_path):
+        _stream_array_to_jsonl(hierarchy_json_path, "Edges", edges_jsonl_path)
+    if not os.path.exists(subsets_jsonl_path):
+        _initialize_subset_jsonl_from_subset_dir(subset_dir_path, subsets_jsonl_path)
+
+    return elements_jsonl_path, edges_jsonl_path, subsets_jsonl_path
 
 
 
@@ -38,7 +143,6 @@ def _handle_long_path(file_path) -> str:
             file_path = "\\\\?\\" / file_path
             return str(file_path)
     return file_path
-
 
 def deserialize_model(dir: str) -> tuple[Model, dict[str, str]]:
     logger.info("Deserializing model from '%s'", dir)
@@ -88,8 +192,6 @@ def deserialize_chores(chore_dir) -> tuple[Dict[str, Chore], Dict[str, str]]:
             with open(os.path.join(chore_dir, file_name), 'r', encoding='utf-8') as file:
                 chore_json = json.load(file)
 
-            relative_path = os.path.join('chores', file_name).replace('\\', '/')
-
             tasks = []
             for task_data in chore_json.get('Tasks', []):
                 process_bind = task_data.get("Process@odata.bind", "")
@@ -100,10 +202,9 @@ def deserialize_chores(chore_dir) -> tuple[Dict[str, Chore], Dict[str, str]]:
             chores[chore_json['Name']] = Chore(name=chore_json['Name'], start_time=chore_json['StartTime'],
                                                dst_sensitive=chore_json['DSTSensitive'], active=chore_json['Active'],
                                                execution_mode=chore_json['ExecutionMode'],
-                                               frequency=chore_json['Frequency'], tasks=tasks,
-                                               source_path=relative_path)
+                                               frequency=chore_json['Frequency'], tasks=tasks)
         except Exception as e:
-            chores_link = Chore.as_link(file_name)
+            chores_link = Chore.uri_for(file_name_base)
             chores_errors[chores_link] = str(e)
             logger.warning("Failed to deserialize chore '%s': %s", file_name, e, exc_info=True)
     return chores, chores_errors
@@ -118,7 +219,7 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
     for file_name in list(files.keys()):
 
         file_name_base, dot, file_name_ext = file_name.rpartition('.')
-        process_link = Process.as_link(file_name)
+        process_link = Process.uri_for(file_name_base)
 
         if file_name_ext != 'json' and file_name_ext != 'ti':
             process_errors[process_link] = 'not a process json or ti file'
@@ -142,7 +243,7 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
 
         ti_file_name = file_name_base + '.ti'
         if ti_file_name not in files:
-            process_errors[process_link] = 'related ti not found at ' + Process.as_link(ti_file_name)
+            process_errors[process_link] = 'related ti not found at ' + Process.uri_for(file_name_base)
             logger.warning("Missing TI pair for process json '%s'", file_name)
             continue
 
@@ -157,9 +258,6 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
                 files.pop(ti_file_name, None)
 
         try:
-            relative_path = os.path.join('processes', file_name).replace('\\', '/')
-            data_source_dict = process_json.get('DataSource', {})
-
             _process = Process(
                 name=process_json['Name'],
                 hasSecurityAccess=process_json['HasSecurityAccess'],
@@ -168,7 +266,6 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
                 parameters=process_json['Parameters'],
                 variables=process_json['Variables'],
                 ti=process_ti,
-                source_path=relative_path
             )
             processes[process_json['Name']] = _process
         except Exception as e:
@@ -186,7 +283,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
     files = directory_to_dict(dimension_dir)
     for file_name in list(files.keys()):
         file_name_base, dot, file_name_ext = file_name.rpartition('.')
-        dim_link = Dimension.as_link(file_name)
+        dim_link = Dimension.uri_for(file_name_base)
 
         if file_name_ext not in ['json', 'hierarchies']:
             dimension_errors[dim_link] = 'not a dimension json or .hierarchies folder'
@@ -209,16 +306,14 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
 
         try:
             dim_name = dim_json['Name']
-            relative_path = os.path.join('dimensions', file_name).replace('\\', '/')
-            _dimension = Dimension(name=dim_name, hierarchies=[], defaultHierarchy=None,
-                                   source_path=relative_path)
+            _dimension = Dimension(name=dim_name, hierarchies=[], defaultHierarchy=None)
         except Exception as e:
             dimension_errors[dim_link] = e.__repr__()
             logger.warning("Failed to build dimension object for '%s': %s", file_name, e, exc_info=True)
             continue
 
         hier_dir_name = file_name_base + '.hierarchies'
-        hier_dir_path = file_path = os.path.join(dimension_dir, hier_dir_name)
+        hier_dir_path = os.path.join(dimension_dir, hier_dir_name)
 
         if hier_dir_name not in files and not os.path.isdir(hier_dir_path):
             dimension_errors[dim_link] = 'no hierarchies found'
@@ -227,8 +322,17 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
 
         hiers = files.get(hier_dir_name)
         for hier_file_name in list(hiers.keys()):
+            # Ignore temporary/in-progress hierarchy artifacts.
+            if (
+                ".tmp.json" in hier_file_name
+                or hier_file_name.endswith(".jsonl")
+                or hier_file_name.endswith(".meta.json")
+                or hier_file_name.endswith(".json.inprogress")
+                or hier_file_name.startswith(".")
+            ):
+                continue
             hier_file_name_base, dot, file_name_ext = hier_file_name.rpartition('.')
-            hier_link = Hierarchy.as_link(file_name_base, hier_file_name)
+            hier_link = Hierarchy.uri_for(file_name_base, hier_file_name_base)
 
             if file_name_ext not in ['json', 'subsets']:
                 dimension_errors[hier_link] = 'not a hierarchy json or .subset folder'
@@ -239,91 +343,53 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
 
             hiers.pop(hier_file_name, None)
 
-            hier_json = None
-            with open(os.path.join(hier_dir_path, hier_file_name), 'r', encoding='utf-8') as file:
-                try:
-                    data = file.read()
-                    hier_json = json.loads(data)
-                    hier_relative_path = os.path.join('dimensions', hier_dir_name, hier_file_name).replace('\\', '/')
-                    hier_name = hier_json.get('Name')
-                    elements = []
-                    for payload in hier_json.get("Elements", []):
-                        element_name = payload.get("name") or payload.get("Name")
-                        element_path = Element.as_link(dim_name, hier_name, element_name)
-                        elements.append(
-                            Element.from_dict(
-                                payload,
-                                source_path=element_path,
-                                dimension_name=dim_name,
-                                hierarchy_name=hier_name
-                            )
-                        )
-
-                    edges = []
-                    for payload in hier_json.get("Edges", []):
-                        parent_name = payload.get("parentName") or payload.get("ParentName") or payload.get("parent")
-                        component_name = payload.get("componentName") or payload.get("ComponentName") or payload.get("name")
-                        edge_path = Edge.as_link(dim_name, hier_name, component_name, parent_name)
-                        edges.append(
-                            Edge.from_dict(
-                                payload,
-                                source_path=edge_path,
-                                dimension_name=dim_name,
-                                hierarchy_name=hier_name
-                            )
-                        )
-
-                    _hierarchy = Hierarchy(
-                        name=hier_name,
-                        elements=elements,
-                        edges=edges,
-                        subsets=[],
-                        source_path=hier_relative_path
-                    )
-
-                    _dimension.hierarchies.append(_hierarchy)
-                    pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
-                    match = re.search(pattern, dim_json['DefaultHierarchy'])
-                    if match:
-                        dimension, hierarchy = match.groups()
-                        if hierarchy == hier_file_name_base:
-                            _dimension.defaultHierarchy = _hierarchy
-                except Exception as e:
-                    dimension_errors[hier_link] = e.__repr__()
-                    logger.warning(
-                        "Failed to parse/build hierarchy '%s' for dimension '%s': %s",
-                        hier_file_name,
-                        file_name,
-                        e,
-                        exc_info=True,
-                    )
-
+            hierarchy_json_path = os.path.join(hier_dir_path, hier_file_name)
+            try:
                 subset_dir_name = hier_file_name_base + '.subsets'
                 subset_dir_path = os.path.join(hier_dir_path, subset_dir_name)
-                if subset_dir_name in hiers and os.path.isdir(subset_dir_path):
-                    subsets = hiers.get(subset_dir_name)
-                    for subset_file_name in list(subsets.keys()):
-                        subset_link = Subset.as_link(file_name_base, hier_file_name_base, subset_file_name)
-                        with open(os.path.join(subset_dir_path, subset_file_name), 'r', encoding='utf-8') as file:
-                            try:
-                                data = file.read()
-                                subset_json = json.loads(data)
-                                subset_relative_path = os.path.join('dimensions', hier_dir_name, subset_dir_name,
-                                                                    subset_file_name).replace('\\', '/')
-                                _subset = Subset(
-                                    name=subset_json['Name'],
-                                    expression=subset_json['Expression'],
-                                    source_path=subset_relative_path)
-                                _hierarchy.subsets.append(_subset)
-                            except Exception as e:
-                                dimension_errors[subset_link] = e.__repr__()
-                                logger.warning(
-                                    "Failed to parse subset '%s' for hierarchy '%s': %s",
-                                    subset_file_name,
-                                    hier_file_name_base,
-                                    e,
-                                    exc_info=True,
-                                )
+                elements_jsonl_path, edges_jsonl_path, subsets_jsonl_path = _ensure_hierarchy_jsonls(
+                    hierarchy_json_path=hierarchy_json_path,
+                    hier_dir_path=hier_dir_path,
+                    hierarchy_name=hier_file_name_base,
+                    subset_dir_path=subset_dir_path,
+                )
+
+                elements = DiskBackedList.for_elements_sink(
+                    store_items=False,
+                    jsonl_path=elements_jsonl_path,
+                )
+                edges = DiskBackedList.for_edges_sink(
+                    store_items=False,
+                    jsonl_path=edges_jsonl_path,
+                )
+                subsets = DiskBackedList.for_subsets_sink(
+                    store_items=False,
+                    jsonl_path=subsets_jsonl_path,
+                )
+
+                _hierarchy = Hierarchy(
+                    name=hier_file_name_base,
+                    elements=elements,
+                    edges=edges,
+                    subsets=subsets,
+                )
+
+                _dimension.hierarchies.append(_hierarchy)
+                pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
+                match = re.search(pattern, dim_json['DefaultHierarchy'])
+                if match:
+                    _, hierarchy = match.groups()
+                    if hierarchy == hier_file_name_base:
+                        _dimension.defaultHierarchy = _hierarchy
+            except Exception as e:
+                dimension_errors[hier_link] = e.__repr__()
+                logger.warning(
+                    "Failed to parse/build hierarchy '%s' for dimension '%s': %s",
+                    hier_file_name,
+                    file_name,
+                    e,
+                    exc_info=True,
+                )
 
         if not _dimension.defaultHierarchy:
             dimension_errors[dim_link] = 'no default hierarchy'
@@ -341,7 +407,7 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
     files = directory_to_dict(cubes_dir)
     for file_name in list(files.keys()):
         file_name_base, dot, file_name_ext = file_name.rpartition('.')
-        cube_link = Cube.as_link(file_name)
+        cube_link = Cube.uri_for(file_name_base)
 
         if file_name_ext not in ['json', 'rules', 'views']:
             cube_errors[cube_link] = 'not a dimension json or .rules or .views folder'
@@ -361,8 +427,7 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                 with open(rule_file_path, 'r', encoding='utf-8') as file:
                     rule_text = file.read()
                     rules_list = _parse_rules(rule_text, cube_name=file_name_base)
-            relative_path = os.path.join('cubes', file_name_base).replace('\\', '/')
-            _cube = Cube(name=cube_json['Name'], dimensions=[], rules=rules_list, views=[], source_path=relative_path)
+            _cube = Cube(name=cube_json['Name'], dimensions=[], rules=rules_list, views=[])
 
         for dim in cube_json['Dimensions']:
             pattern = r"Dimensions\('([^']*)'\)"
@@ -374,7 +439,7 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                     _cube.dimensions.append(_dimension)
 
         view_dir_name = file_name_base + '.views'
-        view_dir_path = file_path = os.path.join(cubes_dir, view_dir_name)
+        view_dir_path = os.path.join(cubes_dir, view_dir_name)
         if view_dir_name in files and os.path.isdir(view_dir_path):
             views = files.get(view_dir_name)
             for view_file_name in list(views.keys()):
@@ -399,7 +464,6 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                 else:
                     continue
 
-                view_relative_path = os.path.join('cubes', view_dir_name, view_file_name).replace('\\', '/')
                 view_type = (view.get('@type') or '').lower()
 
                 if view_type == 'mdxview':
@@ -426,7 +490,7 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                         cube_errors[mdx_file_name] = 'mdx cannot be parsed'
                         continue
 
-                    _cube.views.append(MDXView(name=view['Name'], mdx=mdx, source_path=view_relative_path))
+                    _cube.views.append(MDXView(name=view['Name'], mdx=mdx))
                 elif view_type == 'nativeview':
                     _cube.views.append(
                         NativeView(
@@ -437,7 +501,6 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                             suppress_empty_columns=view.get('SuppressEmptyColumns', False),
                             suppress_empty_rows=view.get('SuppressEmptyRows', False),
                             format_string=view.get('FormatString', '0.#########'),
-                            source_path=view_relative_path,
                         )
                     )
                 else:
@@ -475,7 +538,6 @@ def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
                     area="[HEADER]",
                     full_statement=header_text,
                     comment="",
-                    cube_name=cube_name
                 )
             )
         last_pos = header_match.end()
@@ -490,7 +552,6 @@ def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
                 area=area,
                 full_statement=statement_text,
                 comment=comment,
-                cube_name=cube_name
             )
         )
     return rules

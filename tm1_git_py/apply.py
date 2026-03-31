@@ -96,11 +96,26 @@ def apply(
 
         try:
             if action == ChangeType.ADD:
-                resp = create_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
+                resp = create_object(
+                    tm1_service=tm1_service,
+                    object_instance=obj,
+                    object_type=obj_type,
+                    source_path=change.source_path,
+                )
             elif action == ChangeType.MODIFY:
-                resp = update_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
+                resp = update_object(
+                    tm1_service=tm1_service,
+                    object_instance=obj,
+                    object_type=obj_type,
+                    source_path=change.source_path,
+                )
             elif action == ChangeType.REMOVE:
-                resp = delete_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
+                resp = delete_object(
+                    tm1_service=tm1_service,
+                    object_instance=obj,
+                    object_type=obj_type,
+                    source_path=change.source_path,
+                )
             else:
                 raise ValueError(f"Unknown action: {action_name}")
 
@@ -193,22 +208,31 @@ def _resolve_handler(module, action: str, object_type: str):
     )
 
 
-def create_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
+def create_object(tm1_service: TM1Service, object_instance: T, object_type, source_path: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     create = _resolve_handler(module, "create", object_type)
-    return create(tm1_service, object_instance)
+    try:
+        return create(tm1_service, object_instance, source_path=source_path)
+    except TypeError:
+        return create(tm1_service, object_instance)
 
 
-def delete_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
+def delete_object(tm1_service: TM1Service, object_instance: T, object_type, source_path: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     delete = _resolve_handler(module, "delete", object_type)
-    return delete(tm1_service, object_instance)
+    try:
+        return delete(tm1_service, object_instance, source_path=source_path)
+    except TypeError:
+        return delete(tm1_service, object_instance)
 
 
-def update_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
+def update_object(tm1_service: TM1Service, object_instance: T, object_type, source_path: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     update = _resolve_handler(module, "update", object_type)
-    return update(tm1_service, object_instance)
+    try:
+        return update(tm1_service, object_instance, source_path=source_path)
+    except TypeError:
+        return update(tm1_service, object_instance)
 
 
 def _cube_name_from_rule_source_path(source_path: str) -> str:
@@ -250,7 +274,6 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
                     dimensions=[],
                     rules=cube_rules,
                     views=[],
-                    source_path=f"cubes/{cube_name}.json",
                 ),
             )
         )

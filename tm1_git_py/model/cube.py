@@ -42,13 +42,12 @@ from tm1_git_py.model.rule import Rule
 # 	]
 # }
 class Cube:
-    def __init__(self, name, dimensions: List[Dimension], rules: List[Rule], views: List[MDXView], source_path: str):
+    def __init__(self, name, dimensions: List[Dimension], rules: List[Rule], views: List[MDXView]):
         self.type = 'Cube'
         self.name = name
         self.dimensions = dimensions
         self.rules = rules
         self.views = views
-        self.source_path = source_path
 
     def as_json(self):
         return json.dumps({
@@ -104,19 +103,15 @@ class Cube:
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Cube":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path or f"cubes/{name}"
-
         dimension_payloads = data.get("dimensions") or data.get("Dimensions") or []
         dimensions = [Dimension.from_dict(payload) for payload in dimension_payloads]
 
         rule_payloads = data.get("rules") or data.get("Rules") or []
-        rule_base_path = resolved_path[:-5] if resolved_path.endswith(".json") else resolved_path
+        rule_base_path = f"cubes/{name}"
         rules = [
             Rule.from_dict(payload, source_path=f"{rule_base_path}.rules", cube_name=name)
             for payload in rule_payloads
@@ -127,15 +122,14 @@ class Cube:
             MDXView.from_dict(payload, cube_name=name)
             for payload in view_payloads
         ]
-
-        return cls(name=name, dimensions=dimensions, rules=rules, views=views, source_path=resolved_path)
+        return cls(name=name, dimensions=dimensions, rules=rules, views=views)
 
     @staticmethod
-    def as_link(name):
-        # /cubes/Cube_A.json
-        # /cubes/Cube_A.rules
-        return '/cubes/' + name
+    def uri_for(cube_name: str) -> str:
+        return f"Cubes('{cube_name}')"
 
+    def uri(self) -> str:
+        return self.uri_for(self.name)
 
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations

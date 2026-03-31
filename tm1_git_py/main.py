@@ -3,13 +3,14 @@ import logging
 import shutil
 import sys
 from pathlib import Path
+import tracemalloc
 from TM1py import TM1Service
 from tm1_git_py.exporter import export
 from tm1_git_py.config import TM1ServersConfig
 from tm1_git_py.serializer import serialize_model
 from tm1_git_py.deserializer import deserialize_model
 from tm1_git_py.model import Model
-from tm1_git_py.filter import filter
+from tm1_git_py.filter import filter, import_filter
 from tm1_git_py.logging_config import setup_logging
 
 
@@ -53,32 +54,40 @@ def _prepare_model_folder(model_folder: str, overwrite: bool = False):
         logger.info("Clearing existing model folder: %s", model_folder)
         shutil.rmtree(model_folder)
 
-def _filter(model, filter_file) -> Model:
+def _load_filter_rules(filter_file: str | None) -> list[str]:
+    if not filter_file:
+        return []
+    filter_path = Path(filter_file)
+    if not filter_path.exists():
+        logger.error("Filter file '%s' not found.", filter_file)
+        sys.exit(1)
+    try:
+        filter_rules = import_filter(str(filter_path))
+        logger.info("Loaded %d filter rule(s) from: %s", len(filter_rules), filter_file)
+        return filter_rules
+    except Exception:
+        logger.exception("Error loading filter from: %s", filter_file)
+        sys.exit(1)
+
+
+def _filter(model, filter_rules: list[str]) -> Model:
     # Apply filter if specified
-    if filter_file:
-        filter_path = Path(filter_file)
-        if not filter_path.exists():
-            logger.error("Filter file '%s' not found.", filter_file)
-            sys.exit(1)
-
-        logger.info("Applying filter from: %s", filter_file)
+    if filter_rules:
+        logger.info("Applying %d filter rule(s)", len(filter_rules))
         try:
-            with open(filter_path, 'r', encoding='utf-8') as f:
-                filter_rules = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
-
-            logger.info("Loaded %d filter rules", len(filter_rules))
             filtered_model = filter(model, filter_rules)
             logger.info("Filter applied successfully")
             return filtered_model
         except Exception:
-            logger.exception("Error applying filter from: %s", filter_file)
+            logger.exception("Error applying filter rules")
             sys.exit(1)
-    else:
-        logger.debug("No filter file provided, skipping filtering")
-        return model
+
+    logger.debug("No filter rules provided, skipping filtering")
+    return model
 
 
 def main():
+    tracemalloc.start()
     parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 Model Version Control Tool")
     parser.add_argument('command', type=str, choices=['export', 'filter', 'compare'], help="Command to execute")
     parser.add_argument('-s', '--server', type=str, help="TM1 server to use from tm1servers.yaml")
@@ -96,6 +105,7 @@ def main():
 
     setup_logging(args.log_level)
     logger.info("Command started: %s", args.command)
+    filter_rules = _load_filter_rules(args.filter)
 
     if args.command == 'export':
         tm1_service = _tm1_connection(args.server)
@@ -104,7 +114,12 @@ def main():
         _prepare_model_folder(model_output_folder, args.overwrite)
 
         logger.info("Exporting model to folder: %s", model_output_folder)
-        exported_model, export_errors = export(tm1_service)
+        internal_model_dir = str(Path(model_output_folder))
+        exported_model, export_errors = export(
+            tm1_service,
+            filter_rules,
+            internal_model_dir=internal_model_dir,
+        )
 
         # Print any export errors
         if export_errors and any(export_errors.values()):
@@ -115,7 +130,7 @@ def main():
         else:
             logger.info("Export completed successfully with no errors")
 
-        exported_model = _filter(exported_model, args.filter)
+        # exported_model = _filter(exported_model, filter_rules)
 
         serialize_model(exported_model, model_output_folder)
         logger.info("Model serialized to: %s", model_output_folder)
@@ -130,7 +145,7 @@ def main():
         if errors:
             logger.warning("Deserialization completed with %d error(s)", len(errors))
 
-        filtered_model = _filter(model, args.filter)
+        filtered_model = _filter(model, filter_rules)
 
         serialize_model(filtered_model, model_output_folder)
         logger.info("Model serialized to: %s", model_output_folder)

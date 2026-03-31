@@ -1,0 +1,30 @@
+{
+  "execution_id": "test_create_and_delete",
+  "changeset_name": null,
+  "state": "SUCCEEDED",
+  "started_at": 1774950268.238318,
+  "finished_at": 1774950268.247971,
+  "updated_at": 1774950268.247972,
+  "total_operations": 1,
+  "completed_operations": 1,
+  "current_operation": null,
+  "operations": [
+    {
+      "index": 1,
+      "action": "add",
+      "object_type": "Cube",
+      "object_name": "TestCube1",
+      "source_path": "cubes/TestCube1",
+      "before_state": null,
+      "ok": true,
+      "status_code": 201,
+      "url": "http://localhost:49709/api/v1/Cubes",
+      "error": null,
+      "started_at": 1774950268.23887,
+      "finished_at": 1774950268.2476149
+    }
+  ],
+  "failure_action": null,
+  "failure_object": null,
+  "failure_reason": null
+}

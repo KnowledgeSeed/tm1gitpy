@@ -1,3 +1,4 @@
+import filecmp
 import logging
 import os
 import socket
@@ -17,6 +18,51 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.filter import filter
 
 logger = logging.getLogger(__name__)
+
+# Directories under a serialized model root to compare in integration "no diff" checks.
+# Other paths (e.g. ``.dimensions`` internal artifacts) are ignored.
+MODEL_COMPARE_SUBDIRS = ("dimensions", "cubes", "chores", "processes")
+
+
+def _assert_dircmp_trees_equal(left: str, right: str) -> None:
+    """Recursively assert two directories have identical file sets and contents."""
+    cmp = filecmp.dircmp(left, right)
+    assert not cmp.left_only, (
+        f"Files/dirs only in exported model under {left!r}: {sorted(cmp.left_only)}"
+    )
+    assert not cmp.right_only, (
+        f"Files/dirs only in expected under {right!r}: {sorted(cmp.right_only)}"
+    )
+    assert not cmp.diff_files, (
+        f"Files that differ under {left!r} vs {right!r}: {sorted(cmp.diff_files)}"
+    )
+    for name in sorted(cmp.common_dirs):
+        _assert_dircmp_trees_equal(
+            os.path.join(left, name),
+            os.path.join(right, name),
+        )
+
+
+def assert_export_matches_expected_subdirs(actual_root: str, expected_root: str) -> None:
+    """
+    Compare only model payload directories between two serialized model roots.
+
+    Ignores siblings such as ``.dimensions`` or any other top-level entries not listed
+    in ``MODEL_COMPARE_SUBDIRS``.
+    """
+    for sub in MODEL_COMPARE_SUBDIRS:
+        left_p = Path(actual_root) / sub
+        right_p = Path(expected_root) / sub
+        left_ex = left_p.is_dir()
+        right_ex = right_p.is_dir()
+        if not left_ex and not right_ex:
+            continue
+        assert left_ex and right_ex, (
+            f"Subdirectory {sub!r} must exist on both sides when comparing "
+            f"(left exists={left_ex}, right exists={right_ex}, "
+            f"actual_root={actual_root!r}, expected_root={expected_root!r})"
+        )
+        _assert_dircmp_trees_equal(str(left_p), str(right_p))
 
 
 @pytest.fixture(scope="class")
@@ -128,11 +174,12 @@ def export_check_no_errors(
     self,
     filter_rules: list[str] = None,
     *,
-    exporter_filter_rules: list[str] = None,
+    internal_model_dir: Optional[str] = None,
 ) -> Model:
     model, errors = export(
         self.tm1_service,
-        filter_rules=exporter_filter_rules,
+        filter_rules_list=filter_rules,
+        internal_model_dir=internal_model_dir,
     )
     assert isinstance(model, Model)
     for category, category_errors in errors.items():

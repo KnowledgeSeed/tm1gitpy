@@ -1,4 +1,6 @@
+import json
 import os.path
+import shutil
 import types
 from pathlib import Path
 from typing import TypeVar
@@ -19,14 +21,16 @@ from tests.utility import (
 )
 from tm1_git_py.apply import apply
 from tm1_git_py.exporter import export
-from tm1_git_py.serializer import serialize_model
+from tm1_git_py.serializer import serialize_model, serialize_dimensions
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.changeset import Change, ChangeType, Changeset, ObjectType, import_changeset
-from tm1_git_py.filter import filter_changeset, should_exclude_path
+from tm1_git_py.filter import EntityType, FilterRules, filter_changeset, should_exclude_path
+from tm1_git_py import filter as filter_module
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element
 from tm1_git_py.model.nativeview import NativeView
+from tm1_git_py.tm1py_ext import subset_service_ext, process_service_ext, cube_service_ext, view_service_ext
 
 T = TypeVar('T', Cube, Dimension, Process, Chore)
 
@@ -65,6 +69,186 @@ class TestDeserializer:
         assert hier_version.name == 'testbenchVersion'
         assert hier_version.elements[0].to_dict() == {"name": "Actual", "type": "Numeric"}
 
+    def test_hierarchy_constructor_with_internal_model_dir_creates_disk_backed_refs(self, tmp_path):
+        internal_model_dir = str(tmp_path / ".internal")
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            internal_model_dir=internal_model_dir,
+        )
+        assert isinstance(hierarchy_obj.elements, DiskBackedList)
+        assert isinstance(hierarchy_obj.edges, DiskBackedList)
+        assert isinstance(hierarchy_obj.subsets, DiskBackedList)
+
+    def test_hierarchy_constructor_without_internal_model_dir_uses_provided_refs(self):
+        elements = [Element(name="E1", type="Numeric")]
+        edges = [Edge(parent="P", component_name="C", weight=1)]
+        subsets = [Subset(name="S1", expression="{E1}")]
+        hierarchy_obj = Hierarchy(name="MyHier", elements=elements, edges=edges, subsets=subsets)
+        assert hierarchy_obj.elements is elements
+        assert hierarchy_obj.edges is edges
+        assert hierarchy_obj.subsets is subsets
+
+    def test_hierarchy_as_json_in_memory_collections_remains_parseable(self):
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[Edge(parent="P", component_name="E1", weight=1)],
+            subsets=[Subset(name="S1", expression="{E1}")],
+        )
+
+        payload = json.loads(hierarchy_obj.as_json())
+        assert payload["@type"] == "Hierarchy"
+        assert payload["Name"] == "MyHier"
+        assert payload["Elements"] == [{"name": "E1", "type": "Numeric"}]
+        assert payload["Edges"] == [{"parentName": "P", "componentName": "E1", "weight": 1}]
+        assert payload["Subsets@Code.links"] == ["MyHier.subsets/S1.json"]
+
+    def test_hierarchy_as_json_streams_disk_backed_collections(self, tmp_path):
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            internal_model_dir=str(tmp_path),
+        )
+        hierarchy_obj.elements.extend(
+            [
+                Element(name="E1", type="Numeric"),
+                Element(name="E2", type="String"),
+            ]
+        )
+        hierarchy_obj.edges.extend(
+            [
+                Edge(parent="E1", component_name="E2", weight=1),
+            ]
+        )
+        hierarchy_obj.subsets.extend(
+            [
+                Subset(name="S1", expression="{E1}"),
+            ]
+        )
+
+        payload = json.loads(hierarchy_obj.as_json())
+        assert payload["Elements"] == [
+            {"name": "E1", "type": "Numeric"},
+            {"name": "E2", "type": "String"},
+        ]
+        assert payload["Edges"] == [
+            {"parentName": "E1", "componentName": "E2", "weight": 1},
+        ]
+        assert payload["Subsets@Code.links"] == ["MyHier.subsets/S1.json"]
+
+    def test_hierarchy_staged_writer_overwrites_partial_content(self, tmp_path):
+        internal_model_dir = str(tmp_path)
+
+        first = Hierarchy(name="MyHier", dimension_name="MyDim", internal_model_dir=internal_model_dir)
+        first.elements.extend([Element(name="Old", type="Numeric")])
+        # Simulate interrupted export by not finalizing/writing.
+
+        second = Hierarchy(name="MyHier", dimension_name="MyDim", internal_model_dir=internal_model_dir)
+        second.elements.extend([Element(name="New", type="Numeric")])
+        payload = json.loads(second.as_json())
+
+        assert payload["Elements"] == [{"name": "New", "type": "Numeric"}]
+
+    def test_serialize_dimensions_uses_hierarchy_write_json(self, tmp_path, mocker):
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[],
+            subsets=[],
+        )
+        dimension_obj = Dimension(name="MyDim", hierarchies=[hierarchy_obj], defaultHierarchy=hierarchy_obj)
+        mocker.patch.object(Hierarchy, "as_json", side_effect=AssertionError("as_json should not be used"))
+
+        serialize_dimensions([dimension_obj], str(tmp_path))
+
+        hierarchy_file = tmp_path / "MyDim.hierarchies" / "MyHier.json"
+        assert hierarchy_file.exists()
+        payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
+        assert payload["Name"] == "MyHier"
+
+    def test_serialize_dimensions_skips_rewrite_for_staged_hierarchy(self, tmp_path, mocker):
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            internal_model_dir=str(tmp_path),
+        )
+        hierarchy_obj.elements.extend([Element(name="E1", type="Numeric")])
+        dimension_obj = Dimension(name="MyDim", hierarchies=[hierarchy_obj], defaultHierarchy=hierarchy_obj)
+
+        mocker.patch.object(Hierarchy, "write_json", side_effect=AssertionError("write_json should be skipped"))
+        dim_dir = tmp_path / "dimensions"
+        dim_dir.mkdir(exist_ok=True)
+        serialize_dimensions([dimension_obj], str(dim_dir))
+
+        hierarchy_file = dim_dir / "MyDim.hierarchies" / "MyHier.json"
+        assert hierarchy_file.exists()
+        payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
+        assert payload["Elements"] == [{"name": "E1", "type": "Numeric"}]
+
+    def test_deserialize_dimensions_ignores_inprogress_hierarchy_files(self, tmp_path):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        hier_dir = dimensions_dir / "testbenchVersion.hierarchies"
+        inprogress = hier_dir / ".testbenchVersion.json.inprogress"
+        inprogress.write_text('{"Name":"broken"', encoding="utf-8")
+
+        dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
+        assert "testbenchVersion" in dimensions
+        assert not any("inprogress" in key for key in errors.keys())
+
+    def test_get_subsets_uses_collector(self, mocker):
+        tm1_conn = mocker.Mock()
+        collector: list[Subset] = []
+
+        mocker.patch.object(
+            subset_service_ext,
+            "_get_subsets_page",
+            side_effect=[
+                subset_service_ext.PaginatedSubsetsResult(
+                    subsets=[Subset(name="S1", expression="{A}")], count=2, skip=0, top=1
+                ),
+                subset_service_ext.PaginatedSubsetsResult(
+                    subsets=[Subset(name="S2", expression="{B}")], count=None, skip=1, top=1
+                ),
+            ],
+        )
+
+        result = subset_service_ext.get_subsets(
+            tm1_conn,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
+            page_size=1,
+            collector=collector,
+        )
+
+        assert result is collector
+        assert [s.name for s in collector] == ["S1", "S2"]
+
+    def test_deserialize_dimensions_uses_in_memory_hierarchy_collections(self, tmp_path):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        dimensions, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dim_version = dimensions.get("testbenchVersion")
+        assert dim_version is not None
+        hier_version = dim_version.hierarchies[0]
+        assert isinstance(hier_version.elements, DiskBackedList)
+        assert isinstance(hier_version.edges, DiskBackedList)
+        assert isinstance(hier_version.subsets, DiskBackedList)
+
+    def test_deserialize_dimensions_does_not_create_internal_sidecars(self, tmp_path):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        deserialize_dimensions(dimension_dir=dimensions_dir)
+        deserialize_dimensions(dimension_dir=dimensions_dir)
+        assert not (dimensions_dir.parent / ".internal").exists()
+
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):
         expected_cube_names = ['testbenchSales']
@@ -91,7 +275,7 @@ class TestDeserializer:
         dimensions, errors = deserialize_dimensions(dimensions_dir)
 
         assert not dimensions, f"Broken {type(dimensions.values())} file should not deserialize successfully"
-        expected_key = Dimension.as_link(broken_dims.name)
+        expected_key = Dimension.uri_for("BrokenDimension")
         assert expected_key in errors, (
             f"Error key '{expected_key}' missing; collected keys: {list(errors.keys())}"
         )
@@ -108,7 +292,7 @@ class TestDeserializer:
         chores, errors = deserialize_chores(chores_dir)
 
         assert not chores, f"Broken {type(chores.values())} file should not deserialize successfully"
-        expected_key = Chore.as_link(broken_chore.name)
+        expected_key = Chore.uri_for("BrokenChores")
         assert expected_key in errors, (
             f"Error key '{expected_key}' missing; collected keys: {list(errors.keys())}"
         )
@@ -125,7 +309,7 @@ class TestDeserializer:
         processes, errors = deserialize_processes(processes_dir)
 
         assert not processes, f"Broken {type(processes.values())} file should not deserialize successfully"
-        expected_key = Process.as_link(broken_process.name)
+        expected_key = Process.uri_for("BrokenProcess")
         assert expected_key in errors, (
             f"Error key '{expected_key}' missing; collected keys: {list(errors.keys())}"
         )
@@ -249,25 +433,21 @@ class TestSerializer:
             elements=[Element(name="Item 1", type="Numeric")],
             edges=[],
             subsets=[],
-            source_path=f"dimensions/{special_dim_name}.hierarchies/{special_hier_name}.json"
         )
         dimension = Dimension(
             name=special_dim_name,
             hierarchies=[hierarchy],
             defaultHierarchy=hierarchy,
-            source_path=f"dimensions/{special_dim_name}.json"
         )
         view = MDXView(
             name=special_view_name,
             mdx="SELECT {TM1SUBSETALL([}Tech Dimension].[}Tech Hierarchy])} ON 0 FROM [}Tech Cube]",
-            source_path=f"cubes/{special_cube_name}.views/{special_view_name}.json"
         )
         cube = Cube(
             name=special_cube_name,
             dimensions=[dimension],
             rules=[],
             views=[view],
-            source_path=f"cubes/{special_cube_name}.json"
         )
         ti_stub = TI("# prolog", "# metadata", "# data", "# epilog")
         process = Process(
@@ -278,7 +458,6 @@ class TestSerializer:
             parameters=[],
             variables=[],
             ti=ti_stub,
-            source_path=f"processes/{special_process_name}.json"
         )
 
         special_model = Model(
@@ -362,7 +541,7 @@ class TestComparator:
 
         assert len(added) == 6
         assert len(modified) == 5
-        assert len(removed) == 5
+        assert len(removed) == 6
 
 
     def test_comparator_dimensions_change_propagation(self):
@@ -404,7 +583,7 @@ class TestComparator:
         unified_rule = modified_rules[0]
         assert isinstance(unified_rule, Rule)
         assert unified_rule.name == "default"
-        assert unified_rule.source_path == "cubes/testbenchSales.rules"
+        assert modified_rule_changes[0].source_path == "cubes/testbenchSales.rules"
         assert unified_rule.full_statement == new_cube.get_rule_text()
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
 
@@ -414,20 +593,18 @@ class TestComparator:
 
         leaf_hierarchy_old = Hierarchy(
             name="Leaves",
-            elements=[Element(name="LeafA", type="Numeric", source_path="dimensions/MockDim.hierarchies/Leaves.json/LeafA")],
+            elements=[Element(name="LeafA", type="Numeric")],
             edges=[],
             subsets=[],
-            source_path="dimensions/MockDim.hierarchies/Leaves.json"
         )
         leaf_hierarchy_new = Hierarchy(
             name="Leaves",
             elements=[
-                Element(name="LeafA", type="Numeric", source_path="dimensions/MockDim.hierarchies/Leaves.json/LeafA"),
-                Element(name="LeafB", type="Numeric", source_path="dimensions/MockDim.hierarchies/Leaves.json/LeafB"),
+                Element(name="LeafA", type="Numeric"),
+                Element(name="LeafB", type="Numeric"),
             ],
             edges=[],
             subsets=[],
-            source_path="dimensions/MockDim.hierarchies/Leaves.json"
         )
         model1.dimensions[0].hierarchies.append(leaf_hierarchy_old)
         model2.dimensions[0].hierarchies.append(leaf_hierarchy_new)
@@ -452,7 +629,6 @@ class TestComparator:
                 suppress_empty_columns=True,
                 suppress_empty_rows=True,
                 format_string="0.#########",
-                source_path="cubes/MockCube.views/DefaultNative.json",
             )
         )
 
@@ -486,14 +662,198 @@ class TestComparator:
 
         comparator = Comparator()
         changeset = comparator.compare(model1, model2, mode='full')
+        removed = self._bodies_by(self._changes_by_type(changeset, ChangeType.REMOVE), Chore)
         modified = self._bodies_by(self._changes_by_type(changeset, ChangeType.MODIFY), Chore)
 
         for chore_new in modified:
             assert (isinstance(chore_new, Chore) and chore_new.name in expected_chores )
+        assert any(isinstance(chore_old, Chore) and chore_old.name == "Mock Weekly Export" for chore_old in removed)
 
 
 
-class TesteExporter:
+class TestExporter:
+
+    def test_process_service_get_all_names_page_builds_query(self, mocker):
+        tm1_conn = mocker.Mock()
+        response = mocker.Mock()
+        response.json.return_value = {"value": [{"Name": "P1"}], "@odata.count": 10}
+        tm1_conn.connection.GET.return_value = response
+
+        result = process_service_ext._get_all_names_page(
+            tm1_conn,
+            filter="contains(Name,'Load')",
+            skip=5,
+            top=25,
+            count=True,
+        )
+
+        tm1_conn.connection.GET.assert_called_once_with(
+            "/Processes?$select=Name&$filter=contains(Name,'Load')&$skip=5&$top=25&$count=true"
+        )
+        assert result.names == ["P1"]
+        assert result.count == 10
+        assert result.skip == 5
+        assert result.top == 25
+
+    def test_process_service_get_all_names_paginates(self, mocker):
+        tm1_conn = mocker.Mock()
+
+        mocker.patch.object(
+            process_service_ext,
+            "_get_all_names_page",
+            side_effect=[
+                process_service_ext.ProcessNamesResult(names=["P1"], count=2, skip=0, top=1),
+                process_service_ext.ProcessNamesResult(names=["P2"], count=None, skip=1, top=1),
+            ],
+        )
+
+        result = process_service_ext.get_all_names(
+            tm1_conn,
+            filter="contains(Name,'Load')",
+            page_size=1,
+        )
+
+        assert result == ["P1", "P2"]
+
+    def test_procs_to_model_uses_process_service_ext_names(self, mocker):
+        from tm1_git_py.exporter import procs_to_model
+
+        tm1_conn = mocker.Mock()
+        tm1_conn.processes.get_all_names = mocker.Mock()
+        mock_get_process_names = mocker.patch(
+            "tm1_git_py.exporter.get_process_names",
+            return_value=["MyProcess"],
+        )
+
+        tm1_conn.processes.get.return_value = types.SimpleNamespace(
+            name="MyProcess",
+            has_security_access=True,
+            parameters=[],
+            variables=[],
+            prolog_procedure="",
+            metadata_procedure="",
+            data_procedure="",
+            epilog_procedure="",
+        )
+
+        processes, errors = procs_to_model(
+            tm1_conn,
+            filter_rules=FilterRules([]),
+        )
+
+        mock_get_process_names.assert_called_once_with(
+            tm1_conn,
+            filter=None,
+        )
+        tm1_conn.processes.get_all_names.assert_not_called()
+        assert "MyProcess" in processes
+        assert errors == {}
+
+    def test_cube_service_get_all_names_page_builds_query(self, mocker):
+        tm1_conn = mocker.Mock()
+        response = mocker.Mock()
+        response.json.return_value = {"value": [{"Name": "Sales"}], "@odata.count": 5}
+        tm1_conn.connection.GET.return_value = response
+
+        result = cube_service_ext._get_all_names_page(
+            tm1_conn,
+            filter="startswith(Name,'Sales')",
+            skip=10,
+            top=50,
+            count=True,
+        )
+
+        tm1_conn.connection.GET.assert_called_once_with(
+            "/Cubes?$select=Name&$filter=startswith(Name,'Sales')&$skip=10&$top=50&$count=true"
+        )
+        assert result.names == ["Sales"]
+        assert result.count == 5
+        assert result.skip == 10
+        assert result.top == 50
+
+    def test_cubes_to_model_uses_cube_service_ext_names(self, mocker):
+        from tm1_git_py.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        tm1_conn.cubes.get_all_names = mocker.Mock()
+        mock_get_cube_names = mocker.patch(
+            "tm1_git_py.exporter.get_cube_names",
+            return_value=[],
+        )
+
+        cubes, errors = cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules(["Cubes('Sales*')"]),
+        )
+
+        assert cubes == {}
+        assert errors == {}
+        _, kwargs = mock_get_cube_names.call_args
+        assert kwargs["filter"] is not None
+        tm1_conn.cubes.get_all_names.assert_not_called()
+
+    def test_view_service_get_all_builds_filtered_urls(self, mocker):
+        tm1_conn = mocker.Mock()
+        mocker.patch.object(
+            view_service_ext.MDXView,
+            "from_dict",
+            return_value=types.SimpleNamespace(name="V1"),
+        )
+        mocker.patch.object(
+            view_service_ext.NativeView,
+            "from_dict",
+            return_value=types.SimpleNamespace(name="N1"),
+        )
+        tm1_conn.connection.GET.side_effect = [
+            mocker.Mock(
+                json=mocker.Mock(
+                    return_value={
+                        "value": [
+                            {"@odata.type": "#ibm.tm1.api.v1.MDXView", "Name": "V1", "MDX": "SELECT 1 ON 0"}
+                        ]
+                    }
+                )
+            ),
+            mocker.Mock(json=mocker.Mock(return_value={"value": []})),
+        ]
+
+        private_views, public_views = view_service_ext.get_all(
+            tm1_conn,
+            cube_name="Sales",
+            filter="startswith(Name,'Main')",
+        )
+
+        assert len(private_views) == 1
+        assert len(public_views) == 0
+        first_url = tm1_conn.connection.GET.call_args_list[0].args[0]
+        second_url = tm1_conn.connection.GET.call_args_list[1].args[0]
+        assert "/Cubes('Sales')/PrivateViews?" in first_url
+        assert "&$filter=startswith(Name,'Main')" in first_url
+        assert "/Cubes('Sales')/Views?" in second_url
+        assert "&$filter=startswith(Name,'Main')" in second_url
+
+    def test_cubes_to_model_uses_view_service_ext(self, mocker):
+        from tm1_git_py.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.exporter.get_cube_names", return_value=["Sales"])
+        mock_get_views = mocker.patch("tm1_git_py.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.get.return_value = types.SimpleNamespace(
+            dimensions=[],
+            has_rules=False,
+            rules=types.SimpleNamespace(body=""),
+        )
+
+        cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules(["!Cubes('Sales')/Views('Main*')"]),
+        )
+
+        _, kwargs = mock_get_views.call_args
+        assert kwargs["cube_name"] == "Sales"
+        assert kwargs["filter"] is not None
 
     def test_export_no_filter_rules_disables_skip_control_flags(self, mocker):
         tm1_service = mocker.Mock()
@@ -502,99 +862,331 @@ class TesteExporter:
         mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mock_chores = mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        model, errors = export(tm1_service, filter_rules=None)
+        model, errors = export(tm1_service, filter_rules_list=None)
 
         assert isinstance(model, Model)
         assert errors == {"dim": {}, "cube": {}, "process": {}, "chore": {}}
-        mock_dimensions.assert_called_once_with(tm1_service, effective_rules=[], skip_control_dims=False)
-        mock_cubes.assert_called_once_with(tm1_service, {}, effective_rules=[], skip_control_cubes=False)
-        mock_processes.assert_called_once_with(tm1_service, effective_rules=[], skip_control_processes=False)
-        mock_chores.assert_called_once_with(tm1_service, effective_rules=[])
+        mock_dimensions.assert_called_once()
+        args, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == []
 
     def test_export_non_technical_filter_rules_keep_skip_control_disabled(self, mocker):
         tm1_service = mocker.Mock()
-        filter_rules = ["-/processes/MyProcess*"]
+        filter_rules = ["Processes('MyProcess*')"]
         mock_dimensions = mocker.patch("tm1_git_py.exporter.dimensions_to_model", return_value=({}, {}))
         mock_cubes = mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
         mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, filter_rules=filter_rules)
+        export(tm1_service, filter_rules_list=filter_rules)
 
-        mock_dimensions.assert_called_once_with(tm1_service, effective_rules=filter_rules, skip_control_dims=False)
-        mock_cubes.assert_called_once_with(tm1_service, {}, effective_rules=filter_rules, skip_control_cubes=False)
-        mock_processes.assert_called_once_with(tm1_service, effective_rules=filter_rules, skip_control_processes=False)
+        expected_pf = FilterRules(filter_rules)
+        mock_dimensions.assert_called_once()
+        args, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_cubes.assert_called_once()
+        _, cube_kw = mock_cubes.call_args
+        assert cube_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_processes.assert_called_once()
+        _, proc_kw = mock_processes.call_args
+        assert proc_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
 
     def test_export_technical_intent_filter_rules_enable_skip_control_flags(self, mocker):
         tm1_service = mocker.Mock()
-        filter_rules = ["-/dimensions/}*", "-/cubes/}*", "-/processes/}*"]
+        filter_rules = ["Dimensions('}*')", "Cubes('}*')", "Processes('}*')"]
         mock_dimensions = mocker.patch("tm1_git_py.exporter.dimensions_to_model", return_value=({}, {}))
         mock_cubes = mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
         mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, filter_rules=filter_rules)
+        export(tm1_service, filter_rules_list=filter_rules)
 
-        mock_dimensions.assert_called_once_with(
-            tm1_service,
-            effective_rules=filter_rules,
-            skip_control_dims=True,
-        )
-        mock_cubes.assert_called_once_with(
-            tm1_service,
-            {},
-            effective_rules=filter_rules,
-            skip_control_cubes=True,
-        )
-        mock_processes.assert_called_once_with(
-            tm1_service,
-            effective_rules=filter_rules,
-            skip_control_processes=True,
-        )
+        expected_pf = FilterRules(filter_rules)
+        mock_dimensions.assert_called_once()
+        args, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_cubes.assert_called_once()
+        _, cube_kw = mock_cubes.call_args
+        assert cube_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_processes.assert_called_once()
+        _, proc_kw = mock_processes.call_args
+        assert proc_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
 
     def test_export_custom_filter_rules_are_forwarded_as_is(self, mocker):
         tm1_service = mocker.Mock()
-        filter_rules = ["-/dimensions/TestDim1*", "-/cubes/TestCube1*"]
+        filter_rules = ["Dimensions('TestDim1*')", "Cubes('TestCube1*')"]
         mock_dimensions = mocker.patch("tm1_git_py.exporter.dimensions_to_model", return_value=({}, {}))
         mock_cubes = mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
         mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, filter_rules=filter_rules)
+        export(tm1_service, filter_rules_list=filter_rules)
 
-        mock_dimensions.assert_called_once_with(
-            tm1_service,
-            effective_rules=filter_rules,
-            skip_control_dims=False,
-        )
-        mock_cubes.assert_called_once_with(
-            tm1_service,
-            {},
-            effective_rules=filter_rules,
-            skip_control_cubes=False,
-        )
+        expected_pf = FilterRules(filter_rules)
+        mock_dimensions.assert_called_once()
+        args, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_cubes.assert_called_once()
+        _, cube_kw = mock_cubes.call_args
+        assert cube_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        _, proc_kw = mock_processes.call_args
+        assert proc_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
         mock_processes.assert_called_once_with(
             tm1_service,
-            effective_rules=filter_rules,
-            skip_control_processes=False,
+            filter_rules=mocker.ANY,
         )
 
     def test_should_exclude_path_supports_tm1project_filter_format(self):
         filter_rules = [
-            "+/data_csv/*.*",
-            "-/Cubes/Views*",
-            "-/dimensions/Product*",
-            "-/processes/zSYS Analogic Operation Version Copy*",
+            "Cubes('views*')",
+            "Dimensions('product*')",
+            "Processes('zsys analogic operation version copy*')",
         ]
 
-        assert should_exclude_path("/cubes/viewsSales", filter_rules)
-        assert should_exclude_path("DIMENSIONS/ProductHierarchy.json", filter_rules)
+        assert should_exclude_path("Cubes('viewsSales')", filter_rules)
+        assert should_exclude_path("Dimensions('ProductHierarchy')", filter_rules)
         assert should_exclude_path(
-            "/processes/zsys analogic operation version copy.json",
+            "Processes('zsys analogic operation version copy')",
             filter_rules,
         )
-        assert not should_exclude_path("/cubes/SalesCube", filter_rules)
+        assert not should_exclude_path("Cubes('SalesCube')", filter_rules)
 
+    def test_import_filter_ignores_hash_comment_lines(self, tmp_path):
+        rules_file = tmp_path / "filter.txt"
+        rules_file.write_text(
+            "# comment line\n"
+            "Dimensions('A*')\n"
+            "   # spaced comment line\n"
+            "\n"
+            "Cubes('Sales*')\n",
+            encoding="utf-8",
+        )
+
+        rules = filter_module.import_filter(str(rules_file))
+        assert rules == ["Dimensions('A*')", "Cubes('Sales*')"]
+
+    def test_path_filter_should_exclude(self):
+        pf = FilterRules(["Dimensions('product*')", "Cubes('views*')"])
+        assert pf.should_exclude("Dimensions('ProductHierarchy')")
+        assert pf.should_exclude("Cubes('viewsSales')")
+        assert not pf.should_exclude("Cubes('SalesCube')")
+
+    def test_path_filter_parent_blocks_child_even_with_child_include(self):
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')",
+                "!Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')",
+            ]
+        )
+        assert pf.should_exclude("Dimensions('Sales')")
+        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')")
+        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')")
+
+    def test_path_filter_element_validation_accepts_startswith_endswith(self):
+        """URL identifier patterns with * at start or end are valid."""
+        pf = FilterRules(["Dimensions('prod*')"])
+        assert pf.has_rules
+        pf2 = FilterRules(["Dimensions('*prod')"])
+        assert pf2.has_rules
+
+    def test_path_filter_element_validation_rejects_wildcard_in_middle(self):
+        """URL identifier patterns with * in middle are invalid and skipped."""
+        pf = FilterRules(["Dimensions('asd*asd')"])
+        assert not pf.has_rules
+
+    def test_get_relevant_name_rules_for_dimension(self):
+        pf = FilterRules(
+            [
+                "Dimensions('BW*')",
+                "!Dimensions('BW Comp*')",
+                "Cubes('Sales*')",
+                "Dimensions('Product')/Hierarchies('Main')",
+            ]
+        )
+
+        assert pf.get_rules_for_entity("dimension") == [
+            "Dimensions('BW*')",
+            "!Dimensions('BW Comp*')",
+        ]
+
+    def test_get_rules_for_entity_uses_entity_regex(self):
+        pf = FilterRules(
+            [
+                "Dimensions('*')/Hierarchies('}*')",
+                "!Dimensions('Sales')/Hierarchies('Main*')",
+                "Dimensions('Sales')/Hierarchies('Main*')/Elements('X*')",
+                "Chores('Daily*')/Tasks('LoadData')",
+            ]
+        )
+
+        assert pf.get_rules_for_entity("hierarchy") == [
+            "Dimensions('*')/Hierarchies('}*')",
+            "!Dimensions('Sales')/Hierarchies('Main*')",
+        ]
+        assert pf.get_rules_for_entity("task") == [
+            "Chores('Daily*')/Tasks('LoadData')",
+        ]
+
+    def test_to_tm1_name_filter_for_dimension_with_include_and_exclude(self):
+        pf = FilterRules(
+            [
+                "Dimensions('BW Comp*')",
+                "!Dimensions('BW*')",
+            ]
+        )
+
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr == "(not (startswith(Name, 'BW Comp'))) or (startswith(Name, 'BW'))"
+        assert result.skip_all is False
+
+    def test_to_tm1_name_filter_for_dimension_exclude_only(self):
+        pf = FilterRules(["Dimensions('BW Comp*')"])
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr == "not (startswith(Name, 'BW Comp'))"
+        assert result.skip_all is False
+
+    def test_to_tm1_name_filter_skip_all_when_exclude_all(self):
+        """Dimensions('*') as exclude sets skip_all=True."""
+        pf = FilterRules(["Dimensions('*')"])
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr is not None
+        assert result.skip_all is True
+
+    def test_to_tm1_hierarchy_name_filter_scopes_to_current_dimension(self):
+        pf = FilterRules(
+            [
+                "Dimensions('*')/Hierarchies('}*')",
+                "!Dimensions('Sales')/Hierarchies('Main*')",
+                "Dimensions('Finance')/Hierarchies('Fin*')",
+            ]
+        )
+
+        sales_result = pf.to_tm1_hierarchy_name_filter("Sales")
+        assert sales_result.filter_expr == "(not (startswith(Name, '}'))) or (startswith(Name, 'Main'))"
+        assert sales_result.skip_all is False
+        marketing_result = pf.to_tm1_hierarchy_name_filter("Marketing")
+        assert marketing_result.filter_expr == "not (startswith(Name, '}'))"
+        assert marketing_result.skip_all is False
+
+    def test_to_tm1_child_name_filter_only_uses_direct_child_level_rules(self):
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')/Hierarchies('Main*')",
+                "Dimensions('Sales')/Hierarchies('Main*')/Elements('X*')",
+            ]
+        )
+
+        result = pf.to_tm1_hierarchy_name_filter("Sales")
+        assert result.filter_expr == "not (startswith(Name, 'Main'))"
+
+    def test_to_tm1_element_name_filter_uses_3_level_rules(self):
+        """3-level rules (dim/hier/elem) apply when building element filter. ! = include."""
+        pf = FilterRules(
+            [
+                "!Dimensions('Sales')/Hierarchies('Main')/Elements('X*')",
+                "Dimensions('Sales')/Hierarchies('Main')/Elements('Total*')",
+            ]
+        )
+        result = pf.to_tm1_element_name_filter("Sales", "Main")
+        assert result.filter_expr == "(not (startswith(Name, 'Total'))) or (startswith(Name, 'X'))"
+        assert result.skip_all is False
+
+    def test_to_tm1_element_name_filter_ignores_2_level_rules(self):
+        """2-level rules (dim/hier) do not affect element filter."""
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')/Hierarchies('Main*')",
+            ]
+        )
+        result = pf.to_tm1_element_name_filter("Sales", "Main")
+        assert result.filter_expr is None
+
+    def test_to_tm1_subset_name_filter_uses_3_level_rules(self):
+        """3-level rules (dim/hier/subset) apply when building subset filter. ! = include."""
+        pf = FilterRules(
+            [
+                "!Dimensions('Sales')/Hierarchies('Main')/Subsets('Default*')",
+            ]
+        )
+        result = pf.to_tm1_subset_name_filter("Sales", "Main")
+        assert result.filter_expr == "startswith(Name, 'Default')"
+        assert result.skip_all is False
+
+    def test_to_tm1_child_name_filter_with_parent_chain(self):
+        """to_tm1_child_name_filter accepts parent_chain for 3-level. ! = include."""
+        pf = FilterRules(
+            [
+                "!Dimensions('Sales')/Hierarchies('Main')/Elements('X*')",
+            ]
+        )
+        result = pf.to_tm1_child_name_filter(
+            parent_chain=[
+                (EntityType.DIMENSION, "Sales"),
+                (EntityType.HIERARCHY, "Main"),
+            ],
+            child_entity_type=EntityType.ELEMENT,
+        )
+        assert result.filter_expr == "startswith(Name, 'X')"
+
+    def test_to_tm1_name_filter_multiple_excludes_are_anded(self):
+        pf = FilterRules(
+            [
+                "Dimensions('BW*')",
+                "Dimensions('*Comp')",
+            ]
+        )
+
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr == "(not (startswith(Name, 'BW'))) and (not (endswith(Name, 'Comp')))"
+        assert result.skip_all is False
+
+    def test_to_tm1_edge_name_filter_parent_component_format(self):
+        """Edge rules use Edges('parentName/componentName') format."""
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')/Hierarchies('Main')/Edges('Total*/*')",
+                "!Dimensions('Sales')/Hierarchies('Main')/Edges('*/Leaf*')",
+            ]
+        )
+        result = pf.to_tm1_edge_name_filter("Sales", "Main")
+        assert "ParentName" in result.filter_expr
+        assert "ComponentName" in result.filter_expr
+        assert "Total" in result.filter_expr
+        assert "Leaf" in result.filter_expr
+        assert result.skip_all is False
+
+    def test_to_tm1_edge_name_filter_wildcard_all(self):
+        """Edges('*') as exclude rule sets skip_all=True (no TM1 call needed)."""
+        pf = FilterRules(
+            ["Dimensions('*')/Hierarchies('*')/Edges('*')"]  # exclude all edges
+        )
+        result = pf.to_tm1_edge_name_filter("Dim", "Hier")
+        assert result.filter_expr is not None
+        assert result.skip_all is True
+
+    def test_to_tm1_filter_skip_all_false_when_include_present(self):
+        """skip_all is False when any include rule exists."""
+        pf = FilterRules(
+            ["!Dimensions('*')/Hierarchies('*')/Edges('*')"]  # include all
+        )
+        result = pf.to_tm1_edge_name_filter("Dim", "Hier")
+        assert result.skip_all is False
+
+    def test_filter_rules_raises_on_invalid_rule_when_strict(self):
+        """When raise_on_invalid_rule=True, invalid rules raise ValueError."""
+        with pytest.raises(ValueError, match="does not match any entity pattern"):
+            FilterRules(
+                ["Dimensions('BW*')", "InvalidRule('x')"],
+                raise_on_invalid_rule=True,
+            )
+
+    def test_filter_rules_skips_invalid_rule_when_not_strict(self):
+        """When raise_on_invalid_rule=False, invalid rules are silently skipped."""
+        pf = FilterRules(
+            ["Dimensions('BW*')", "InvalidRule('x')"],
+            raise_on_invalid_rule=False,
+        )
+        assert pf.get_rules_for_entity("dimension") == ["Dimensions('BW*')"]
 
 
 class TestChangeset:
@@ -631,7 +1223,7 @@ class TestChangeset:
 
         # For deletes, precedence is:
         # mdx_views -> rules -> cubes -> edges -> elements -> subsets -> hierarchies -> dimensions -> chore -> process
-        assert deleted_types == [MDXView, Edge, Element, Chore, Process]
+        assert deleted_types == [MDXView, Cube, Edge, Element, Chore, Process]
 
 
     def test_apply_uses_sorted_order_for_create(self, mocker):
@@ -704,6 +1296,61 @@ class TestChangeset:
         assert updated_types == [Subset, Cube, MDXView, Process, Chore]
 
 
+    def test_models_expose_canonical_urls(self):
+        hierarchy_obj = make_hierarchy(dimension_name="TestDim", hierarchy_name="TestHier")
+        dimension_obj = Dimension(
+            name="TestDim",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+        subset_obj = make_subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([TestDim].[TestHier])}",
+            dimension_name="TestDim",
+            hierarchy_name="TestHier",
+        )
+        process_obj = make_process(name="ProcURL")
+        chore_obj = make_chore(name="ChoreURL")
+        view_obj = MDXView(name="ViewURL", mdx="SELECT FROM [MockCube]")
+        rule_obj = Rule(area="[default]", full_statement="[default]=N:1;")
+        cube_obj = Cube(
+            name="MockCube",
+            dimensions=[dimension_obj],
+            rules=[rule_obj],
+            views=[view_obj],
+        )
+
+        assert cube_obj.uri() == "Cubes('MockCube')"
+        assert rule_obj.uri("MockCube") == "Cubes('MockCube')/Rules('default')"
+        assert view_obj.uri("MockCube") == "Cubes('MockCube')/Views('ViewURL')"
+        assert dimension_obj.uri() == "Dimensions('TestDim')"
+        assert hierarchy_obj.uri("TestDim") == "Dimensions('TestDim')/Hierarchies('TestHier')"
+        assert subset_obj.uri("TestDim", "TestHier") == "Dimensions('TestDim')/Hierarchies('TestHier')/Subsets('SubsetA')"
+        assert process_obj.uri() == "Processes('ProcURL')"
+        assert chore_obj.uri() == "Chores('ChoreURL')"
+
+    def test_model_filter_uses_urls_baseline(self):
+        rule_a = Rule(area="[A]", full_statement="[A]=N:1;")
+        rule_b = Rule(area="[B]", full_statement="[B]=N:2;")
+        view_obj = MDXView(name="KeepView", mdx="SELECT FROM [MockCube]")
+        dim_obj = make_dimension(name="MockDim", hierarchy_names=[])
+        cube_obj = Cube(
+            name="MockCube",
+            dimensions=[dim_obj],
+            rules=[rule_a, rule_b],
+            views=[view_obj],
+        )
+        model = Model(cubes=[cube_obj], dimensions=[dim_obj], processes=[make_process("ProcA")], chores=[make_chore("ChoreA")])
+
+        rules_filtered = filter_module.filter(model, ["Cubes('MockCube')/Rules('default')"])
+        assert len(rules_filtered.cubes) == 1
+        assert rules_filtered.cubes[0].name == "MockCube"
+        assert len(rules_filtered.cubes[0].rules) == 0
+
+        cubes_filtered = filter_module.filter(model, ["Cubes('MockCube')"])
+        assert len(cubes_filtered.cubes) == 0
+
+
     def test_export_persists_expected_payload(self, tmp_path):
         changes = Changeset(changeset_name="mock_changes")
 
@@ -728,19 +1375,19 @@ class TestChangeset:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                source_path=created_subset.source_path,
+                source_path="dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json",
                 body=created_subset,
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.DIMENSION,
-                source_path=new_dimension.source_path,
+                source_path="dimensions/Dim_Update.json",
                 body=new_dimension,
             ),
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.MDX_VIEW,
-                source_path=removed_view.source_path,
+                source_path="cubes/Cube_One.views/View_To_Delete.json",
                 body=removed_view,
             ),
         ]
@@ -769,7 +1416,7 @@ class TestChangeset:
                 {
                     "change_type": "add",
                     "object_type": "Subset",
-                    "source_path": "/dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create",
+                    "source_path": "dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json",
                     "body": {
                         "name": "Subset_Create",
                         "expression": "{[Dim_New].[Hier_New].Members}",
@@ -778,14 +1425,14 @@ class TestChangeset:
                 {
                     "change_type": "modify",
                     "object_type": "Dimension",
-                    "source_path": "/dimensions/Dim_Update.json",
+                    "source_path": "dimensions/Dim_Update.json",
                     "body": {
                         "name": "Dim_Update",
                         "hierarchies": [
-                            "/dimensions/Dim_Update.hierarchies/dummy.json",
-                            "/dimensions/Dim_Update.hierarchies/dummy.json",
+                            "dimensions/Dim_Update.hierarchies/Base.json",
+                            "dimensions/Dim_Update.hierarchies/Added.json",
                         ],
-                        "default_hierarchy": "/dimensions/Dim_Update.hierarchies/dummy.json",
+                        "default_hierarchy": "dimensions/Dim_Update.hierarchies/Base.json",
                     },
                 },
             ],
@@ -829,17 +1476,14 @@ class TestChangesetFiltering:
         subset = Subset(
             name="SubsetA",
             expression="{TM1SUBSETALL([MockDim].[MockHier])}",
-            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
         )
         subset_mod_old = Subset(
             name="SubsetMod",
             expression="{TM1SUBSETALL([MockDim].[MockHier])}",
-            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"
         )
         subset_mod_new = Subset(
             name="SubsetMod",
             expression="{[MockDim].[MockHier].[E1]}",
-            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"
         )
         process_obj = make_process(name="KeepProcess")
 
@@ -847,31 +1491,31 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.DIMENSION,
-                source_path=dim.source_path,
+                source_path="dimensions/MockDim.json",
                 body=dim
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.HIERARCHY,
-                source_path=hier_new.source_path,
+                source_path="dimensions/MockDim.hierarchies/MockHier.json",
                 body=hier_new
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.SUBSET,
-                source_path=subset_mod_new.source_path,
+                source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json",
                 body=subset_mod_new
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                source_path=subset.source_path,
+                source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json",
                 body=subset
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                source_path=process_obj.source_path,
+                source_path="processes/KeepProcess.json",
                 body=process_obj
             ),
         ]
@@ -898,20 +1542,19 @@ class TestChangesetFiltering:
         subset = Subset(
             name="SubsetA",
             expression="{TM1SUBSETALL([MockDim].[MockHier])}",
-            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
         )
 
         changeset.changes = [
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.DIMENSION,
-                source_path=dim.source_path,
+                source_path="dimensions/MockDim.json",
                 body=dim
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                source_path=subset.source_path,
+                source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json",
                 body=subset
             ),
         ]
@@ -937,7 +1580,6 @@ class TestChangesetFiltering:
         subset = Subset(
             name="SubsetA",
             expression="{TM1SUBSETALL([MockDim].[MockHier])}",
-            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
         )
         process_obj = make_process(name="KeepProcess")
 
@@ -945,25 +1587,25 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.DIMENSION,
-                source_path=dim.source_path,
+                source_path="dimensions/MockDim.json",
                 body=dim
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.HIERARCHY,
-                source_path=hier_new.source_path,
+                source_path="dimensions/MockDim.hierarchies/MockHier.json",
                 body=hier_new
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                source_path=subset.source_path,
+                source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json",
                 body=subset
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                source_path=process_obj.source_path,
+                source_path="processes/KeepProcess.json",
                 body=process_obj
             ),
         ]
@@ -1003,7 +1645,11 @@ class TestSubsetCRUD:
         tm1py_subset_instance = tm1py_subset_cls.return_value
         tm1_service.subsets.create.return_value = "create-result"
 
-        result = subset.create_subset(tm1_service, subset_mock)
+        result = subset.create_subset(
+            tm1_service,
+            subset_mock,
+            source_path="dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json",
+        )
 
         tm1py_subset_cls.assert_called_once_with(
             subset_name="Subset_A",
@@ -1025,7 +1671,11 @@ class TestSubsetCRUD:
 
         tm1_service.subsets.delete.return_value = "delete-result"
 
-        result = subset.delete_subset(tm1_service, subset_mock)
+        result = subset.delete_subset(
+            tm1_service,
+            subset_mock,
+            source_path="dimensions/Dim_Del.hierarchies/Hier_Del.subsets/Subset_Delete.json",
+        )
 
         tm1_service.subsets.delete.assert_called_once_with(
             subset_name="Subset_Delete",
@@ -1051,7 +1701,11 @@ class TestSubsetCRUD:
 
         tm1_service.subsets.update.return_value = "update-result"
 
-        result = subset.update_subset(tm1_service, subset_new)
+        result = subset.update_subset(
+            tm1_service,
+            subset_new,
+            source_path="dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json",
+        )
 
         tm1_service.subsets.get.assert_called_once_with(
             subset_name="Subset_A",
@@ -1071,13 +1725,16 @@ class TestEdgeCRUD:
         tm1_service = mocker.Mock()
         edge_obj = Edge(
             parent="Parent_A",
-            name="Child_A",
+            component_name="Child_A",
             weight=1,
-            source_path="/dimensions/Dim_A.hierarchies/Hier_A.json/Parent_A:Child_A"
         )
         tm1_service.elements.add_edges.return_value = "create-result"
 
-        result = edge.create_edge(tm1_service, edge_obj)
+        result = edge.create_edge(
+            tm1_service,
+            edge_obj,
+            source_path="dimensions/Dim_A.hierarchies/Hier_A.json/Parent_A:Child_A",
+        )
 
         tm1_service.elements.add_edges.assert_called_once_with(
             "Hier_A",
@@ -1091,16 +1748,19 @@ class TestEdgeCRUD:
         tm1_service = mocker.Mock()
         edge_obj = Edge(
             parent="Parent_B",
-            name="Child_B",
+            component_name="Child_B",
             weight=2,
-            source_path="/dimensions/Dim_B.hierarchies/Hier_B.json/Parent_B:Child_B"
         )
 
         hierarchy_object = mocker.Mock()
         tm1_service.hierarchies.get.return_value = hierarchy_object
         tm1_service.hierarchies.update.return_value = "update-result"
 
-        result = edge.update_edge(tm1_service, edge_obj)
+        result = edge.update_edge(
+            tm1_service,
+            edge_obj,
+            source_path="dimensions/Dim_B.hierarchies/Hier_B.json/Parent_B:Child_B",
+        )
 
         tm1_service.hierarchies.get.assert_called_once_with(
             dimension_name="Dim_B",
@@ -1119,13 +1779,16 @@ class TestEdgeCRUD:
         tm1_service = mocker.Mock()
         edge_obj = Edge(
             parent="Parent_C",
-            name="Child_C",
+            component_name="Child_C",
             weight=3,
-            source_path="/dimensions/Dim_C.hierarchies/Hier_C.json/Parent_C:Child_C"
         )
         tm1_service.elements.remove_edge.return_value = "delete-result"
 
-        result = edge.delete_edge(tm1_service, edge_obj)
+        result = edge.delete_edge(
+            tm1_service,
+            edge_obj,
+            source_path="dimensions/Dim_C.hierarchies/Hier_C.json/Parent_C:Child_C",
+        )
 
         tm1_service.elements.remove_edge.assert_called_once_with(
             "Hier_C",
@@ -1144,14 +1807,17 @@ class TestElementCRUD:
         element_obj = Element(
             name="Elem_A",
             type="Numeric",
-            source_path="/dimensions/Dim_A.hierarchies/Hier_A.json/Elem_A"
         )
 
         tm1py_element_cls = mocker.patch("tm1_git_py.model.element.TM1py.Element")
         tm1py_element_instance = tm1py_element_cls.return_value
         tm1_service.elements.create.return_value = "create-result"
 
-        result = element.create_element(tm1_service, element_obj)
+        result = element.create_element(
+            tm1_service,
+            element_obj,
+            source_path="dimensions/Dim_A.hierarchies/Hier_A.json/Elem_A",
+        )
 
         tm1py_element_cls.assert_called_once_with(name="Elem_A", element_type="Numeric")
         tm1_service.elements.create.assert_called_once_with(
@@ -1167,11 +1833,14 @@ class TestElementCRUD:
         element_obj = Element(
             name="Elem_B",
             type="String",
-            source_path="/dimensions/Dim_B.hierarchies/Hier_B.json/Elem_B"
         )
         tm1_service.elements.delete.return_value = "delete-result"
 
-        result = element.delete_element(tm1_service, element_obj)
+        result = element.delete_element(
+            tm1_service,
+            element_obj,
+            source_path="dimensions/Dim_B.hierarchies/Hier_B.json/Elem_B",
+        )
 
         tm1_service.elements.delete.assert_called_once_with(
             hierarchy_name="Hier_B",
@@ -1193,8 +1862,8 @@ class TestHierarchyCRUD:
             hierarchy_name="Hierarchy_A",
             elements=elements,
             edges=[
-                Edge(parent="Total", name="E1", weight=1),
-                Edge(parent="Total", name="E2", weight=2),
+                Edge(parent="Total", component_name="E1", weight=1),
+                Edge(parent="Total", component_name="E2", weight=2),
             ],
         )
 
@@ -1205,7 +1874,11 @@ class TestHierarchyCRUD:
         tm1_service.hierarchies.create.return_value = response
         create_element_mock = mocker.patch("tm1_git_py.model.hierarchy.create_element")
 
-        result = hierarchy.create_hierarchy(tm1_service, hierarchy_mock)
+        result = hierarchy.create_hierarchy(
+            tm1_service,
+            hierarchy_mock,
+            source_path="dimensions/Dimension_A.hierarchies/Hierarchy_A.json",
+        )
 
         # Assert: TM1py.Hierarchy constructed with correct name + dimension
         tm1py_hierarchy_cls.assert_called_once_with(
@@ -1233,7 +1906,11 @@ class TestHierarchyCRUD:
 
         tm1_service.hierarchies.delete.return_value = "delete-result"
 
-        result = hierarchy.delete_hierarchy(tm1_service, hierarchy_mock)
+        result = hierarchy.delete_hierarchy(
+            tm1_service,
+            hierarchy_mock,
+            source_path="dimensions/Dimension_X.hierarchies/Hierarchy_Delete.json",
+        )
 
         tm1_service.hierarchies.delete.assert_called_once_with(
             dimension_name="Dimension_X",
@@ -1287,7 +1964,11 @@ class TestMDXViewCRUD:
         tm1py_mdxview_instance = tm1py_mdxview_cls.return_value
         tm1_service.views.create.return_value = "create-result"
 
-        result = mdxview.create_mdxview(tm1_service, mdx_view)
+        result = mdxview.create_mdxview(
+            tm1_service,
+            mdx_view,
+            source_path="cubes/Cube_A.views/View_A.json",
+        )
 
         tm1py_mdxview_cls.assert_called_once_with(
             cube_name=cube_name,
@@ -1306,7 +1987,11 @@ class TestMDXViewCRUD:
             mdx="SELECT FROM [Cube_A]",
         )
 
-        result = mdxview.delete_mdxview(tm1_service, mdx_view)
+        result = mdxview.delete_mdxview(
+            tm1_service,
+            mdx_view,
+            source_path="cubes/Cube_A.views/View_A.json",
+        )
 
         tm1_service.views.delete.assert_called_once_with(view_name=mdx_view.name, cube_name="Cube_A")
         assert result == "delete-result"
@@ -1326,7 +2011,11 @@ class TestMDXViewCRUD:
         tm1_service.views.get_mdx_view.return_value = tm1_mdx_view_obj
         tm1_service.views.update.return_value = "update-result"
 
-        result = mdxview.update_mdxview(tm1_service, mdx_view_new)
+        result = mdxview.update_mdxview(
+            tm1_service,
+            mdx_view_new,
+            source_path="cubes/Cube_A.views/View_A.json",
+        )
 
         # Assert: we got the existing MDX view from TM1
         tm1_service.views.get_mdx_view.assert_called_once_with(

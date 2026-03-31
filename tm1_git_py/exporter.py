@@ -3,10 +3,14 @@ import logging
 import os
 import re
 from typing import Dict, List, Optional
+from warnings import catch_warnings
 from TM1py import TM1Service
 import TM1py
 
+from functools import reduce
+
 from tm1_git_py import filter as filter_module
+from tm1_git_py.filter import EntityType, FilterRules
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -22,93 +26,51 @@ from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 
+from tm1_git_py.tm1py_ext import get_cube_names, get_edges, get_elements, get_subsets, get_process_names, get_views
+from tm1_git_py.tm1py_ext.dimension_service_ext import get_names as get_dimension_names
+from tm1_git_py.tm1py_ext.hierarchy_service_ext import get_all_names as get_hierarchy_names
+
 
 logger = logging.getLogger(__name__)
 
 
-def _compose_export_filter_rules(
-    filter_rules: Optional[list[str]] = None,
-) -> list[str]:
-    effective_rules: list[str] = []
-    if filter_rules:
-        effective_rules.extend(filter_rules)
-    return effective_rules
-
-
-def _normalize_rule_for_winning_rule(rule: str) -> str:
-    if not rule:
-        return rule
-    op = rule[0]
-    if op not in {"+", "-"}:
-        return rule.replace("\\", "/").lstrip("/").lower()
-    pattern = rule[1:].lstrip("/").lower()
-    return f"{op}{pattern}"
-
-
-def _should_enable_skip_control_flags(filter_rules: list[str]) -> bool:
-    if not filter_rules:
-        return False
-
-    normalized_rules = [_normalize_rule_for_winning_rule(rule) for rule in filter_rules]
-    technical_patterns = {
-        _normalize_rule_for_winning_rule(rule)[1:]
-        for rule in filter_module.DEFAULT_TM1_TECHNICAL_OBJECTS
-        if rule and rule[0] in {"+", "-"}
-    }
-
-    probe_paths = [
-        "cubes/}technical_probe",
-        "dimensions/}technical_probe",
-        "processes/}technical_probe"
-    ]
-    for probe_path in probe_paths:
-        winning_rule = filter_module._get_winning_rule(probe_path, normalized_rules)
-        if winning_rule and winning_rule.get("op") == "-" and winning_rule.get("pattern") in technical_patterns:
-            return True
-    return False
-
-
 def export(
     tm1_conn: TM1Service,
-    filter_rules: Optional[list[str]] = None,
+    filter_rules_list: Optional[list[str]] = None,
+    internal_model_dir: Optional[str] = None,
 ) -> tuple[Model, Dict[str, str]]:
     logger.info("TM1 export started")
-    effective_rules = _compose_export_filter_rules(filter_rules=filter_rules)
-    use_skip_control_flags = _should_enable_skip_control_flags(effective_rules)
+    effective_rules = list(filter_rules_list or [])
+    filter_rules = FilterRules(effective_rules)
     logger.info(
-        "Export filters configured additional_rules=%d effective_rules=%d use_skip_control=%s",
-        len(filter_rules or []),
+        "Export filters configured additional_rules=%d effective_rules=%d",
+        len(filter_rules_list or []),
         len(effective_rules),
-        use_skip_control_flags,
     )
 
     _dimensions, _dim_errors = dimensions_to_model(
         tm1_conn,
-        effective_rules=effective_rules,
-        skip_control_dims=use_skip_control_flags,
+        filter_rules=filter_rules,
+        internal_model_dir=internal_model_dir,
     )
 
     _cubes, _cube_errors = cubes_to_model(
         tm1_conn,
         _dimensions,
-        effective_rules=effective_rules,
-        skip_control_cubes=use_skip_control_flags,
+        filter_rules=filter_rules,
     )
 
     _processes, _process_errors = procs_to_model(
         tm1_conn,
-        effective_rules=effective_rules,
-        skip_control_processes=use_skip_control_flags,
+        filter_rules=filter_rules
     )
 
-    _chores, _chore_errors = chores_to_model(tm1_conn, effective_rules=effective_rules)
+    _chores, _chore_errors = chores_to_model(tm1_conn, filter_rules=filter_rules)
 
     _model = Model(cubes=list(_cubes.values()),
                    dimensions=list(_dimensions.values()),
                    processes=list(_processes.values()),
-                   chores=list(_chores.values()),
-                   #server_configs=server_configs_to_model(tm1_conn)
-                   )
+                   chores=list(_chores.values()))
     logger.info(
         "TM1 export model assembled dimensions=%d cubes=%d processes=%d chores=%d",
         len(_model.dimensions),
@@ -137,7 +99,10 @@ def export(
     return _model, _errors
 
 
-def chores_to_model(tm1_conn, effective_rules: Optional[list[str]] = None) -> tuple[Dict[str, Chore], Dict[str, str]]:
+def chores_to_model(
+    tm1_conn,
+    filter_rules: FilterRules,
+) -> tuple[Dict[str, Chore], Dict[str, str]]:
     all_chores = tm1_conn.chores.get_all_names()
     _chores: Dict[str, Chore] = {}
     _errors: Dict[str, str] = {}
@@ -146,24 +111,24 @@ def chores_to_model(tm1_conn, effective_rules: Optional[list[str]] = None) -> tu
     logger.info("Exporting %d chores", len(all_chores))
 
     for chore_name in all_chores:
-        chore_source_path = os.path.join('chores', f"{chore_name}.json").replace('\\', '/')
-        if filter_module.should_exclude_path(chore_source_path, effective_rules or []):
-            logger.debug("Skipping chore by filter: %s", chore_source_path)
+        chore_url = Chore.uri_for(chore_name)
+        if filter_rules.should_exclude(chore_url):
+            logger.debug("Skipping chore by filter: %s", chore_url)
             skipped_chores += 1
             continue
 
         chore = tm1_conn.chores.get(chore_name=chore_name)
 
         tasks_for_model = []
-        for index, tm1py_task in enumerate(chore.tasks):
+        for tm1py_task in chore.tasks:
             task_dict = tm1py_task.body_as_dict
             process_name = ""
             process_bind = task_dict.get("Process@odata.bind", "")
             match = re.search(r"Processes\('([^']*)'\)", process_bind)
             if match:
                 process_name = match.group(1)
-            task_path = f"{chore_source_path}|{process_name}|{index}"
-            if filter_module.should_exclude_path(task_path, effective_rules or []):
+            task_path = f"{chore_url}/Tasks('{process_name}')"
+            if filter_rules.should_exclude(task_path):
                 logger.debug("Skipping chore task by filter: %s", task_path)
                 skipped_tasks += 1
                 continue
@@ -173,7 +138,7 @@ def chores_to_model(tm1_conn, effective_rules: Optional[list[str]] = None) -> tu
                 parameters=task_dict.get('Parameters', [])
             )
             tasks_for_model.append(task_obj)
-
+ 
         _chore = Chore(
             name=chore.name,
             start_time=chore.start_time.start_time_string,
@@ -182,7 +147,6 @@ def chores_to_model(tm1_conn, effective_rules: Optional[list[str]] = None) -> tu
             execution_mode=chore.execution_mode,
             frequency=chore.frequency.frequency_string,
             tasks=tasks_for_model,
-            source_path=chore_source_path
         )
         _chores[chore.name] = _chore
 
@@ -197,24 +161,19 @@ def chores_to_model(tm1_conn, effective_rules: Optional[list[str]] = None) -> tu
 
 
 def procs_to_model(
-    tm1_conn,
-    effective_rules: Optional[list[str]] = None,
-    skip_control_processes: bool = False,
+    tm1_conn :TM1Service,
+    filter_rules: FilterRules,
 ) -> tuple[Dict[str, Process], Dict[str, str]]:
-    all_procs = tm1_conn.processes.get_all_names(skip_control_processes=skip_control_processes)
+    processes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.PROCESS)
+    filtered_process_names = [] if processes_tm1_filter.skip_all else get_process_names(
+            tm1_conn,
+            filter=processes_tm1_filter.filter_expr
+    )
 
     _processes: Dict[str, Process] = {}
     _errors: Dict[str, str] = {}
-    skipped_processes = 0
-    logger.info("Exporting %d processes", len(all_procs))
-
-    for process_name in all_procs:
-        process_source_path = os.path.join('processes', f"{process_name}.json").replace('\\', '/')
-        if filter_module.should_exclude_path(process_source_path, effective_rules or []):
-            logger.debug("Skipping process by filter: %s", process_source_path)
-            skipped_processes += 1
-            continue
-
+    logger.info("Exporting %d processes", len(filtered_process_names))
+    for process_name in filtered_process_names:
         process = tm1_conn.processes.get(name_process=process_name)
 
         _ti = TI(prolog_procedure=process.prolog_procedure,
@@ -224,14 +183,12 @@ def procs_to_model(
         _process = Process(name=process.name, hasSecurityAccess=process.has_security_access,
                            code_link=process_name + '.ti',
                            datasource='',
-                           parameters=process.parameters, variables=process.variables, ti=_ti,
-                           source_path=process_source_path)
+                           parameters=process.parameters, variables=process.variables, ti=_ti)
         _processes[process.name] = _process
     logger.info(
-        "Process export assembly finished total=%d kept=%d skipped=%d",
-        len(all_procs),
-        len(_processes),
-        skipped_processes,
+        "Process export assembly finished total=%d kept=%d",
+        len(filtered_process_names),
+        len(_processes)
     )
     return _processes, _errors
 
@@ -239,29 +196,24 @@ def procs_to_model(
 def cubes_to_model(
     tm1_conn: TM1Service,
     _dimensions: Dict[str, Dimension],
-    effective_rules: Optional[list[str]] = None,
-    skip_control_cubes: bool = False,
+    filter_rules: FilterRules
 ) -> tuple[Dict[str, Cube], Dict[str, str]]:
-    all_cubes = tm1_conn.cubes.get_all_names(skip_control_cubes=skip_control_cubes)
+    cubes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.CUBE)
+    filtered_cube_names = [] if cubes_tm1_filter.skip_all else get_cube_names(
+        tm1_conn,
+        filter=cubes_tm1_filter.filter_expr,
+    )
 
     _cubes: Dict[str, Cube] = {}
     _errors: Dict[str, str] = {}
-    skipped_cubes = 0
     skipped_rules = 0
     skipped_views = 0
-    logger.info("Exporting %d cubes", len(all_cubes))
+    logger.info("Exporting %d cubes", len(filtered_cube_names))
 
-    for cube_name in all_cubes:
-        cube_source_path = os.path.join('cubes', cube_name).replace('\\', '/')
-        if filter_module.should_exclude_path(cube_source_path, effective_rules or []):
-            logger.debug("Skipping cube by filter: %s", cube_source_path)
-            skipped_cubes += 1
-            continue
-
+    for cube_name in filtered_cube_names:
+        
         try:
             cube = tm1_conn.cubes.get(cube_name=cube_name)
-
-            #rule_source_object = cube.rules if cube.has_rules else None
 
             rule_text = ""
             if cube.has_rules:
@@ -272,11 +224,11 @@ def cubes_to_model(
                 except (json.JSONDecodeError, AttributeError):
                     rule_text = raw_body if isinstance(raw_body, str) else ""
 
-            rules_list = _parse_rules(rule_text, cube_name=cube_name)
+            rules_list = _parse_rules(rule_text)
             filtered_rules_list = []
             for rule in rules_list:
-                rule_path = f"{cube_source_path}|{filter_module.normalize_for_path(rule.area)}"
-                if filter_module.should_exclude_path(rule_path, effective_rules or []):
+                rule_path = f"{Rule.uri_for(cube_name)}|{filter_module.normalize_for_path(rule.area)}"
+                if filter_rules.should_exclude(rule_path):
                     logger.debug("Skipping rule by filter: %s", rule_path)
                     skipped_rules += 1
                     continue
@@ -286,7 +238,6 @@ def cubes_to_model(
                 dimensions=[],
                 rules=filtered_rules_list,
                 views=[],
-                source_path=cube_source_path
             )
 
             skip_cube_due_to_filtered_dimension = False
@@ -294,12 +245,12 @@ def cubes_to_model(
                 for dimension in cube.dimensions:
                     _dimension = _dimensions.get(dimension)
                     if not _dimension:
-                        dimension_source_path = os.path.join("dimensions", f"{dimension}.json").replace("\\", "/")
-                        if filter_module.should_exclude_path(dimension_source_path, effective_rules or []):
+                        dimension_url = Dimension.uri_for(dimension)
+                        if filter_rules.should_exclude(dimension_url):
                             logger.debug(
                                 "Skipping cube '%s' because dependent dimension is filtered: %s",
                                 cube_name,
-                                dimension_source_path,
+                                dimension_url,
                             )
                             skip_cube_due_to_filtered_dimension = True
                             break
@@ -314,26 +265,25 @@ def cubes_to_model(
                     else:
                         _cube.dimensions.append(_dimension)
 
-            if skip_cube_due_to_filtered_dimension:
-                skipped_cubes += 1
-                continue
 
             _cubes[cube_name] = _cube
 
-            views_tuple = tm1_conn.views.get_all(cube_name=cube_name)
-            if views_tuple:
-                private_views, public_views = views_tuple
+            views_tm1_filter = filter_rules.to_tm1_child_name_filter(
+                parent_chain=[(EntityType.CUBE, cube_name)],
+                child_entity_type=EntityType.VIEW,
+            )
+            filtered_view_tuples = get_views(
+                tm1_conn,
+                cube_name=cube_name,
+                filter=views_tm1_filter.filter_expr,
+            )
+            if filtered_view_tuples:
+                private_views, public_views = filtered_view_tuples
                 for view in private_views + public_views:
-                    view_source_path = os.path.join('cubes', f"{cube_name}.views", f"{view.name}.json").replace('\\', '/')
-                    if filter_module.should_exclude_path(view_source_path, effective_rules or []):
-                        logger.debug("Skipping cube view by filter: %s", view_source_path)
-                        skipped_views += 1
-                        continue
                     if isinstance(view, TM1py.Objects.MDXView):
                         _view = MDXView(
                             name=view.name,
                             mdx=view.mdx,
-                            source_path=view_source_path,
                         )
                     elif isinstance(view, TM1py.Objects.NativeView):
                         _view = NativeView(
@@ -344,7 +294,6 @@ def cubes_to_model(
                             suppress_empty_columns=view.suppress_empty_columns,
                             suppress_empty_rows=view.suppress_empty_rows,
                             format_string=view.format_string,
-                            source_path=view_source_path,
                         )
                     else:
                         continue
@@ -356,10 +305,9 @@ def cubes_to_model(
             _errors[cube_name] = str(e)
 
     logger.info(
-        "Cube export assembly finished total=%d kept=%d skipped_cubes=%d skipped_rules=%d skipped_views=%d",
-        len(all_cubes),
+        "Cube export assembly finished total=%d kept=%d skipped_rules=%d skipped_views=%d",
+        len(filtered_cube_names),
         len(_cubes),
-        skipped_cubes,
         skipped_rules,
         skipped_views,
     )
@@ -367,89 +315,98 @@ def cubes_to_model(
 
 
 def dimensions_to_model(
-    tm1_conn,
-    effective_rules: Optional[list[str]] = None,
-    skip_control_dims: bool = False,
+    tm1_conn: TM1Service,
+    filter_rules: FilterRules,
+    internal_model_dir: Optional[str] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
-    all_dims = tm1_conn.dimensions.get_all_names(skip_control_dims=skip_control_dims)
+    
+    dimensions_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.DIMENSION)
+    all_dims = [] if dimensions_tm1_filter.skip_all else get_dimension_names(
+        tm1_conn, 
+        filter=dimensions_tm1_filter.filter_expr
+    )
 
     _errors: Dict[str, str] = {}
     _dimensions: Dict[str, Dimension] = {}
-    skipped_dimensions = 0
-    skipped_hierarchies = 0
-    skipped_subsets = 0
+
     logger.info("Exporting %d dimensions", len(all_dims))
+
     for dim_name in all_dims:
-        dim_source_path = os.path.join('dimensions', f"{dim_name}.json").replace('\\', '/')
-        if filter_module.should_exclude_path(dim_source_path, effective_rules or []):
-            logger.debug("Skipping dimension by filter: %s", dim_source_path)
-            skipped_dimensions += 1
-            continue
 
-        dim = tm1_conn.dimensions.get(dimension_name=dim_name)
-        default_hierarchy = Hierarchy.from_dict(dim.default_hierarchy.body_as_dict, dimension_name=dim_name)
+        try:
+            hierarchies_tm1_filter = filter_rules.to_tm1_hierarchy_name_filter(dim_name)
+            all_hierarchies = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(
+                tm1_conn, dim_name,
+                filter=hierarchies_tm1_filter.filter_expr
+            )
 
-        _dimension = Dimension(name=dim.name, hierarchies=[],
-                               defaultHierarchy=default_hierarchy,
-                               source_path=dim_source_path)
-        _dimensions[dim.name] = _dimension
+            hierarchy_list: List[Hierarchy] = []
+            for idx, hierarchy_name in enumerate(all_hierarchies):
+                hierarchy = (
+                    Hierarchy(
+                        name=hierarchy_name,
+                        dimension_name=dim_name,
+                        internal_model_dir=internal_model_dir,
+                    )
+                    if internal_model_dir
+                    else Hierarchy(name=hierarchy_name, elements=[], edges=[], subsets=[])
+                )
 
-        for hierarchy in dim.hierarchies:
-            hierarchy_source_path = os.path.join('dimensions', f"{dim_name}.hierarchies",
-                                                 f"{hierarchy.name}.json").replace('\\', '/')
-            if filter_module.should_exclude_path(hierarchy_source_path, effective_rules or []):
-                logger.debug("Skipping hierarchy by filter: %s", hierarchy_source_path)
-                skipped_hierarchies += 1
-                continue
+                elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
+                if not elements_tm1_filter.skip_all:
+                    get_elements(
+                        tm1_conn,
+                        dim_name,
+                        hierarchy_name,
+                        filter=elements_tm1_filter.filter_expr,
+                        collector=hierarchy.elements,
+                    )
 
-            _hierarchy = Hierarchy(name=hierarchy.name,
-                                   elements=[Element(name=v.name, type=v.element_type.value,
-                                                     dimension_name=dim_name, hierarchy_name=hierarchy.name)
-                                             for k, v in hierarchy.elements.items()],
-                                   edges=[Edge(k[0], k[1], v, dimension_name=dim_name, hierarchy_name=hierarchy.name)
-                                          for k, v in hierarchy.edges.items()],
-                                   subsets=[],
-                                   source_path=hierarchy_source_path)
+                subsets_tm1_filter = filter_rules.to_tm1_subset_name_filter(dim_name, hierarchy_name)
+                if not subsets_tm1_filter.skip_all:
+                    get_subsets(
+                        tm1_conn,
+                        dimension_name=dim_name,
+                        hierarchy_name=hierarchy_name,
+                        filter=subsets_tm1_filter.filter_expr,
+                        collector=hierarchy.subsets,
+                    )
 
-            _dimension.hierarchies.append(_hierarchy)
+                edges_tm1_filter = filter_rules.to_tm1_edge_name_filter(dim_name, hierarchy_name)
+                if not edges_tm1_filter.skip_all:
+                    get_edges(
+                        tm1_conn,
+                        dim_name,
+                        hierarchy_name,
+                        filter=edges_tm1_filter.filter_expr,
+                        collector=hierarchy.edges,
+                    )
 
-            if hierarchy.subsets:
-                for subset_name in hierarchy.subsets:
-                    try:
-                        subset = tm1_conn.subsets.get(
-                            dimension_name=dim_name, subset_name=subset_name)
-                        subset_source_path = os.path.join('dimensions', f"{dim_name}.hierarchies",
-                                                          f"{hierarchy.name}.subsets",
-                                                          f"{subset_name}.json").replace('\\', '/')
-                        if filter_module.should_exclude_path(subset_source_path, effective_rules or []):
-                            logger.debug("Skipping subset by filter: %s", subset_source_path)
-                            skipped_subsets += 1
-                            continue
-                        _subset = Subset(name=subset_name,
-                                         expression=subset.expression,
-                                         source_path=subset_source_path)
-                        _hierarchy.subsets.append(_subset)
-                    except Exception as e:
-                        logger.error(
-                            "Failed to export subset '%s' for dimension '%s' hierarchy '%s'",
-                            subset_name,
-                            dim_name,
-                            hierarchy.name,
-                            exc_info=True,
-                        )
-                        _errors[dim_name] = str(e)
-    logger.info(
-        "Dimension export assembly finished total=%d kept=%d skipped_dimensions=%d skipped_hierarchies=%d skipped_subsets=%d",
-        len(all_dims),
-        len(_dimensions),
-        skipped_dimensions,
-        skipped_hierarchies,
-        skipped_subsets,
-    )
+                hierarchy.finalize_staged_json()
+                hierarchy_list.append(hierarchy)
+
+            if len(hierarchy_list) > 0:
+                _dimension = Dimension(
+                    name=dim_name,
+                    hierarchies=hierarchy_list,
+                    defaultHierarchy=hierarchy_list[0],
+                )
+            else:
+                empty_hierarchy = Hierarchy(name=dim_name, elements=[], edges=[], subsets=[])
+                _dimension = Dimension(
+                    name=dim_name,
+                    hierarchies=[empty_hierarchy],
+                    defaultHierarchy=empty_hierarchy,
+                )
+            _dimensions[dim_name] = _dimension
+        except Exception as e:
+            logger.error("Failed to export dimension '%s'", dim_name, exc_info=True)
+            _errors[dim_name] = str(e)
+        
     return _dimensions, _errors
 
 
-def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
+def _parse_rules(rule_text: str) -> List[Rule]:
     if not rule_text: return []
     rules = []
     seen_names: dict[str, int] = {}
@@ -473,7 +430,6 @@ def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
                     area="[HEADER]",
                     full_statement=header_text,
                     comment="",
-                    cube_name=cube_name
                 )
             )
         last_pos = header_match.end()
@@ -488,7 +444,6 @@ def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
                 area=area,
                 full_statement=statement_text,
                 comment=comment,
-                cube_name=cube_name
             )
         )
     return rules

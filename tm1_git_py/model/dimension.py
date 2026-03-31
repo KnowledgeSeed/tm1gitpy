@@ -24,12 +24,11 @@ from tm1_git_py.model.hierarchy import Hierarchy
 # }
 
 class Dimension:
-    def __init__(self, name, hierarchies: List[Hierarchy], defaultHierarchy: Hierarchy, source_path: str):
+    def __init__(self, name, hierarchies: List[Hierarchy], defaultHierarchy: Hierarchy):
         self.type = 'Dimension'
         self.name = name
         self.hierarchies = hierarchies
         self.defaultHierarchy = defaultHierarchy
-        self.source_path = source_path
 
     def as_json(self):
         return json.dumps({
@@ -74,14 +73,10 @@ class Dimension:
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Dimension":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path or f"dimensions/{name}.json"
-
         hierarchy_payloads = data.get("hierarchies") or data.get("Hierarchies") or []
         hierarchies = [
             Hierarchy.from_dict(payload, dimension_name=name)
@@ -100,15 +95,16 @@ class Dimension:
         if default_hierarchy is None and hierarchies:
             default_hierarchy = hierarchies[0]
         if default_hierarchy is None:
-            hierarchy_path = f"{cls.as_link(name)}.hierarchies/{name}.json"
-            default_hierarchy = Hierarchy(name=name, elements=[], edges=[], subsets=[], source_path=hierarchy_path)
+            default_hierarchy = Hierarchy(name=name, elements=[], edges=[], subsets=[])
 
-        return cls(name=name, hierarchies=hierarchies, defaultHierarchy=default_hierarchy, source_path=resolved_path)
+        return cls(name=name, hierarchies=hierarchies, defaultHierarchy=default_hierarchy)
 
     @staticmethod
-    def as_link(name):
-        # /dimensions/Dimension_A.json
-        return '/dimensions/' + name
+    def uri_for(dimension_name: str) -> str:
+        return f"Dimensions('{dimension_name}')"
+
+    def uri(self) -> str:
+        return self.uri_for(self.name)
 
 
 # ------------------------------------------------------------------------------------------------------------

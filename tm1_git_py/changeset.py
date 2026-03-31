@@ -200,8 +200,6 @@ class Changeset:
                         area="[default]",
                         full_statement=unified_text,
                         comment="",
-                        source_path=source_path,
-                        cube_name=cube_name,
                     ),
                 )
             )
@@ -240,7 +238,7 @@ class Changeset:
             before_count = len(self.changes)
             def _change_key(change: Change) -> tuple[int, int, str, str]:
                 body = change.body
-                source_path = change.source_path or getattr(body, "source_path", "") or ""
+                source_path = change.source_path or _resolve_change_body_source_path(body) or ""
                 object_type = body.__class__.__name__
                 precedence_map = DELETE_OBJECT_PRECEDENCE if change.change_type == ChangeType.REMOVE else OBJECT_PRECEDENCE
 
@@ -417,7 +415,7 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
     if isinstance(body, Cube):
         return {
             "name": body.name,
-            "dimensions": [getattr(d, "source_path", f"dimensions/{d.name}.json") for d in body.dimensions]
+            "dimensions": [_resolve_change_body_source_path(d) or f"dimensions/{d.name}.json" for d in body.dimensions]
         }
 
     if isinstance(body, Subset):
@@ -447,9 +445,15 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
     if isinstance(body, Dimension):
         return {
             "name": body.name,
-            "hierarchies": [getattr(h, "source_path", f"dimensions/{body.name}.hierarchies/{h.name}.json") for h in body.hierarchies],
-            "default_hierarchy": getattr(body.defaultHierarchy, "source_path",
-                                         f"dimensions/{body.name}.hierarchies/{body.defaultHierarchy.name}.json")
+            "hierarchies": [
+                _resolve_change_body_source_path(h, dimension_name=body.name)
+                or f"dimensions/{body.name}.hierarchies/{h.name}.json"
+                for h in body.hierarchies
+            ],
+            "default_hierarchy": (
+                _resolve_change_body_source_path(body.defaultHierarchy, dimension_name=body.name)
+                or f"dimensions/{body.name}.hierarchies/{body.defaultHierarchy.name}.json"
+            )
         }
 
     if isinstance(body, Process):
@@ -641,71 +645,61 @@ def _load_changeset_payload(changeset_file) -> dict[str, Any]:
 
 
 def _build_dimension_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Dimension:
-    return Dimension.from_dict(payload, source_path=source_path)
+    return Dimension.from_dict(payload)
 
 
 def _build_hierarchy_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Hierarchy:
     dimension_name, _ = hierarchy._hierarchy_context_from_path(source_path)
     if not dimension_name:
         raise ValueError("Hierarchy payload missing dimension context.")
-    return Hierarchy.from_dict(payload, source_path=source_path, dimension_name=dimension_name)
+    return Hierarchy.from_dict(payload)
 
 
 def _build_subset_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Subset:
     dimension_name, hierarchy_name = subset._subset_context_from_path(source_path)
     if not dimension_name or not hierarchy_name:
         raise ValueError("Subset payload missing dimension or hierarchy context.")
-    return Subset.from_dict(payload, source_path=source_path,
-                            dimension_name=dimension_name, hierarchy_name=hierarchy_name)
+    return Subset.from_dict(payload)
 
 
 def _build_cube_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Cube:
-    return Cube.from_dict(payload, source_path=source_path)
+    return Cube.from_dict(payload)
 
 
 def _build_mdx_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> MDXView:
-    cube_name = None
-    if source_path:
-        cube_name, _ = mdxview._view_context_from_path(source_path)
-    if not source_path and not cube_name:
+    if not source_path:
         raise ValueError("MDXView payload missing cube context.")
-    return MDXView.from_dict(payload, source_path=source_path, cube_name=cube_name)
+    return MDXView.from_dict(payload)
 
 
 def _build_native_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> NativeView:
-    cube_name = None
-    if source_path:
-        cube_name, _ = mdxview._view_context_from_path(source_path)
-    if not source_path and not cube_name:
+    if not source_path:
         raise ValueError("NativeView payload missing cube context.")
-    return NativeView.from_dict(payload, source_path=source_path, cube_name=cube_name)
+    return NativeView.from_dict(payload)
 
 
 def _build_process_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Process:
-    return Process.from_dict(payload, source_path=source_path)
+    return Process.from_dict(payload)
 
 
 def _build_chore_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Chore:
-    return Chore.from_dict(payload, source_path=source_path)
+    return Chore.from_dict(payload)
 
 def _build_element_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Element:
-    return Element.from_dict(payload, source_path=source_path)
+    return Element.from_dict(payload)
 
 
 def _build_edge_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Edge:
-    return Edge.from_dict(payload, source_path=source_path)
+    return Edge.from_dict(payload)
 
 
 def _build_rule_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Rule:
-    cube_name = None
-    if source_path and source_path.startswith("cubes/"):
-        cube_name = source_path.split("/", 1)[1].split(".", 1)[0]
     normalized_payload = dict(payload)
     if "rule" in normalized_payload and "statement" not in normalized_payload and "full_statement" not in normalized_payload:
         normalized_payload["statement"] = normalized_payload["rule"]
     if "name" not in normalized_payload:
         normalized_payload["name"] = _rule_name_from_area(normalized_payload.get("area", ""))
-    return Rule.from_dict(normalized_payload, source_path=source_path, cube_name=cube_name)
+    return Rule.from_dict(normalized_payload)
 
 
 _OBJECT_BUILDERS: dict[str, Any] = {
@@ -733,3 +727,39 @@ def _deserialize_object_from_payload(object_type: Optional[str],
     if builder is None:
         raise ValueError(f"Unsupported object type '{object_type}' in changeset import.")
     return builder(payload, source_path)
+
+
+def _resolve_change_body_source_path(body: Any, **context: Any) -> str:
+    try:
+        if isinstance(body, Rule):
+            cube_name = context.get("cube_name")
+            return f"cubes/{cube_name}.rules" if cube_name else ""
+        if isinstance(body, (MDXView, NativeView)):
+            cube_name = context.get("cube_name")
+            return f"cubes/{cube_name}.views/{body.name}.json" if cube_name else ""
+        if isinstance(body, Hierarchy):
+            dimension_name = context.get("dimension_name")
+            return f"dimensions/{dimension_name}.hierarchies/{body.name}.json" if dimension_name else ""
+        if isinstance(body, Subset):
+            dimension_name = context.get("dimension_name")
+            hierarchy_name = context.get("hierarchy_name")
+            return f"dimensions/{dimension_name}.hierarchies/{hierarchy_name}.subsets/{body.name}.json" if dimension_name and hierarchy_name else ""
+        if isinstance(body, Element):
+            dimension_name = context.get("dimension_name")
+            hierarchy_name = context.get("hierarchy_name")
+            return f"dimensions/{dimension_name}.hierarchies/{hierarchy_name}.json/{body.name}" if dimension_name and hierarchy_name else ""
+        if isinstance(body, Edge):
+            dimension_name = context.get("dimension_name")
+            hierarchy_name = context.get("hierarchy_name")
+            return f"dimensions/{dimension_name}.hierarchies/{hierarchy_name}.json/{body.parent}:{body.name}" if dimension_name and hierarchy_name else ""
+        if isinstance(body, Dimension):
+            return f"dimensions/{body.name}.json"
+        if isinstance(body, Cube):
+            return f"cubes/{body.name}"
+        if isinstance(body, Process):
+            return f"processes/{body.name}.json"
+        if isinstance(body, Chore):
+            return f"chores/{body.name}.json"
+    except Exception:
+        return ""
+    return ""

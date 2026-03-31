@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
 
 from tm1_git_py.changeset import Changeset, Change, ChangeType, ObjectType
@@ -60,28 +61,191 @@ def _is_leaf_hierarchy(hierarchy_obj: Any) -> bool:
     return getattr(hierarchy_obj, "name", "").strip().lower() == "leaves"
 
 
-def _object_identity(obj: Any) -> str:
+def _decode_odata_literal(value: str) -> str:
+    return (value or "").replace("''", "'")
+
+
+def _uri_from_object(obj: Any, context: Optional[dict[str, str]] = None) -> str:
+    context = context or {}
+    try:
+        if isinstance(obj, Rule):
+            cube_name = context.get("cube_name")
+            return obj.uri(cube_name) if cube_name else ""
+        if isinstance(obj, (MDXView, NativeView)):
+            cube_name = context.get("cube_name")
+            return obj.uri(cube_name) if cube_name else ""
+        if isinstance(obj, Hierarchy):
+            dimension_name = context.get("dimension_name")
+            return obj.uri(dimension_name) if dimension_name else ""
+        if isinstance(obj, (Subset, Element, Edge)):
+            dimension_name = context.get("dimension_name")
+            hierarchy_name = context.get("hierarchy_name")
+            return obj.uri(dimension_name, hierarchy_name) if dimension_name and hierarchy_name else ""
+        return obj.uri()
+    except Exception:
+        return ""
+
+
+def _source_path_from_uri(uri: str) -> str:
+    if not uri:
+        return ""
+
+    cube_rule_match = re.match(r"^Cubes\('((?:''|[^'])+)'\)/Rules\('(?:''|[^'])+'\)$", uri)
+    if cube_rule_match:
+        cube_name = _decode_odata_literal(cube_rule_match.group(1))
+        return f"cubes/{cube_name}.rules"
+
+    cube_view_match = re.match(r"^Cubes\('((?:''|[^'])+)'\)/Views\('((?:''|[^'])+)'\)$", uri)
+    if cube_view_match:
+        cube_name = _decode_odata_literal(cube_view_match.group(1))
+        view_name = _decode_odata_literal(cube_view_match.group(2))
+        return f"cubes/{cube_name}.views/{view_name}.json"
+
+    cube_match = re.match(r"^Cubes\('((?:''|[^'])+)'\)$", uri)
+    if cube_match:
+        cube_name = _decode_odata_literal(cube_match.group(1))
+        return f"cubes/{cube_name}"
+
+    subset_match = re.match(
+        r"^Dimensions\('((?:''|[^'])+)'\)/Hierarchies\('((?:''|[^'])+)'\)/Subsets\('((?:''|[^'])+)'\)$",
+        uri,
+    )
+    if subset_match:
+        dim_name = _decode_odata_literal(subset_match.group(1))
+        hier_name = _decode_odata_literal(subset_match.group(2))
+        subset_name = _decode_odata_literal(subset_match.group(3))
+        return f"dimensions/{dim_name}.hierarchies/{hier_name}.subsets/{subset_name}.json"
+
+    edge_match = re.match(
+        r"^Dimensions\('((?:''|[^'])+)'\)/Hierarchies\('((?:''|[^'])+)'\)/Edges\('((?:''|[^'])+)'\)$",
+        uri,
+    )
+    if edge_match:
+        dim_name = _decode_odata_literal(edge_match.group(1))
+        hier_name = _decode_odata_literal(edge_match.group(2))
+        edge_key = _decode_odata_literal(edge_match.group(3))
+        parent, component = edge_key.split("/", 1) if "/" in edge_key else (edge_key, "")
+        return f"dimensions/{dim_name}.hierarchies/{hier_name}.json/{parent}:{component}"
+
+    element_match = re.match(
+        r"^Dimensions\('((?:''|[^'])+)'\)/Hierarchies\('((?:''|[^'])+)'\)/Elements\('((?:''|[^'])+)'\)$",
+        uri,
+    )
+    if element_match:
+        dim_name = _decode_odata_literal(element_match.group(1))
+        hier_name = _decode_odata_literal(element_match.group(2))
+        element_name = _decode_odata_literal(element_match.group(3))
+        return f"dimensions/{dim_name}.hierarchies/{hier_name}.json/{element_name}"
+
+    hierarchy_match = re.match(r"^Dimensions\('((?:''|[^'])+)'\)/Hierarchies\('((?:''|[^'])+)'\)$", uri)
+    if hierarchy_match:
+        dim_name = _decode_odata_literal(hierarchy_match.group(1))
+        hier_name = _decode_odata_literal(hierarchy_match.group(2))
+        return f"dimensions/{dim_name}.hierarchies/{hier_name}.json"
+
+    dimension_match = re.match(r"^Dimensions\('((?:''|[^'])+)'\)$", uri)
+    if dimension_match:
+        dim_name = _decode_odata_literal(dimension_match.group(1))
+        return f"dimensions/{dim_name}.json"
+
+    process_match = re.match(r"^Processes\('((?:''|[^'])+)'\)$", uri)
+    if process_match:
+        process_name = _decode_odata_literal(process_match.group(1))
+        return f"processes/{process_name}.json"
+
+    chore_match = re.match(r"^Chores\('((?:''|[^'])+)'\)$", uri)
+    if chore_match:
+        chore_name = _decode_odata_literal(chore_match.group(1))
+        return f"chores/{chore_name}.json"
+
+    return ""
+
+
+def _resolve_change_source_path(obj: Any, context: Optional[dict[str, str]] = None) -> str:
+    object_uri = _uri_from_object(obj, context=context)
+    source_path = _source_path_from_uri(object_uri)
+    if source_path:
+        return source_path
+    return _resolve_source_path(obj, context=context)
+
+
+def _object_identity(obj: Any, context: Optional[dict[str, str]] = None) -> str:
     obj_type = obj.__class__.__name__
+    if isinstance(obj, Rule):
+        object_uri = _uri_from_object(obj, context=context)
+        area = getattr(obj, "area", "")
+        if object_uri:
+            return f"{obj_type}:{object_uri}|{area}"
+        return f"{obj_type}:{getattr(obj, 'name', '')}:{area}"
+
+    object_uri = _uri_from_object(obj, context=context)
+    if object_uri:
+        return f"{obj_type}:{object_uri}"
+
     if isinstance(obj, Edge):
         return f"{obj_type}:{getattr(obj, 'parent', '')}:{getattr(obj, 'name', '')}"
-    if isinstance(obj, Rule):
-        return f"{obj_type}:{getattr(obj, 'name', '')}:{getattr(obj, 'area', '')}"
 
     name = getattr(obj, "name", None)
     if name is not None:
         return f"{obj_type}:{name}"
 
-    source_path = getattr(obj, "source_path", None)
-    if source_path:
-        return f"{obj_type}:{source_path}"
-    raise AttributeError(f"Object '{obj}' has neither source_path nor name.")
+    uri_fn = getattr(obj, "uri", None)
+    if callable(uri_fn):
+        try:
+            uri = uri_fn()
+        except Exception:
+            uri = None
+        if uri:
+            return f"{obj_type}:{uri}"
+    raise AttributeError(f"Object '{obj}' has neither uri nor name.")
+
+
+def _resolve_source_path(obj: Any, context: Optional[dict[str, str]] = None) -> str:
+    context = context or {}
+    try:
+        if isinstance(obj, Rule):
+            cube_name = context.get("cube_name")
+            return f"cubes/{cube_name}.rules" if cube_name else ""
+        if isinstance(obj, (MDXView, NativeView)):
+            cube_name = context.get("cube_name")
+            return f"cubes/{cube_name}.views/{obj.name}.json" if cube_name else ""
+        if isinstance(obj, Hierarchy):
+            dim_name = context.get("dimension_name")
+            return f"dimensions/{dim_name}.hierarchies/{obj.name}.json" if dim_name else ""
+        if isinstance(obj, Subset):
+            dim_name = context.get("dimension_name")
+            hier_name = context.get("hierarchy_name")
+            return f"dimensions/{dim_name}.hierarchies/{hier_name}.subsets/{obj.name}.json" if dim_name and hier_name else ""
+        if isinstance(obj, Element):
+            dim_name = context.get("dimension_name")
+            hier_name = context.get("hierarchy_name")
+            return f"dimensions/{dim_name}.hierarchies/{hier_name}.json/{obj.name}" if dim_name and hier_name else ""
+        if isinstance(obj, Edge):
+            dim_name = context.get("dimension_name")
+            hier_name = context.get("hierarchy_name")
+            return f"dimensions/{dim_name}.hierarchies/{hier_name}.json/{obj.parent}:{obj.name}" if dim_name and hier_name else ""
+        if isinstance(obj, Dimension):
+            return f"dimensions/{obj.name}.json"
+        if isinstance(obj, Cube):
+            return f"cubes/{obj.name}"
+        if isinstance(obj, Process):
+            return f"processes/{obj.name}.json"
+        if isinstance(obj, Chore):
+            return f"chores/{obj.name}.json"
+    except Exception:
+        return ""
+    return ""
 
 
 def _normalize_filter(
         filter_rules: Optional[Union[list[str], dict]] = None
 ) -> list[str]:
     def ensure_prefix(s):
-        return s if s.startswith('-/') else '-/' + s
+        if not s:
+            return s
+        if s[0] in {"+", "-"}:
+            return s
+        return "-" + s
 
     filter_rules_lines = []
     if isinstance(filter_rules, list):
@@ -102,7 +266,7 @@ def _normalize_filter(
 
 
 class Comparator:
-    DEFAULT_FILTER_RULES: list[str] = ["-/cubes/}*", "-/dimensions/}*"]
+    DEFAULT_FILTER_RULES: list[str] = ["-Cubes('}*')", "-Dimensions('}*')"]
 
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
@@ -208,12 +372,13 @@ class Comparator:
             *,
             change_type: ChangeType,
             obj: Any,
+            source_path: str = "",
     ) -> None:
         changeset.changes.append(
             Change(
                 change_type=change_type,
                 object_type=ObjectType.from_object(obj),
-                source_path=getattr(obj, "source_path", ""),
+                source_path=source_path,
                 body=obj,
             )
         )
@@ -226,6 +391,7 @@ class Comparator:
             parent_cls: type,
             changeset: Changeset,
             mode: Literal['full', 'add_only'],
+            context: Optional[dict[str, str]] = None,
     ) -> dict[str, tuple[Any, Any]]:
 
         equals_fn = self._EQUALITY_OVERRIDES.get(parent_cls)
@@ -237,7 +403,8 @@ class Comparator:
             changeset,
             object_type_name=object_type_name,
             mode=mode,
-            equals_fn=equals_fn
+            equals_fn=equals_fn,
+            context=context,
         )
 
         child_relations = self._CHILD_RELATIONS.get(parent_cls, [])
@@ -256,7 +423,14 @@ class Comparator:
                         if isinstance(child, child_cls)
                     ]
                     try:
-                        self._compare_with_children(old_children, new_children, child_cls, changeset, mode)
+                        child_context = dict(context or {})
+                        if parent_cls is Cube:
+                            child_context["cube_name"] = getattr(new_obj, "name", "")
+                        if parent_cls is Dimension:
+                            child_context["dimension_name"] = getattr(new_obj, "name", "")
+                        if parent_cls is Hierarchy:
+                            child_context["hierarchy_name"] = getattr(new_obj, "name", "")
+                        self._compare_with_children(old_children, new_children, child_cls, changeset, mode, context=child_context)
                     except Exception as exc:
                         logger.error(
                             "Child comparison failed for relation '%s' of %s: %s",
@@ -275,11 +449,12 @@ class Comparator:
                               changeset: Changeset,
                               object_type_name: str,
                               mode: Literal['full', 'add_only'],
-                              equals_fn: Optional[Callable[[Any, Any], bool]] = None) -> dict[str, tuple[Any, Any]]:
+                              equals_fn: Optional[Callable[[Any, Any], bool]] = None,
+                              context: Optional[dict[str, str]] = None) -> dict[str, tuple[Any, Any]]:
 
         try:
-            old_map = {_object_identity(obj): obj for obj in old_list}
-            new_map = {_object_identity(obj): obj for obj in new_list}
+            old_map = {_object_identity(obj, context=context): obj for obj in old_list}
+            new_map = {_object_identity(obj, context=context): obj for obj in new_list}
         except AttributeError as exc:
             logger.error("Objects missing identity fields in %s comparison: %s", object_type_name, exc, exc_info=True)
             raise
@@ -301,7 +476,8 @@ class Comparator:
             self._append_change(
                 changeset,
                 change_type=ChangeType.ADD,
-                obj=new_map[name]
+                obj=new_map[name],
+                source_path=_resolve_change_source_path(new_map[name], context),
             )
 
         if mode == 'full':
@@ -309,7 +485,8 @@ class Comparator:
                 self._append_change(
                     changeset,
                     change_type=ChangeType.REMOVE,
-                    obj=old_map[name]
+                    obj=old_map[name],
+                    source_path=_resolve_change_source_path(old_map[name], context),
                 )
 
         matched_pairs: dict[str, tuple[Any, Any]] = {}
@@ -323,7 +500,8 @@ class Comparator:
                     self._append_change(
                         changeset,
                         change_type=ChangeType.MODIFY,
-                        obj=new_obj
+                        obj=new_obj,
+                        source_path=_resolve_change_source_path(new_obj, context),
                     )
             except Exception as exc:
                 logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc, exc_info=True)

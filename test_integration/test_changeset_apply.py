@@ -1,4 +1,3 @@
-import filecmp
 import tempfile
 from pathlib import Path
 
@@ -6,7 +5,12 @@ import pytest
 import TM1py
 from TM1py import Cube, Dimension, Hierarchy, TM1Service
 
-from test_integration.test_base import export_check_no_errors, load_fixture_model_tm1gitpy, tm1_service
+from test_integration.test_base import (
+    assert_export_matches_expected_subdirs,
+    export_check_no_errors,
+    load_fixture_model_tm1gitpy,
+    tm1_service,
+)
 from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.model.edge import Edge
@@ -23,7 +27,7 @@ from tm1_git_py.serializer import serialize_model
 @pytest.mark.usefixtures("tm1_service")
 class TestChangesetApply:
 
-    _f_no_meta_obj = [ "-/cubes/}*", "-/dimensions/}*"]
+    _f_no_meta_obj = ["Cubes('}*')", "Dimensions('}*')"]
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
@@ -211,8 +215,7 @@ class TestChangesetApply:
             object_type=ObjectType.MDX_VIEW,
             source_path=source_path,
             body=MDXView(name=view_name,
-                         mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
-                         source_path=source_path)
+                         mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]")
         )]
         try:
             self.apply(changeset)
@@ -233,7 +236,7 @@ class TestChangesetApply:
             change_type=ChangeType.REMOVE,
             object_type=ObjectType.MDX_VIEW,
             source_path=source_path,
-            body=MDXView(name=view_name, mdx="", source_path=source_path)
+            body=MDXView(name=view_name, mdx="")
         )]
         try:
             self.apply(changeset)
@@ -276,7 +279,6 @@ class TestChangesetApply:
                 suppress_empty_columns=True,
                 suppress_empty_rows=True,
                 format_string="0.#########",
-                source_path=source_path,
             )
         )]
         try:
@@ -311,7 +313,6 @@ class TestChangesetApply:
                 suppress_empty_columns=True,
                 suppress_empty_rows=False,
                 format_string="0.#########",
-                source_path=source_path,
             )
         )]
         try:
@@ -460,7 +461,7 @@ class TestChangesetApply:
             change_type=ChangeType.ADD,
             object_type=ObjectType.ELEMENT,
             source_path=source_path,
-            body=Element(name=element_name, type="Numeric", source_path=source_path)
+            body=Element(name=element_name, type="Numeric")
         )]
         try:
             self.apply(changeset)
@@ -482,7 +483,7 @@ class TestChangesetApply:
             change_type=ChangeType.REMOVE,
             object_type=ObjectType.EDGE,
             source_path=edge_source,
-            body=Edge(parent="DimElemC", name="a", weight=1, source_path=edge_source)
+            body=Edge(parent="DimElemC", component_name="a", weight=1)
         )]
         try:
             self.apply(changeset)
@@ -500,7 +501,7 @@ class TestChangesetApply:
             change_type=ChangeType.MODIFY,
             object_type=ObjectType.EDGE,
             source_path=edge_source,
-            body=Edge(parent="DimElemC", name="b", weight=2, source_path=edge_source)
+            body=Edge(parent="DimElemC", component_name="b", weight=2)
         )]
         try:
             self.apply(changeset)
@@ -528,7 +529,7 @@ class TestChangesetApply:
             change_type=ChangeType.ADD,
             object_type=ObjectType.SUBSET,
             source_path=source_path,
-            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].Members}", source_path=source_path)
+            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].Members}")
         )]
         try:
             self.apply(changeset)
@@ -550,7 +551,7 @@ class TestChangesetApply:
             change_type=ChangeType.REMOVE,
             object_type=ObjectType.SUBSET,
             source_path=source_path,
-            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].Members}", source_path=source_path)
+            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].Members}")
         )]
         try:
             self.apply(changeset)
@@ -571,7 +572,7 @@ class TestChangesetApply:
             change_type=ChangeType.MODIFY,
             object_type=ObjectType.SUBSET,
             source_path=source_path,
-            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].[TestDim1Elem1]}", source_path=source_path)
+            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].[TestDim1Elem1]}")
         )]
         try:
             self.apply(changeset)
@@ -785,7 +786,6 @@ class TestChangesetApply:
                 body=Element(
                     name="b",
                     type="Numeric",
-                    source_path="dimensions/TestDimMultiHier.hierarchies/Leaves.json/b"
                 ),
             ),
             Change(
@@ -794,9 +794,8 @@ class TestChangesetApply:
                 source_path="dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:DimElem1",
                 body=Edge(
                     parent="DimElemC",
-                    name="DimElem1",
+                    component_name="DimElem1",
                     weight=1,
-                    source_path="dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:DimElem1",
                 ),
             ),
             Change(
@@ -808,7 +807,6 @@ class TestChangesetApply:
                     elements=[],
                     edges=[],
                     subsets=[],
-                    source_path=f"dimensions/TestDim1.hierarchies/{temp_hierarchy_name}.json",
                 ),
             ),
             Change(
@@ -818,7 +816,6 @@ class TestChangesetApply:
                 body=MDXView(
                     name=view_name,
                     mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
-                    source_path=f"cubes/{cube_name}.views/{view_name}.json",
                 ),
             ),
             Change(
@@ -829,8 +826,6 @@ class TestChangesetApply:
                     name="default",
                     area="[default]",
                     full_statement="SKIPCHECK;\n['TestDim1Elem1'] = 2;\n",
-                    source_path=f"cubes/{rule_cube_name}.rules",
-                    cube_name=rule_cube_name,
                 ),
             ),
             Change(
@@ -855,7 +850,6 @@ class TestChangesetApply:
                     suppress_empty_columns=True,
                     suppress_empty_rows=True,
                     format_string="0.#########",
-                    source_path=f"cubes/{cube_name}.views/{native_view_name}.json",
                 ),
             ),
             Change(
@@ -870,7 +864,6 @@ class TestChangesetApply:
                     parameters=[],
                     variables=[],
                     ti=TI("", "", "", ""),
-                    source_path=f"processes/{process_name}.json",
                 ),
             ),
         ]
@@ -924,9 +917,4 @@ class TestChangesetApply:
         with tempfile.TemporaryDirectory() as temp_dir:
             export_dir = str(Path(temp_dir) / "exported_model")
             serialize_model(model, export_dir)
-            cmp = filecmp.dircmp(export_dir, expected_dir)
-            
-            # then 
-            assert not cmp.left_only, f"Files only in left directory: {cmp.left_only}"
-            assert not cmp.right_only, f"Files only in right directory: {cmp.right_only}"
-            assert not cmp.diff_files, f"Files that differ: {cmp.diff_files}"
+            assert_export_matches_expected_subdirs(export_dir, expected_dir)

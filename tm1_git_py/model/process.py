@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Dict, TYPE_CHECKING, Optional
+from typing import Any, Dict, TYPE_CHECKING
 
 import TM1py
 from TM1py import TM1Service, Process
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 # }
 
 class Process:
-    def __init__(self, name, hasSecurityAccess, code_link, datasource, parameters, variables, ti, source_path: str):
+    def __init__(self, name, hasSecurityAccess, code_link, datasource, parameters, variables, ti):
         self.type = 'Process'
         self.name = name
         self.hasSecurityAccess = hasSecurityAccess
@@ -34,19 +34,6 @@ class Process:
         self.parameters = parameters
         self.variables = variables
         self.ti = ti
-        self.source_path = source_path
-
-    # def __init__(self, name: str, hasSecurityAccess: bool, parameters: List[Dict], variables: List[Dict], data_source: Dict, ti: 'TI', code_link: str):
-    #     self.name = name
-    #     self.hasSecurityAccess = hasSecurityAccess
-    #     self.parameters = parameters
-    #     self.variables = variables
-    #     self.code_link = code_link
-
-    #     self.data_source_type = data_source.get('Type')
-    #     self.data_source_name = data_source.get('Name')
-
-    #     self.ti = ti
 
     def as_json(self):
         return json.dumps({
@@ -87,14 +74,11 @@ class Process:
             return False
 
         return True
-        #return self.to_dict() == other.to_dict()
 
     def __hash__(self) -> int:
         return hash((
             self.name,
             self.hasSecurityAccess,
-            #self.data_source_type,
-            #self.data_source_name,
             self.datasource,
             json.dumps(self.parameters, sort_keys=True),
             json.dumps(self.variables, sort_keys=True),
@@ -108,8 +92,6 @@ class Process:
         return {
             'name': self.name,
             'has_security_access': self.hasSecurityAccess,
-            #'data_source_type': self.data_source_type,
-            #'data_source_name': self.data_source_name,
             "code_link": self.code_link,
             'datasource' : self.datasource,
             'parameters': self.parameters,
@@ -120,14 +102,10 @@ class Process:
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Process":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path or f"processes/{name}.json"
-
         has_security = data.get("has_security_access")
         if has_security is None:
             has_security = data.get("HasSecurityAccess")
@@ -148,13 +126,14 @@ class Process:
             parameters=parameters,
             variables=variables,
             ti=ti_obj,
-            source_path=resolved_path
         )
 
     @staticmethod
-    def as_link(name : str):
-        # /processes/Process_A.json
-        return '/processes/' + name
+    def uri_for(process_name: str) -> str:
+        return f"Processes('{process_name}')"
+
+    def uri(self) -> str:
+        return self.uri_for(self.name)
 
 
 # ------------------------------------------------------------------------------------------------------------

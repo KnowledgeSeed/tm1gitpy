@@ -11,6 +11,7 @@ from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.subset import Subset
+from tm1_git_py.model.disk_backed_list import DiskBackedList
 from tm1_git_py.model.ti import TI
 from tm1_git_py.model.rule import Rule
 from tm1_git_py.model.task import Task
@@ -27,6 +28,7 @@ __all__ = [
     "Model",
     "Process",
     "Subset",
+    "DiskBackedList",
     "TI",
     "Rule",
     "Task"

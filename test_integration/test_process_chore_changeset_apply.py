@@ -1,4 +1,3 @@
-import filecmp
 import re
 import tempfile
 import copy
@@ -8,7 +7,12 @@ import pytest
 import TM1py
 from TM1py import TM1Service
 
-from test_integration.test_base import export_check_no_errors, load_fixture_model_tm1gitpy, tm1_service
+from test_integration.test_base import (
+    assert_export_matches_expected_subdirs,
+    export_check_no_errors,
+    load_fixture_model_tm1gitpy,
+    tm1_service,
+)
 from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.model.chore import Chore as GitChore
@@ -21,8 +25,8 @@ from tm1_git_py.serializer import serialize_model
 
 @pytest.mark.usefixtures("tm1_service")
 class TestProcessChoreChangesetApply:
-    _f_no_meta_obj = ["-/cubes/}*", "-/dimensions/}*"]
-    _f_no_meta = ["-/cubes/}*", "-/dimensions/}*", "-/processes/}*"]
+    _f_no_meta_obj = ["Cubes('}*')", "Dimensions('}*')"]
+    _f_no_meta = ["Cubes('}*')", "Dimensions('}*')", "Processes('}*')"]
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
@@ -74,7 +78,6 @@ class TestProcessChoreChangesetApply:
                 parameters=parameters,
                 variables=[],
                 ti=TI("", "", "", ""),
-                source_path=f"processes/{process_name}.json",
             )
             process_model._update_process_parameters(process_new=desired, process_object=process_obj)
             process_model._update_process_variables(process_new=desired, process_object=process_obj)
@@ -139,7 +142,6 @@ class TestProcessChoreChangesetApply:
             execution_mode=execution_mode,
             frequency=frequency,
             tasks=tasks or [],
-            source_path=f"chores/{name}.json",
         )
 
     # -----------------------------------------------------------------------
@@ -267,7 +269,6 @@ class TestProcessChoreChangesetApply:
                 parameters=fixture_process.parameters,
                 variables=fixture_process.variables,
                 ti=fixture_process.ti or TI("", "", "", ""),
-                source_path=source_path,
             )
         )]
 
@@ -548,7 +549,6 @@ class TestProcessChoreChangesetApply:
                     parameters=[],
                     variables=[],
                     ti=TI("", "", "", ""),
-                    source_path=f"processes/{process_name}.json",
                 )
             ),
             Change(
@@ -679,8 +679,4 @@ class TestProcessChoreChangesetApply:
         with tempfile.TemporaryDirectory() as temp_dir:
             export_dir = str(Path(temp_dir) / "exported_model")
             serialize_model(model, export_dir)
-            cmp = filecmp.dircmp(export_dir, expected_dir)
-
-            assert not cmp.left_only, f"Files only in left directory: {cmp.left_only}"
-            assert not cmp.right_only, f"Files only in right directory: {cmp.right_only}"
-            assert not cmp.diff_files, f"Files that differ: {cmp.diff_files}"
+            assert_export_matches_expected_subdirs(export_dir, expected_dir)

@@ -1,2 +1,15 @@
-+/dimensions/*
--/processes/*
+Cubes('*')
+#Dimensions('*')
+#Dimensions('}a*')
+#!Dimensions('BW Customers Bill To*')
+#!Dimensions('}ElementAttributes1*')
+#!Dimensions('}ElementAttributes2*')
+#!Dimensions('}ElementAttributes3*')
+#!Dimensions('}ElementAttributes4*')
+#Dimensions('Products')/Hierarchies('BPSP Actual*')
+#Dimensions('*')/Hierarchies('*a')/Edges('*')
+#!Dimensions('Products')/Hierarchies('*')/Edges('*')
+#Processes('*')
+#!Processes('Cube Sales Actuals by*')
+#Cubes('*')/Views('*')
+#!Cubes('*')/Views('test_native')

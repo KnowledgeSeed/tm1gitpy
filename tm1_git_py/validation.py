@@ -42,7 +42,10 @@ def __get_parent_name_args(object_instance: T, parent_type: str) -> dict[str, st
     parent_type = parent_type.lower()
     module = importlib.import_module(object_instance.__class__.__module__)
     get_parent_name = getattr(module, f"_{object_type}_context_from_path")
-    parent_names = get_parent_name(object_instance.source_path)
+    source_path = getattr(object_instance, "source_path", None)
+    if not isinstance(source_path, str) or not source_path:
+        return {}
+    parent_names = get_parent_name(source_path)
     if parent_type == "hierarchy":
         args = {
             f"dimension_name": parent_names[0],

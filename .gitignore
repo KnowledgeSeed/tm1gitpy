@@ -8,6 +8,7 @@ __pycache__/
 *.pyo
 *.pyd
 export
+export2
 **/tm1servers.yaml
 
 # Virtual environment
@@ -40,3 +41,4 @@ tests/config.ini
 dist/
 
 **/License.xml
+.dimensions

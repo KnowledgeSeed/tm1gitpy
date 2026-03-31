@@ -16,11 +16,10 @@ from requests import Response
 
 
 class Subset:
-    def __init__(self, name, expression, source_path: str):
+    def __init__(self, name, expression):
         self.type = 'Subset'
         self.name = name
         self.expression = expression
-        self.source_path = source_path
 
     def as_json(self):
         return json.dumps({
@@ -50,28 +49,24 @@ class Subset:
     @classmethod
     def from_dict(
         cls,
-        data: Dict[str, Any],
-        *,
-        source_path: Optional[str] = None,
-        dimension_name: Optional[str] = None,
-        hierarchy_name: Optional[str] = None,
+        data: Dict[str, Any]
     ) -> "Subset":
 
         name = data.get("name") or data.get("Name")
         expression = data.get("expression") or data.get("Expression")
-        resolved_path = source_path
-        if resolved_path is None and dimension_name and hierarchy_name and name:
-            resolved_path = f"dimensions/{dimension_name}.hierarchies/{hierarchy_name}.subsets/{name}.json"
-        if resolved_path is None:
-            raise ValueError(
-                "Subset.from_dict requires either source_path or dimension/hierarchy context."
-            )
-        return cls(name=name, expression=expression, source_path=resolved_path)
+        return cls(
+            name=name,
+            expression=expression,
+        )
 
     @staticmethod
-    def as_link(dimension_name_base, hierarchy_name_base, name):
-        # /dimensions/Dimension_A.hierarchies/Dimension_A.subsets/Subset_A.json
-        return '/dimensions/' + dimension_name_base + '.hierarchies/' + hierarchy_name_base + '.subsets/' + name
+    def uri_for(dimension_name: str, hierarchy_name: str, subset_name: str) -> str:
+        return f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')/Subsets('{subset_name}')"
+
+    def uri(self, dimension_name: str, hierarchy_name: str) -> Optional[str]:
+        if not dimension_name or not hierarchy_name or not self.name:
+            return None
+        return self.uri_for(dimension_name, hierarchy_name, self.name)
 
 
 # ------------------------------------------------------------------------------------------------------------
@@ -86,8 +81,8 @@ def _subset_context_from_path(source_path: str) -> Tuple[str, str]:
     return dimension_name, hierarchy_name
 
 
-def create_subset(tm1_service: TM1Service, subset: Subset) -> Response:
-    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
+def create_subset(tm1_service: TM1Service, subset: Subset, source_path: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _subset_context_from_path(source_path)
 
     subset_object = TM1py.Subset(
         subset_name=subset.name,
@@ -100,8 +95,8 @@ def create_subset(tm1_service: TM1Service, subset: Subset) -> Response:
     return tm1_service.subsets.create(subset_object)
 
 
-def update_subset(tm1_service: TM1Service, subset: Subset) -> Response:
-    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
+def update_subset(tm1_service: TM1Service, subset: Subset, source_path: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _subset_context_from_path(source_path)
 
     subset_object = tm1_service.subsets.get(
         subset_name=subset.name,
@@ -114,8 +109,8 @@ def update_subset(tm1_service: TM1Service, subset: Subset) -> Response:
     return tm1_service.subsets.update(subset_object)
 
 
-def delete_subset(tm1_service: TM1Service, subset: Subset) -> Response:
-    dimension_name, hierarchy_name = _subset_context_from_path(subset.source_path)
+def delete_subset(tm1_service: TM1Service, subset: Subset, source_path: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _subset_context_from_path(source_path)
 
     logger.info(f"Deleting Subset: {subset.name} from Hierarchy: {hierarchy_name}.")
     return tm1_service.subsets.delete(
