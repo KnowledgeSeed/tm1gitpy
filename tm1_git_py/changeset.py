@@ -426,9 +426,9 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
 
     if isinstance(body, Edge):
         return {
-            "parent_name": body.parent,
-            "component_name": body.name,
-            "weight": body.weight
+            "ParentName": body.parent,
+            "ComponentName": body.name,
+            "Weight": body.weight,
         }
 
     if isinstance(body, Element):
@@ -494,10 +494,18 @@ def _normalize_body_payload(
     normalized = copy.deepcopy(payload or {})
 
     if object_type == ObjectType.EDGE:
-        if "parent_name" in normalized and "parentName" not in normalized:
-            normalized["parentName"] = normalized["parent_name"]
-        if "component_name" in normalized and "componentName" not in normalized:
-            normalized["componentName"] = normalized["component_name"]
+        if "ParentName" not in normalized:
+            if "parent_name" in normalized:
+                normalized["ParentName"] = normalized["parent_name"]
+            elif "parentName" in normalized:
+                normalized["ParentName"] = normalized["parentName"]
+        if "ComponentName" not in normalized:
+            if "component_name" in normalized:
+                normalized["ComponentName"] = normalized["component_name"]
+            elif "componentName" in normalized:
+                normalized["ComponentName"] = normalized["componentName"]
+        if "Weight" not in normalized and "weight" in normalized:
+            normalized["Weight"] = normalized["weight"]
 
     if object_type == ObjectType.RULE:
         if "rule" in normalized and "statement" not in normalized and "full_statement" not in normalized:

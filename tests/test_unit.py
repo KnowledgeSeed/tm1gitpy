@@ -101,7 +101,7 @@ class TestDeserializer:
         assert payload["@type"] == "Hierarchy"
         assert payload["Name"] == "MyHier"
         assert payload["Elements"] == [{"Name": "E1", "Type": "Numeric"}]
-        assert payload["Edges"] == [{"parentName": "P", "componentName": "E1", "weight": 1}]
+        assert payload["Edges"] == [{"ParentName": "P", "ComponentName": "E1", "Weight": 1}]
         assert payload["Subsets@Code.links"] == ["MyHier.subsets/S1.json"]
 
     def test_hierarchy_as_json_streams_disk_backed_collections(self, tmp_path):
@@ -133,7 +133,7 @@ class TestDeserializer:
             {"Name": "E2", "Type": "String"},
         ]
         assert payload["Edges"] == [
-            {"parentName": "E1", "componentName": "E2", "weight": 1},
+            {"ParentName": "E1", "ComponentName": "E2", "Weight": 1},
         ]
         assert payload["Subsets@Code.links"] == ["MyHier.subsets/S1.json"]
 

@@ -47,6 +47,7 @@ def _get_elements_page(
     - $skip: Number of elements to skip
     - $top: Maximum number of elements to return
     - $count: Include total count in response when True
+    - $orderby: Name, Type (stable ordering)
 
     :param tm1_conn: TM1Service connection
     :param dimension_name: Name of the dimension
@@ -59,7 +60,7 @@ def _get_elements_page(
     :return: PaginatedElementsResult with elements, count (if requested), skip, top
     """
     base_url = format_url(
-        "/Dimensions('{}')/Hierarchies('{}')/Elements?$select=Name,Type",
+        "/Dimensions('{}')/Hierarchies('{}')/Elements?$select=Name,Type&$orderby=Name,Type",
         dimension_name,
         hierarchy_name,
     )

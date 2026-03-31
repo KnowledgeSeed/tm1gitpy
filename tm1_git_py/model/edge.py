@@ -42,9 +42,9 @@ class Edge:
 
     def to_dict(self):
         return {
-            'parentName': self.parent,
-            'componentName': self.component_name,
-            'weight': self.weight
+            "ParentName": self.parent,
+            "ComponentName": self.component_name,
+            "Weight": self.weight,
         }
 
     def as_json(self):
