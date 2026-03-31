@@ -127,8 +127,16 @@ def get_dir(obj) -> str:
     return dir_path
 
 
-def export_check_no_errors(self, filter_rules: list[str] = None)  -> Model:
-    model, errors = export(self.tm1_service)
+def export_check_no_errors(
+    self,
+    filter_rules: list[str] = None,
+    *,
+    exporter_filter_rules: list[str] = None,
+) -> Model:
+    model, errors = export(
+        self.tm1_service,
+        filter_rules=exporter_filter_rules,
+    )
     assert isinstance(model, Model)
     for category, category_errors in errors.items():
         assert not category_errors, f"Found errors in {category}: {category_errors}"

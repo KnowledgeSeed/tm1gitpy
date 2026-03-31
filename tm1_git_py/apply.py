@@ -53,11 +53,18 @@ def apply(
 ) -> tuple[bool, Union[list, None]]:
 
     changes = []
+    logger.info(
+        "Starting apply changeset_name=%s fail_fast=%s changes=%d",
+        changeset_name or changeset.changeset_name,
+        fail_fast,
+        len(changeset.changes),
+    )
     if not changeset.has_changes():
         logger.info("No changes to apply.")
         return True, None
 
     execution_changes = _prepare_execution_changes(changeset.changes)
+    logger.info("Prepared %d execution change(s)", len(execution_changes))
     """    
     validate_errors = validate_changeset(
         tm1_service=tm1_service,
@@ -108,7 +115,10 @@ def apply(
             )
             changes.append(resp.url)
 
-            logger.info("%s %s%s -> %s %s",
+            logger.info("operation %d/%d execution_id=%s %s %s%s -> %s %s",
+                        i,
+                        len(execution_changes),
+                        getattr(store, "execution_id", changeset.last_execution_id),
                         action_name,
                         f"{obj_type}:" if obj_name else obj_type,
                         obj_name or "",
@@ -126,19 +136,31 @@ def apply(
                     return False, changes
 
         except Exception as exc:
-            logger.exception("Exception during %s %s%s: %s",
+            logger.exception("Exception during operation %d/%d execution_id=%s %s %s%s path=%s: %s",
+                             i,
+                             len(execution_changes),
+                             getattr(store, "execution_id", changeset.last_execution_id),
                              action_name,
                              f"{obj_type}:" if obj_name else obj_type,
                              obj_name or "",
+                             obj_path,
                              exc)
             if store is not None:
                 store.end_operation_with_exception(exc)
                 store.fail()
+            logger.info("Apply finished success=%s applied=%d attempted=%d", False, len(changes), i)
             return False, changes
 
     if store is not None:
         store.succeed() if ok_all else store.fail()
 
+    logger.info(
+        "Apply finished success=%s applied=%d attempted=%d execution_id=%s",
+        ok_all,
+        len(changes),
+        len(execution_changes),
+        getattr(store, "execution_id", changeset.last_execution_id),
+    )
     return ok_all, changes
 
 
@@ -155,9 +177,17 @@ def _resolve_handler(module, action: str, object_type: str):
         f"{action}_{object_type.lower()}",
         f"{action}_{_camel_to_snake(object_type)}",
     ]
+    logger.debug(
+        "Resolving handler action=%s object_type=%s module=%s candidates=%s",
+        action,
+        object_type,
+        module.__name__,
+        candidates,
+    )
     for candidate in candidates:
         fn = getattr(module, candidate, None)
         if fn is not None:
+            logger.debug("Resolved handler '%s' in module '%s'", candidate, module.__name__)
             return fn
     raise AttributeError(
         f"No handler found for action='{action}', object_type='{object_type}' "
@@ -192,6 +222,7 @@ def _cube_name_from_rule_source_path(source_path: str) -> str:
 
 
 def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
+    logger.debug("Preparing execution changes from %d incoming change(s)", len(changes))
     non_rule_changes: list[Change] = []
     rule_changes_by_cube: dict[str, Change] = {}
 
@@ -225,11 +256,16 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
                 ),
             )
         )
+    logger.debug(
+        "Synthesized cube updates from rule changes cubes=%d",
+        len(synthesized_cube_changes),
+    )
 
     execution_changes = non_rule_changes + synthesized_cube_changes
     temp = Changeset()
     temp.changes = execution_changes
     temp.sort()
+    logger.debug("Prepared execution changes count=%d", len(temp.changes))
     return temp.changes
 
 

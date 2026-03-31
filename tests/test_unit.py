@@ -18,10 +18,11 @@ from tests.utility import (
     make_element
 )
 from tm1_git_py.apply import apply
+from tm1_git_py.exporter import export
 from tm1_git_py.serializer import serialize_model
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.changeset import Change, ChangeType, Changeset, ObjectType, import_changeset
-from tm1_git_py.filter import filter_changeset
+from tm1_git_py.filter import filter_changeset, should_exclude_path
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element, nativeview
@@ -489,6 +490,110 @@ class TestComparator:
 
         for chore_new in modified:
             assert (isinstance(chore_new, Chore) and chore_new.name in expected_chores )
+
+
+
+class TesteExporter:
+
+    def test_export_no_filter_rules_disables_skip_control_flags(self, mocker):
+        tm1_service = mocker.Mock()
+        mock_dimensions = mocker.patch("tm1_git_py.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
+        mock_chores = mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
+
+        model, errors = export(tm1_service, filter_rules=None)
+
+        assert isinstance(model, Model)
+        assert errors == {"dim": {}, "cube": {}, "process": {}, "chore": {}}
+        mock_dimensions.assert_called_once_with(tm1_service, effective_rules=[], skip_control_dims=False)
+        mock_cubes.assert_called_once_with(tm1_service, {}, effective_rules=[], skip_control_cubes=False)
+        mock_processes.assert_called_once_with(tm1_service, effective_rules=[], skip_control_processes=False)
+        mock_chores.assert_called_once_with(tm1_service, effective_rules=[])
+
+    def test_export_non_technical_filter_rules_keep_skip_control_disabled(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["-/processes/MyProcess*"]
+        mock_dimensions = mocker.patch("tm1_git_py.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, filter_rules=filter_rules)
+
+        mock_dimensions.assert_called_once_with(tm1_service, effective_rules=filter_rules, skip_control_dims=False)
+        mock_cubes.assert_called_once_with(tm1_service, {}, effective_rules=filter_rules, skip_control_cubes=False)
+        mock_processes.assert_called_once_with(tm1_service, effective_rules=filter_rules, skip_control_processes=False)
+
+    def test_export_technical_intent_filter_rules_enable_skip_control_flags(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["-/dimensions/}*", "-/cubes/}*", "-/processes/}*"]
+        mock_dimensions = mocker.patch("tm1_git_py.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, filter_rules=filter_rules)
+
+        mock_dimensions.assert_called_once_with(
+            tm1_service,
+            effective_rules=filter_rules,
+            skip_control_dims=True,
+        )
+        mock_cubes.assert_called_once_with(
+            tm1_service,
+            {},
+            effective_rules=filter_rules,
+            skip_control_cubes=True,
+        )
+        mock_processes.assert_called_once_with(
+            tm1_service,
+            effective_rules=filter_rules,
+            skip_control_processes=True,
+        )
+
+    def test_export_custom_filter_rules_are_forwarded_as_is(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["-/dimensions/TestDim1*", "-/cubes/TestCube1*"]
+        mock_dimensions = mocker.patch("tm1_git_py.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, filter_rules=filter_rules)
+
+        mock_dimensions.assert_called_once_with(
+            tm1_service,
+            effective_rules=filter_rules,
+            skip_control_dims=False,
+        )
+        mock_cubes.assert_called_once_with(
+            tm1_service,
+            {},
+            effective_rules=filter_rules,
+            skip_control_cubes=False,
+        )
+        mock_processes.assert_called_once_with(
+            tm1_service,
+            effective_rules=filter_rules,
+            skip_control_processes=False,
+        )
+
+    def test_should_exclude_path_supports_tm1project_filter_format(self):
+        filter_rules = [
+            "+/data_csv/*.*",
+            "-/Cubes/Views*",
+            "-/dimensions/Product*",
+            "-/processes/zSYS Analogic Operation Version Copy*",
+        ]
+
+        assert should_exclude_path("/cubes/viewsSales", filter_rules)
+        assert should_exclude_path("DIMENSIONS/ProductHierarchy.json", filter_rules)
+        assert should_exclude_path(
+            "/processes/zsys analogic operation version copy.json",
+            filter_rules,
+        )
+        assert not should_exclude_path("/cubes/SalesCube", filter_rules)
 
 
 

@@ -1,7 +1,11 @@
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Dict, Optional
 import yaml
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -66,11 +70,13 @@ class TM1ServersConfig:
             ValueError: If the configuration structure is invalid
         """
         if not self.config_path.exists():
+            logger.error("Configuration file not found: %s", self.config_path)
             raise FileNotFoundError(
                 f"Configuration file not found: {self.config_path}\n"
                 f"Please create it with your TM1 server configurations."
             )
-        
+
+        logger.info("Loading TM1 server configuration from '%s'", self.config_path)
         with open(self.config_path, 'r', encoding='utf-8') as f:
             config_data = yaml.safe_load(f)
         
@@ -103,7 +109,9 @@ class TM1ServersConfig:
                 raise ValueError(
                     f"Invalid value in configuration for server '{name}': {e}"
                 ) from e
-        
+
+        logger.info("Loaded %d TM1 server configuration(s)", len(self.servers))
+
         return self.servers
     
     def get(self, server_name: str) -> TM1ServerConfig:
@@ -123,11 +131,13 @@ class TM1ServersConfig:
         
         if server_name not in self.servers:
             available = ', '.join(self.servers.keys())
+            logger.error("Requested unknown server '%s'. Available: %s", server_name, available)
             raise KeyError(
                 f"Server '{server_name}' not found in configuration. "
                 f"Available servers: {available}"
             )
-        
+
+        logger.debug("Resolved TM1 server configuration for '%s'", server_name)
         return self.servers[server_name]
     
     def list_servers(self) -> list[str]:

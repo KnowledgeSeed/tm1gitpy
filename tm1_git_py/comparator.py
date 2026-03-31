@@ -137,31 +137,68 @@ class Comparator:
         mode='add_only' emits add/modify changes.
         """
 
+        logger.info(
+            "Starting model compare mode=%s use_default_filter=%s",
+            mode,
+            self.use_default_filter,
+        )
+        logger.debug(
+            "Input object counts old(cubes=%d dimensions=%d processes=%d chores=%d) "
+            "new(cubes=%d dimensions=%d processes=%d chores=%d)",
+            len(model1.cubes),
+            len(model1.dimensions),
+            len(model1.processes),
+            len(model1.chores),
+            len(model2.cubes),
+            len(model2.dimensions),
+            len(model2.processes),
+            len(model2.chores),
+        )
+
         if self.use_default_filter:
+            logger.debug("Applying default comparator filters: %s", self.default_filter_rules)
             model1 = filter(model1, self.default_filter_rules)
             model2 = filter(model2, self.default_filter_rules)
 
         if filter_rules:
             if isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules):
                 filter_rule = _normalize_filter(filter_rules)
+                logger.debug("Applying comparator filter rules: %s", filter_rule)
                 model1 = filter(model1, filter_rule)
                 model2 = filter(model2, filter_rule)
             else:
                 for filter_rule in filter_rules:
                     filter_rule = _normalize_filter(filter_rule)
+                    logger.debug("Applying comparator filter rules: %s", filter_rule)
                     model1 = filter(model1, filter_rule)
                     model2 = filter(model2, filter_rule)
 
         changeset = Changeset()
 
+        logger.debug("Comparing object type: Cube")
         self._compare_with_children(model1.cubes, model2.cubes, Cube, changeset, mode)
+        logger.debug("Comparing object type: Dimension")
         self._compare_with_children(model1.dimensions, model2.dimensions, Dimension, changeset, mode)
+        logger.debug("Comparing object type: Process")
         self._compare_with_children(model1.processes, model2.processes, Process, changeset, mode)
+        logger.debug("Comparing object type: Chore")
         self._compare_with_children(model1.chores, model2.chores, Chore, changeset, mode)
 
         cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
         changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
         changeset.sort()
+        summary = {"add": 0, "remove": 0, "modify": 0}
+        for change in changeset.changes:
+            key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)
+            summary[key] = summary.get(key, 0) + 1
+        logger.info(
+            "Completed model compare mode=%s total=%d add=%d remove=%d modify=%d",
+            mode,
+            len(changeset.changes),
+            summary.get("add", 0),
+            summary.get("remove", 0),
+            summary.get("modify", 0),
+        )
 
         return changeset
 
@@ -221,7 +258,13 @@ class Comparator:
                     try:
                         self._compare_with_children(old_children, new_children, child_cls, changeset, mode)
                     except Exception as exc:
-                        logger.error("Child comparison failed for relation '%s' of %s: %s", child_attr, object_type_name, exc)
+                        logger.error(
+                            "Child comparison failed for relation '%s' of %s: %s",
+                            child_attr,
+                            object_type_name,
+                            exc,
+                            exc_info=True,
+                        )
                         raise
 
         return parent_pairs
@@ -238,13 +281,22 @@ class Comparator:
             old_map = {_object_identity(obj): obj for obj in old_list}
             new_map = {_object_identity(obj): obj for obj in new_list}
         except AttributeError as exc:
-            logger.error("Objects missing identity fields in %s comparison: %s", object_type_name, exc)
+            logger.error("Objects missing identity fields in %s comparison: %s", object_type_name, exc, exc_info=True)
             raise
 
         new_names = set(new_map.keys())
         old_names = set(old_map.keys())
 
         added_names = new_names - old_names
+        removed_names = old_names - new_names
+        common_names = new_names & old_names
+        logger.debug(
+            "Diff counts for %s: added=%d removed=%d common=%d",
+            object_type_name,
+            len(added_names),
+            len(removed_names),
+            len(common_names),
+        )
         for name in added_names:
             self._append_change(
                 changeset,
@@ -253,7 +305,6 @@ class Comparator:
             )
 
         if mode == 'full':
-            removed_names = old_names - new_names
             for name in removed_names:
                 self._append_change(
                     changeset,
@@ -261,7 +312,6 @@ class Comparator:
                     obj=old_map[name]
                 )
 
-        common_names = new_names & old_names
         matched_pairs: dict[str, tuple[Any, Any]] = {}
         for name in common_names:
             try:
@@ -276,7 +326,7 @@ class Comparator:
                         obj=new_obj
                     )
             except Exception as exc:
-                logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc)
+                logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc, exc_info=True)
                 raise
 
         return matched_pairs
