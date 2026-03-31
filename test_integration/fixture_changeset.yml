@@ -86,15 +86,15 @@ changes:
     object_type: Element
     source_path: dimensions/mydim.hierarchies/myhier.json/myelem1
     body:
-      name: myelem1
-      type: Numeric
+      Name: myelem1
+      Type: Numeric
 
   - change_type: add
     object_type: Element
     source_path: dimensions/mydim.hierarchies/myhier.json/myelem2
     body:
-      name: myelem2
-      type: Numeric
+      Name: myelem2
+      Type: Numeric
 
   - change_type: add
     object_type: Edge

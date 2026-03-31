@@ -14,6 +14,19 @@ from .edge import Edge
 from .subset import Subset
 from .disk_backed_list import DiskBackedList
 
+def _write_json_object_block(
+    fh,
+    obj: dict,
+    *,
+    item_line_prefix: str,
+    inner_indent: str = "\t",
+) -> None:
+    """Write one JSON object with inner pretty-printing and outer line prefix (for array items)."""
+    pretty = json.dumps(obj, ensure_ascii=False, indent=inner_indent)
+    fh.write(item_line_prefix)
+    fh.write(pretty.replace("\n", "\n" + item_line_prefix))
+
+
 # {
 # 	"@type": "Hierarchy",
 # 	"Name": "Capex Balance Sheet Assignment Measure",
@@ -65,9 +78,6 @@ class _HierarchyStagedWriter:
         ):
             if os.path.exists(path):
                 os.remove(path)
-        self._elements_count = 0
-        self._edges_count = 0
-        self._subsets_count = 0
         self._finalized = False
 
     @staticmethod
@@ -81,30 +91,8 @@ class _HierarchyStagedWriter:
                     continue
                 yield json.loads(raw)
 
-    def _append_jsonl(self, path: str, payloads: list[dict]) -> None:
-        if self._finalized:
-            raise RuntimeError("Cannot append to finalized staged hierarchy writer.")
-        if not payloads:
-            return
-        with open(path, "a", encoding="utf-8") as fh:
-            for payload in payloads:
-                fh.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-                fh.write("\n")
-
-    def append_elements(self, payloads: list[dict]) -> None:
-        self._append_jsonl(self.elements_jsonl_path, payloads)
-        self._elements_count += len(payloads)
-
-    def append_edges(self, payloads: list[dict]) -> None:
-        self._append_jsonl(self.edges_jsonl_path, payloads)
-        self._edges_count += len(payloads)
-
-    def append_subsets(self, payloads: list[dict]) -> None:
-        self._append_jsonl(self.subsets_jsonl_path, payloads)
-        self._subsets_count += len(payloads)
-
     def _write_payload_array(self, fh, key: str, payloads: Iterator[dict]) -> None:
-        fh.write(f'\t"{key}":[')
+        fh.write(f'\t"{key}": [')
         first = True
         for payload in payloads:
             if first:
@@ -112,9 +100,7 @@ class _HierarchyStagedWriter:
                 first = False
             else:
                 fh.write(",\n")
-            pretty_payload = json.dumps(payload, ensure_ascii=False, indent="\t")
-            fh.write("\t\t")
-            fh.write(pretty_payload.replace("\n", "\n\t\t"))
+            _write_json_object_block(fh, payload, item_line_prefix="\t\t", inner_indent="\t")
         if first:
             fh.write("]")
         else:
@@ -134,13 +120,13 @@ class _HierarchyStagedWriter:
             return self.final_path
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")
-            fh.write('\t"@type":"Hierarchy",\n')
-            fh.write(f'\t"Name":{json.dumps(self.hierarchy_name, ensure_ascii=False)},\n')
+            fh.write('\t"@type": "Hierarchy",\n')
+            fh.write(f'\t"Name": {json.dumps(self.hierarchy_name, ensure_ascii=False)},\n')
             self._write_payload_array(fh, "Elements", self._iter_jsonl(self.elements_jsonl_path))
             fh.write(",\n")
             self._write_payload_array(fh, "Edges", self._iter_jsonl(self.edges_jsonl_path))
             fh.write(",\n")
-            fh.write('\t"Subsets@Code.links":')
+            fh.write('\t"Subsets@Code.links": ')
             fh.write(json.dumps(self._build_subset_links(), ensure_ascii=False))
             fh.write("\n}")
         os.replace(self.inprogress_path, self.final_path)
@@ -201,20 +187,17 @@ class Hierarchy:
             return None
         return self._staged_writer.finalize()
 
-    def _iter_collection_json_items(self, collection: MutableSequence[Any]) -> Iterator[str]:
-        for item in collection:
-            yield json.dumps(item.to_dict(), ensure_ascii=False, separators=(",", ":"))
-
-    def _write_array(self, fh, key: str, values: Iterator[str], *, indent: str = "\t") -> None:
-        fh.write(f'{indent}"{key}":[')
+    def _write_array(self, fh, key: str, collection: MutableSequence[Any], *, indent: str = "\t") -> None:
+        item_prefix = indent * 2
+        fh.write(f'{indent}"{key}": [')
         first = True
-        for raw_json in values:
+        for item in collection:
             if first:
                 fh.write("\n")
                 first = False
             else:
                 fh.write(",\n")
-            fh.write(f"{indent}{indent}{raw_json}")
+            _write_json_object_block(fh, item.to_dict(), item_line_prefix=item_prefix, inner_indent=indent)
         if not first:
             fh.write(f"\n{indent}]")
         else:
@@ -238,14 +221,14 @@ class Hierarchy:
                     fh.write(chunk)
             return
         fh.write("{\n")
-        fh.write(f'\t"@type":{json.dumps(self.type, ensure_ascii=False)},\n')
-        fh.write(f'\t"Name":{json.dumps(self.name, ensure_ascii=False)},\n')
-        self._write_array(fh, "Elements", self._iter_collection_json_items(self.elements))
+        fh.write(f'\t"@type": {json.dumps(self.type, ensure_ascii=False)},\n')
+        fh.write(f'\t"Name": {json.dumps(self.name, ensure_ascii=False)},\n')
+        self._write_array(fh, "Elements", self.elements)
         fh.write(",\n")
-        self._write_array(fh, "Edges", self._iter_collection_json_items(self.edges))
+        self._write_array(fh, "Edges", self.edges)
         fh.write(",\n")
         subset_links = [format_url("{}.subsets/{}.json", self.name, s.name) for s in self.subsets]
-        fh.write(f'\t"Subsets@Code.links":{json.dumps(subset_links, ensure_ascii=False)}\n')
+        fh.write(f'\t"Subsets@Code.links": {json.dumps(subset_links, ensure_ascii=False)}\n')
         fh.write("}")
 
     def __eq__(self, other: Any) -> bool:

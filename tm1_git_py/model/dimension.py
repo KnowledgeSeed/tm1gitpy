@@ -78,10 +78,7 @@ class Dimension:
 
         name = data.get("name") or data.get("Name")
         hierarchy_payloads = data.get("hierarchies") or data.get("Hierarchies") or []
-        hierarchies = [
-            Hierarchy.from_dict(payload, dimension_name=name)
-            for payload in hierarchy_payloads
-        ]
+        hierarchies = [Hierarchy.from_dict(payload) for payload in hierarchy_payloads]
 
         default_payload = data.get("defaultHierarchy") or data.get("DefaultHierarchy") or {}
         default_name = default_payload.get("name") or default_payload.get("Name")
@@ -90,7 +87,7 @@ class Dimension:
         if default_name:
             default_hierarchy = next((hier for hier in hierarchies if hier.name == default_name), None)
         if default_hierarchy is None and default_payload:
-            default_hierarchy = Hierarchy.from_dict(default_payload, dimension_name=name)
+            default_hierarchy = Hierarchy.from_dict(default_payload)
             hierarchies.append(default_hierarchy)
         if default_hierarchy is None and hierarchies:
             default_hierarchy = hierarchies[0]

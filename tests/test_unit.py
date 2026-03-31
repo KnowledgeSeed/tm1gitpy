@@ -67,7 +67,7 @@ class TestDeserializer:
         hier_version = dim_version.hierarchies[0]
         assert dim_version.name == 'testbenchVersion'
         assert hier_version.name == 'testbenchVersion'
-        assert hier_version.elements[0].to_dict() == {"name": "Actual", "type": "Numeric"}
+        assert hier_version.elements[0].to_dict() == {"Name": "Actual", "Type": "Numeric"}
 
     def test_hierarchy_constructor_with_internal_model_dir_creates_disk_backed_refs(self, tmp_path):
         internal_model_dir = str(tmp_path / ".internal")
@@ -100,7 +100,7 @@ class TestDeserializer:
         payload = json.loads(hierarchy_obj.as_json())
         assert payload["@type"] == "Hierarchy"
         assert payload["Name"] == "MyHier"
-        assert payload["Elements"] == [{"name": "E1", "type": "Numeric"}]
+        assert payload["Elements"] == [{"Name": "E1", "Type": "Numeric"}]
         assert payload["Edges"] == [{"parentName": "P", "componentName": "E1", "weight": 1}]
         assert payload["Subsets@Code.links"] == ["MyHier.subsets/S1.json"]
 
@@ -129,8 +129,8 @@ class TestDeserializer:
 
         payload = json.loads(hierarchy_obj.as_json())
         assert payload["Elements"] == [
-            {"name": "E1", "type": "Numeric"},
-            {"name": "E2", "type": "String"},
+            {"Name": "E1", "Type": "Numeric"},
+            {"Name": "E2", "Type": "String"},
         ]
         assert payload["Edges"] == [
             {"parentName": "E1", "componentName": "E2", "weight": 1},
@@ -148,7 +148,7 @@ class TestDeserializer:
         second.elements.extend([Element(name="New", type="Numeric")])
         payload = json.loads(second.as_json())
 
-        assert payload["Elements"] == [{"name": "New", "type": "Numeric"}]
+        assert payload["Elements"] == [{"Name": "New", "Type": "Numeric"}]
 
     def test_serialize_dimensions_uses_hierarchy_write_json(self, tmp_path, mocker):
         hierarchy_obj = Hierarchy(
@@ -184,7 +184,7 @@ class TestDeserializer:
         hierarchy_file = dim_dir / "MyDim.hierarchies" / "MyHier.json"
         assert hierarchy_file.exists()
         payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
-        assert payload["Elements"] == [{"name": "E1", "type": "Numeric"}]
+        assert payload["Elements"] == [{"Name": "E1", "Type": "Numeric"}]
 
     def test_deserialize_dimensions_ignores_inprogress_hierarchy_files(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"

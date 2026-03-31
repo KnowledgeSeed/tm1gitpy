@@ -2,15 +2,29 @@
   "execution_id": "test_create_and_delete",
   "changeset_name": null,
   "state": "SUCCEEDED",
-  "started_at": 1774950268.238318,
-  "finished_at": 1774950268.247971,
-  "updated_at": 1774950268.247972,
-  "total_operations": 1,
-  "completed_operations": 1,
+  "started_at": 1774952790.7050612,
+  "finished_at": 1774952790.729365,
+  "updated_at": 1774952790.729365,
+  "total_operations": 2,
+  "completed_operations": 2,
   "current_operation": null,
   "operations": [
     {
       "index": 1,
+      "action": "add",
+      "object_type": "Element",
+      "object_name": "TestCube1",
+      "source_path": "dimensions/}Cubes.hierarchies/}Cubes.json/TestCube1",
+      "before_state": null,
+      "ok": true,
+      "status_code": 201,
+      "url": "http://localhost:52053/api/v1/Dimensions('%7DCubes')/Hierarchies('%7DCubes')/Elements",
+      "error": null,
+      "started_at": 1774952790.705577,
+      "finished_at": 1774952790.721662
+    },
+    {
+      "index": 2,
       "action": "add",
       "object_type": "Cube",
       "object_name": "TestCube1",
@@ -18,10 +32,10 @@
       "before_state": null,
       "ok": true,
       "status_code": 201,
-      "url": "http://localhost:49709/api/v1/Cubes",
+      "url": "http://localhost:52053/api/v1/Cubes",
       "error": null,
-      "started_at": 1774950268.23887,
-      "finished_at": 1774950268.2476149
+      "started_at": 1774952790.7223449,
+      "finished_at": 1774952790.7289689
     }
   ],
   "failure_action": null,

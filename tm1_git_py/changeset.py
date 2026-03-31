@@ -433,8 +433,8 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
 
     if isinstance(body, Element):
         return {
-            "name": body.name,
-            "type": body.type
+            "Name": body.name,
+            "Type": body.type,
         }
 
     if isinstance(body, Hierarchy):
