@@ -19,6 +19,24 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar('T', Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule)
 
+ATOMIC_SCHEMA_OBJECT_TYPES = {
+    ObjectType.DIMENSION,
+    ObjectType.HIERARCHY,
+    ObjectType.ELEMENT,
+    ObjectType.EDGE,
+    ObjectType.SUBSET,
+    ObjectType.CUBE,
+    ObjectType.MDX_VIEW,
+    ObjectType.NATIVE_VIEW,
+    # Keep rules in the schema phase because regular apply compiles them into cube updates.
+    ObjectType.RULE,
+}
+
+PROCESS_AND_CHORE_OBJECT_TYPES = {
+    ObjectType.PROCESS,
+    ObjectType.CHORE,
+}
+
 
 def _normalize_apply_response(
         resp,
@@ -273,6 +291,17 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
 # Master TI for batch update and rollback functionality
 # --------------------------------------------------------------------------------
 
+def _filter_changeset(changeset: Changeset, object_types: set[ObjectType]) -> Changeset:
+    filtered = Changeset(changeset_name=changeset.changeset_name)
+    filtered.last_execution_id = changeset.last_execution_id
+    filtered.errors = changeset.errors
+    filtered.changes = [
+        change for change in changeset.changes
+        if change.object_type in object_types
+    ]
+    filtered.sort()
+    return filtered
+
 
 def build_master_changeset_ti(changeset: Changeset) -> str:
     """
@@ -366,3 +395,59 @@ def apply_atomic(changeset: Changeset, tm1_service: TM1Service) -> bool:
         # 5. Cleanup
         if tm1_service.processes.exists(process_name):
             tm1_service.processes.delete(process_name)
+
+
+def apply_with_atomic_schema(
+        changeset: Changeset,
+        tm1_service: TM1Service,
+        *,
+        status_dir: Optional[Union[str, Path]] = None,
+        execution_id: Optional[str] = None,
+        changeset_name: Optional[str] = None,
+        fail_fast: bool = True
+) -> tuple[bool, Union[list, None]]:
+    """
+    Apply schema changes atomically, then apply process and chore changes via the regular TM1py flow.
+    """
+    logger.info(
+        "Starting atomic-schema apply changeset_name=%s fail_fast=%s changes=%d",
+        changeset_name or changeset.changeset_name,
+        fail_fast,
+        len(changeset.changes),
+    )
+    if not changeset.has_changes():
+        logger.info("No changes to apply.")
+        return True, None
+
+    schema_changeset = _filter_changeset(changeset, ATOMIC_SCHEMA_OBJECT_TYPES)
+    process_and_chore_changeset = _filter_changeset(changeset, PROCESS_AND_CHORE_OBJECT_TYPES)
+
+    applied_changes: list[str] = []
+
+    if schema_changeset.has_changes():
+        logger.info("Applying %d schema change(s) atomically", len(schema_changeset.changes))
+        ok = apply_atomic(schema_changeset, tm1_service)
+        if not ok:
+            return False, None
+        applied_changes.extend(
+            change.source_path for change in _prepare_execution_changes(schema_changeset.changes)
+        )
+
+    if process_and_chore_changeset.has_changes():
+        logger.info(
+            "Applying %d process/chore change(s) through regular TM1py apply",
+            len(process_and_chore_changeset.changes),
+        )
+        ok, changes = apply(
+            changeset=process_and_chore_changeset,
+            tm1_service=tm1_service,
+            status_dir=status_dir,
+            execution_id=execution_id,
+            changeset_name=changeset_name,
+            fail_fast=fail_fast,
+        )
+        if changes:
+            applied_changes.extend(changes)
+        return ok, applied_changes or None
+
+    return True, applied_changes or None

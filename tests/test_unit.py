@@ -6,6 +6,7 @@ from typing import TypeVar
 import pytest
 import yaml
 
+import tm1_git_py.apply as apply_module
 import tm1_git_py.comparator
 from tests.utility import (
     _build_mock_changeset_data,
@@ -17,7 +18,7 @@ from tests.utility import (
     make_dimension, make_subset, make_chore, make_process, make_mdx_view, make_cube, make_rule, make_hierarchy,
     make_element
 )
-from tm1_git_py.apply import apply
+from tm1_git_py.apply import apply, apply_with_atomic_schema
 from tm1_git_py.exporter import export
 from tm1_git_py.serializer import serialize_model
 from tm1_git_py.comparator import Comparator
@@ -191,7 +192,6 @@ class TestSerializer:
         assert ti_file.exists(), f"Process TI file missing: {ti_file}"
         assert ti_file.read_text(encoding='utf-8') == process.ti.ti_as_string()
 
-
     def test_serialize_chores_creates_json(self, tmp_path):
         model = build_mock_model(include_chore=True)
         serialize_model(model, str(tmp_path))
@@ -311,6 +311,69 @@ class TestComparator:
     @staticmethod
     def _bodies_by(change_set: list[Change], body_type: type) -> list:
         return [c.body for c in change_set if isinstance(c.body, body_type)]
+
+
+    def test_apply_with_atomic_schema_splits_changes_and_preserves_phase_order(self, monkeypatch):
+        changeset = Changeset("split_apply")
+        dimension = make_dimension(name="DimAtomic", source_path="dimensions/DimAtomic")
+        view = make_mdx_view(name="ViewAtomic", source_path="cubes/CubeAtomic.views/ViewAtomic.json")
+        process = make_process(name="ProcRegular")
+        chore = make_chore(name="ChoreRegular", task_names=["ProcRegular"])
+        rule = make_rule(area="['n']", full_statement="['n']=N:1;")
+
+        changeset.changes = [
+            Change(ChangeType.ADD, ObjectType.CHORE, "chores/ChoreRegular.json", chore),
+            Change(ChangeType.ADD, ObjectType.DIMENSION, "dimensions/DimAtomic.json", dimension),
+            Change(ChangeType.REMOVE, ObjectType.PROCESS, "processes/ProcRegular.json", process),
+            Change(ChangeType.REMOVE, ObjectType.MDX_VIEW, "cubes/CubeAtomic.views/ViewAtomic.json", view),
+            Change(ChangeType.MODIFY, ObjectType.RULE, "cubes/CubeAtomic.rules", rule),
+        ]
+
+        calls: list[tuple[str, list[tuple[ChangeType, ObjectType, str]]]] = []
+
+        def _fake_apply_atomic(filtered_changeset, tm1_service):
+            calls.append((
+                "atomic",
+                [(c.change_type, c.object_type, c.source_path) for c in filtered_changeset.changes],
+            ))
+            return True
+
+        def _fake_apply(*, changeset, tm1_service, **kwargs):
+            calls.append((
+                "regular",
+                [(c.change_type, c.object_type, c.source_path) for c in changeset.changes],
+            ))
+            return True, ["regular-change"]
+
+        monkeypatch.setattr(apply_module, "apply_atomic", _fake_apply_atomic)
+        monkeypatch.setattr(apply_module, "apply", _fake_apply)
+
+        success, applied = apply_with_atomic_schema(changeset=changeset, tm1_service=object())
+
+        assert success is True
+        assert applied == [
+            "cubes/CubeAtomic.views/ViewAtomic.json",
+            "dimensions/DimAtomic.json",
+            "cubes/CubeAtomic.json",
+            "regular-change",
+        ]
+        assert calls == [
+            (
+                "atomic",
+                [
+                    (ChangeType.REMOVE, ObjectType.MDX_VIEW, "cubes/CubeAtomic.views/ViewAtomic.json"),
+                    (ChangeType.ADD, ObjectType.DIMENSION, "dimensions/DimAtomic.json"),
+                    (ChangeType.MODIFY, ObjectType.RULE, "cubes/CubeAtomic.rules"),
+                ],
+            ),
+            (
+                "regular",
+                [
+                    (ChangeType.REMOVE, ObjectType.PROCESS, "processes/ProcRegular.json"),
+                    (ChangeType.ADD, ObjectType.CHORE, "chores/ChoreRegular.json"),
+                ],
+            ),
+        ]
 
 
     def test_objects_equal(self, objects_equal_data):
