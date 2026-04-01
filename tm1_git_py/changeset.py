@@ -133,7 +133,7 @@ class Change:
 
     change_type: ChangeType
     object_type: ObjectType
-    source_path: str
+    uri: str
     body: ChangesetBody
 
     def __post_init__(self):
@@ -164,7 +164,7 @@ class Changeset:
         The unified Rule entry uses:
         - name: "default"
         - change_type: "modify"
-        - source_path: "cubes/<cube_name>.rules"
+        - uri: Cubes('<cube>')/Rules('default')
         - full_statement: full unified rule text for the cube
         """
         cube_rule_texts = cube_rule_texts or {}
@@ -177,7 +177,7 @@ class Changeset:
                 non_rule_changes.append(change)
                 continue
 
-            cube_name = _cube_name_from_rule_source_path(change.source_path)
+            cube_name = Rule.cube_name_from_uri(change.uri)
             if not cube_name:
                 non_rule_changes.append(change)
                 continue
@@ -189,12 +189,12 @@ class Changeset:
             if unified_text is None:
                 unified_text = _compose_rule_text_from_changes(grouped_rule_changes[cube_name])
 
-            source_path = f"cubes/{cube_name}.rules"
+            rule_uri = Rule.uri_for(cube_name)
             unified_rule_changes.append(
                 Change(
                     change_type=ChangeType.MODIFY,
                     object_type=ObjectType.RULE,
-                    source_path=source_path,
+                    uri=rule_uri,
                     body=Rule(
                         name="default",
                         area="[default]",
@@ -238,7 +238,11 @@ class Changeset:
             before_count = len(self.changes)
             def _change_key(change: Change) -> tuple[int, int, str, str]:
                 body = change.body
-                source_path = change.source_path or _resolve_change_body_source_path(body) or ""
+                sort_path = (
+                    change.uri
+                    or _resolve_change_body_reference_path(body)
+                    or ""
+                )
                 object_type = body.__class__.__name__
                 precedence_map = DELETE_OBJECT_PRECEDENCE if change.change_type == ChangeType.REMOVE else OBJECT_PRECEDENCE
 
@@ -252,13 +256,13 @@ class Changeset:
                 if body_name is None and isinstance(body, Rule):
                     body_name = _rule_name_from_area(getattr(body, "area", ""))
                 if body_name is None:
-                    body_name = source_path
+                    body_name = sort_path
 
                 return (
                     type_rank,
                     precedence_map.get(object_type, 99),
                     str(body_name),
-                    source_path,
+                    sort_path,
                 )
 
             self.changes.sort(key=_change_key)
@@ -296,7 +300,7 @@ class Changeset:
             export_entries.append({
                 "change_type": change_type,
                 "object_type": change.object_type.value,
-                "source_path": change.source_path,
+                "uri": change.uri,
                 "body": _serialize_change_body(change),
             })
             summary[change_type] = summary.get(change_type, 0) + 1
@@ -319,11 +323,11 @@ class Changeset:
 # Utility
 # --------------------------------------------------------------------------------
 
-def normalize_source_path(source_path: str) -> str:
-    if not source_path:
+def normalize_reference_path(reference_path: str) -> str:
+    if not reference_path:
         return ""
 
-    normalized = source_path.replace("\\", "/").lstrip("/")
+    normalized = reference_path.replace("\\", "/").lstrip("/")
     if normalized.endswith(".json"):
         normalized = normalized[:-5]
 
@@ -338,10 +342,10 @@ def _iter_changeset_entries(payload: dict[str, Any]) -> list[Any]:
     return changes
 
 
-def _path_stem(source_path: Optional[str]) -> str:
-    if not source_path:
+def _path_stem(reference_path: Optional[str]) -> str:
+    if not reference_path:
         return ""
-    normalized = source_path.replace("\\", "/")
+    normalized = reference_path.replace("\\", "/")
     name = normalized.rsplit("/", 1)[-1]
     return name[:-5] if name.endswith(".json") else name
 
@@ -361,14 +365,6 @@ def _rule_name_from_area(area: str) -> str:
     if match:
         return match.group(1)
     return "default"
-
-
-def _cube_name_from_rule_source_path(source_path: str) -> str:
-    normalized = (source_path or "").replace("\\", "/").lstrip("/")
-    match = re.match(r"cubes/(.+)\.rules$", normalized)
-    if not match:
-        return ""
-    return match.group(1)
 
 
 def _compose_rule_text_from_changes(changes: list[Change]) -> str:
@@ -415,7 +411,7 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
     if isinstance(body, Cube):
         return {
             "name": body.name,
-            "dimensions": [_resolve_change_body_source_path(d) or f"dimensions/{d.name}.json" for d in body.dimensions]
+            "dimensions": [_resolve_change_body_reference_path(d) or f"dimensions/{d.name}.json" for d in body.dimensions]
         }
 
     if isinstance(body, Subset):
@@ -446,12 +442,12 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
         return {
             "name": body.name,
             "hierarchies": [
-                _resolve_change_body_source_path(h, dimension_name=body.name)
+                _resolve_change_body_reference_path(h, dimension_name=body.name)
                 or f"dimensions/{body.name}.hierarchies/{h.name}.json"
                 for h in body.hierarchies
             ],
             "default_hierarchy": (
-                _resolve_change_body_source_path(body.defaultHierarchy, dimension_name=body.name)
+                _resolve_change_body_reference_path(body.defaultHierarchy, dimension_name=body.name)
                 or f"dimensions/{body.name}.hierarchies/{body.defaultHierarchy.name}.json"
             )
         }
@@ -489,7 +485,7 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
 def _normalize_body_payload(
         object_type: ObjectType,
         payload: dict[str, Any],
-        source_path: str
+        reference_path: str
 ) -> dict[str, Any]:
     normalized = copy.deepcopy(payload or {})
 
@@ -540,7 +536,8 @@ def _normalize_body_payload(
                 "epilog_procedure": normalized.get("epilog", ""),
             }
         if "code_link" not in normalized:
-            normalized["code_link"] = f"{_path_stem(source_path)}.ti"
+            process_name = normalized.get("name") or _path_stem(reference_path) or "process"
+            normalized["code_link"] = f"{process_name}.ti"
 
     if object_type == ObjectType.CHORE:
         if "start_time" not in normalized:
@@ -569,8 +566,10 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
     changes:
       - change_type: add|remove|modify
         object_type: <ObjectType>
-        source_path: <path>
+        uri: <TM1 OData URI>
         body: <object payload>
+
+    Legacy entries may use ``source_path`` (filesystem-style path) instead of ``uri``.
     """
     logger.info("Importing changeset from '%s'", changeset_file)
     try:
@@ -593,13 +592,18 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
         try:
             change_type = ChangeType.from_raw(entry.get("change_type"))
             object_type = ObjectType.from_raw(entry.get("object_type"))
-            source_path = (entry.get("source_path") or "").replace("\\", "/")
+            raw_uri = (entry.get("uri") or "").strip().replace("\\", "/")
+            raw_legacy = (entry.get("source_path") or "").strip().replace("\\", "/")
             body_payload = entry.get("body") or {}
-            if not source_path:
-                raise ValueError("Missing source_path")
+            if raw_uri:
+                uri_val = raw_uri
+            elif raw_legacy:
+                uri_val = raw_legacy
+            else:
+                raise ValueError("Missing uri (or legacy source_path)")
 
-            normalized_payload = _normalize_body_payload(object_type, body_payload, source_path)
-            body_object = _deserialize_object_from_payload(object_type.value, normalized_payload, source_path)
+            normalized_payload = _normalize_body_payload(object_type, body_payload, uri_val)
+            body_object = _deserialize_object_from_payload(object_type.value, normalized_payload, uri_val)
             if body_object is None:
                 raise ValueError("Failed to deserialize body")
 
@@ -607,15 +611,15 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
                 Change(
                     change_type=change_type,
                     object_type=object_type,
-                    source_path=source_path,
+                    uri=uri_val,
                     body=body_object
                 )
             )
         except Exception as exc:
             logger.warning(
-                "Skipping unsupported/malformed changeset entry object_type=%s source_path=%s error=%s",
+                "Skipping unsupported/malformed changeset entry object_type=%s uri=%s error=%s",
                 entry.get("object_type"),
-                entry.get("source_path"),
+                entry.get("uri") or entry.get("source_path"),
                 exc,
             )
             changeset.errors.setdefault("import", []).append({
@@ -652,56 +656,56 @@ def _load_changeset_payload(changeset_file) -> dict[str, Any]:
             return yaml.safe_load(content)
 
 
-def _build_dimension_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Dimension:
+def _build_dimension_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Dimension:
     return Dimension.from_dict(payload)
 
 
-def _build_hierarchy_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Hierarchy:
-    dimension_name, _ = hierarchy._hierarchy_context_from_path(source_path)
+def _build_hierarchy_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Hierarchy:
+    dimension_name, _ = hierarchy._hierarchy_context_from_uri(reference_path)
     if not dimension_name:
         raise ValueError("Hierarchy payload missing dimension context.")
     return Hierarchy.from_dict(payload)
 
 
-def _build_subset_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Subset:
-    dimension_name, hierarchy_name = subset._subset_context_from_path(source_path)
+def _build_subset_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Subset:
+    dimension_name, hierarchy_name = subset._subset_context_from_uri(reference_path)
     if not dimension_name or not hierarchy_name:
         raise ValueError("Subset payload missing dimension or hierarchy context.")
     return Subset.from_dict(payload)
 
 
-def _build_cube_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Cube:
+def _build_cube_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Cube:
     return Cube.from_dict(payload)
 
 
-def _build_mdx_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> MDXView:
-    if not source_path:
+def _build_mdx_view_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> MDXView:
+    if not reference_path:
         raise ValueError("MDXView payload missing cube context.")
     return MDXView.from_dict(payload)
 
 
-def _build_native_view_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> NativeView:
-    if not source_path:
+def _build_native_view_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> NativeView:
+    if not reference_path:
         raise ValueError("NativeView payload missing cube context.")
     return NativeView.from_dict(payload)
 
 
-def _build_process_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Process:
+def _build_process_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Process:
     return Process.from_dict(payload)
 
 
-def _build_chore_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Chore:
+def _build_chore_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Chore:
     return Chore.from_dict(payload)
 
-def _build_element_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Element:
+def _build_element_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Element:
     return Element.from_dict(payload)
 
 
-def _build_edge_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Edge:
+def _build_edge_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Edge:
     return Edge.from_dict(payload)
 
 
-def _build_rule_from_payload(payload: dict[str, Any], source_path: Optional[str]) -> Rule:
+def _build_rule_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Rule:
     normalized_payload = dict(payload)
     if "rule" in normalized_payload and "statement" not in normalized_payload and "full_statement" not in normalized_payload:
         normalized_payload["statement"] = normalized_payload["rule"]
@@ -728,16 +732,16 @@ _OBJECT_BUILDERS: dict[str, Any] = {
 
 def _deserialize_object_from_payload(object_type: Optional[str],
                                      payload: Optional[dict[str, Any]],
-                                     source_path: Optional[str]) -> Optional[Any]:
+                                     reference_path: Optional[str]) -> Optional[Any]:
     if not payload or not object_type:
         return None
     builder = _OBJECT_BUILDERS.get(object_type)
     if builder is None:
         raise ValueError(f"Unsupported object type '{object_type}' in changeset import.")
-    return builder(payload, source_path)
+    return builder(payload, reference_path)
 
 
-def _resolve_change_body_source_path(body: Any, **context: Any) -> str:
+def _resolve_change_body_reference_path(body: Any, **context: Any) -> str:
     try:
         if isinstance(body, Rule):
             cube_name = context.get("cube_name")

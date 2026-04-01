@@ -28,8 +28,10 @@ from tm1_git_py.filter import EntityType, FilterRules, filter_changeset, should_
 from tm1_git_py import filter as filter_module
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
+from tm1_git_py.model.disk_backed_list import DiskBackedList
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element
 from tm1_git_py.model.nativeview import NativeView
+from tests.utility import tm1_uri_from_path
 from tm1_git_py.tm1py_ext import subset_service_ext, process_service_ext, cube_service_ext, view_service_ext
 
 T = TypeVar('T', Cube, Dimension, Process, Chore)
@@ -583,7 +585,7 @@ class TestComparator:
         unified_rule = modified_rules[0]
         assert isinstance(unified_rule, Rule)
         assert unified_rule.name == "default"
-        assert modified_rule_changes[0].source_path == "cubes/testbenchSales.rules"
+        assert modified_rule_changes[0].uri == "Cubes('testbenchSales')/Rules('default')"
         assert unified_rule.full_statement == new_cube.get_rule_text()
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
 
@@ -612,9 +614,114 @@ class TestComparator:
         changeset = Comparator().compare(model1, model2, mode='full')
         leaf_element_changes = [
             change for change in changeset.changes
-            if change.object_type == ObjectType.ELEMENT and "/Leaves.json/" in change.source_path
+            if change.object_type == ObjectType.ELEMENT and "Hierarchies('Leaves')" in change.uri
         ]
         assert not leaf_element_changes
+
+    def test_comparator_streaming_disk_backed_elements_and_edges(self, tmp_path):
+        """DiskBackedList merge compare should match in-memory list compare."""
+
+        def disk_elements(path: Path, *elems: Element) -> DiskBackedList:
+            db = DiskBackedList.for_elements_sink(
+                store_items=False,
+                jsonl_path=str(path),
+                truncate=True,
+            )
+            for e in sorted(elems, key=lambda x: (x.name or "")):
+                db.append(e)
+            return db
+
+        def disk_edges(path: Path, *edges: Edge) -> DiskBackedList:
+            db = DiskBackedList.for_edges_sink(
+                store_items=False,
+                jsonl_path=str(path),
+                truncate=True,
+            )
+            for ed in sorted(edges, key=lambda x: (x.parent or "", x.component_name or "")):
+                db.append(ed)
+            return db
+
+        h_old = Hierarchy(
+            name="H1",
+            elements=disk_elements(
+                tmp_path / "old_el.jsonl",
+                Element(name="A", type="Numeric"),
+                Element(name="C", type="Numeric"),
+            ),
+            edges=disk_edges(
+                tmp_path / "old_ed.jsonl",
+                Edge(parent="R", component_name="A", weight=1.0),
+            ),
+            subsets=[],
+        )
+        h_new = Hierarchy(
+            name="H1",
+            elements=disk_elements(
+                tmp_path / "new_el.jsonl",
+                Element(name="A", type="String"),
+                Element(name="B", type="Numeric"),
+                Element(name="C", type="Numeric"),
+            ),
+            edges=disk_edges(
+                tmp_path / "new_ed.jsonl",
+                Edge(parent="R", component_name="A", weight=2.0),
+                Edge(parent="R", component_name="B", weight=1.0),
+            ),
+            subsets=[],
+        )
+        d_disk_old = Dimension(name="DimA", hierarchies=[h_old], defaultHierarchy=h_old)
+        d_disk_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+
+        mh_old = Hierarchy(
+            name="H1",
+            elements=[
+                Element(name="A", type="Numeric"),
+                Element(name="C", type="Numeric"),
+            ],
+            edges=[Edge(parent="R", component_name="A", weight=1.0)],
+            subsets=[],
+        )
+        mh_new = Hierarchy(
+            name="H1",
+            elements=[
+                Element(name="A", type="String"),
+                Element(name="B", type="Numeric"),
+                Element(name="C", type="Numeric"),
+            ],
+            edges=[
+                Edge(parent="R", component_name="A", weight=2.0),
+                Edge(parent="R", component_name="B", weight=1.0),
+            ],
+            subsets=[],
+        )
+        d_mem_old = Dimension(name="DimA", hierarchies=[mh_old], defaultHierarchy=mh_old)
+        d_mem_new = Dimension(name="DimA", hierarchies=[mh_new], defaultHierarchy=mh_new)
+
+        model_disk = Model(dimensions=[d_disk_old], cubes=[], processes=[], chores=[])
+        model_disk_b = Model(dimensions=[d_disk_new], cubes=[], processes=[], chores=[])
+        model_mem = Model(dimensions=[d_mem_old], cubes=[], processes=[], chores=[])
+        model_mem_b = Model(dimensions=[d_mem_new], cubes=[], processes=[], chores=[])
+
+        comp = Comparator()
+        cs_disk = comp.compare(model_disk, model_disk_b, mode="full")
+        cs_mem = comp.compare(model_mem, model_mem_b, mode="full")
+
+        def change_key(c: Change) -> tuple:
+            return (
+                c.change_type,
+                c.object_type,
+                c.uri,
+                type(c.body).__name__,
+                getattr(c.body, "name", None),
+                getattr(c.body, "parent", None),
+                getattr(c.body, "component_name", None),
+                getattr(c.body, "type", None),
+                getattr(c.body, "weight", None),
+            )
+
+        assert sorted(change_key(c) for c in cs_disk.changes) == sorted(
+            change_key(c) for c in cs_mem.changes
+        )
 
     def test_comparator_tracks_native_view_changes(self):
         model1 = build_mock_model()
@@ -1375,19 +1482,19 @@ class TestChangeset:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                source_path="dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json",
+                uri=tm1_uri_from_path("dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json"),
                 body=created_subset,
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.DIMENSION,
-                source_path="dimensions/Dim_Update.json",
+                uri=tm1_uri_from_path("dimensions/Dim_Update.json"),
                 body=new_dimension,
             ),
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.MDX_VIEW,
-                source_path="cubes/Cube_One.views/View_To_Delete.json",
+                uri=tm1_uri_from_path("cubes/Cube_One.views/View_To_Delete.json"),
                 body=removed_view,
             ),
         ]
@@ -1408,7 +1515,7 @@ class TestChangeset:
                 {
                     "change_type": "remove",
                     "object_type": "MDXView",
-                    "source_path": "cubes/Cube_One.views/View_To_Delete.json",
+                    "uri": tm1_uri_from_path("cubes/Cube_One.views/View_To_Delete.json"),
                     "body": {
                         "name": "View_To_Delete",
                     },
@@ -1416,7 +1523,7 @@ class TestChangeset:
                 {
                     "change_type": "add",
                     "object_type": "Subset",
-                    "source_path": "dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json",
+                    "uri": tm1_uri_from_path("dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json"),
                     "body": {
                         "name": "Subset_Create",
                         "expression": "{[Dim_New].[Hier_New].Members}",
@@ -1425,7 +1532,7 @@ class TestChangeset:
                 {
                     "change_type": "modify",
                     "object_type": "Dimension",
-                    "source_path": "dimensions/Dim_Update.json",
+                    "uri": tm1_uri_from_path("dimensions/Dim_Update.json"),
                     "body": {
                         "name": "Dim_Update",
                         "hierarchies": [
@@ -1462,7 +1569,7 @@ class TestChangeset:
         for expected, actual in zip(changeset_compared.changes, changeset_imported.changes):
             assert expected.change_type == actual.change_type
             assert expected.object_type == actual.object_type
-            assert expected.source_path == actual.source_path
+            assert expected.uri == actual.uri
             assert expected.body.__class__ == actual.body.__class__
 
 
@@ -1491,31 +1598,31 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.DIMENSION,
-                source_path="dimensions/MockDim.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.json"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.HIERARCHY,
-                source_path="dimensions/MockDim.hierarchies/MockHier.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json"),
                 body=hier_new
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.SUBSET,
-                source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"),
                 body=subset_mod_new
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
                 body=subset
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                source_path="processes/KeepProcess.json",
+                uri=tm1_uri_from_path("processes/KeepProcess.json"),
                 body=process_obj
             ),
         ]
@@ -1524,9 +1631,9 @@ class TestChangesetFiltering:
             changeset,
             {
                 "add": [],
-                "remove": ["dimensions/MockDim.json"],
+                "remove": [tm1_uri_from_path("dimensions/MockDim.json")],
                 "modify": [
-                    "dimensions/MockDim.hierarchies/MockHier.json"
+                    tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json")
                 ],
             },
             filter_children=True
@@ -1548,13 +1655,13 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.DIMENSION,
-                source_path="dimensions/MockDim.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.json"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
                 body=subset
             ),
         ]
@@ -1562,7 +1669,7 @@ class TestChangesetFiltering:
         filtered = filter_changeset(
             changeset,
             {
-                "add": ["dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"],
+                "add": [tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json")],
                 "remove": [],
                 "modify": [],
             }
@@ -1587,25 +1694,25 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.DIMENSION,
-                source_path="dimensions/MockDim.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.json"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.HIERARCHY,
-                source_path="dimensions/MockDim.hierarchies/MockHier.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json"),
                 body=hier_new
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json",
+                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
                 body=subset
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                source_path="processes/KeepProcess.json",
+                uri=tm1_uri_from_path("processes/KeepProcess.json"),
                 body=process_obj
             ),
         ]
@@ -1614,7 +1721,7 @@ class TestChangesetFiltering:
             changeset,
             {
                 "add": [],
-                "remove": ["dimensions/MockDim.json"],
+                "remove": [tm1_uri_from_path("dimensions/MockDim.json")],
                 "modify": [],
             },
             filter_children=False
@@ -1648,7 +1755,7 @@ class TestSubsetCRUD:
         result = subset.create_subset(
             tm1_service,
             subset_mock,
-            source_path="dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json",
+            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json"),
         )
 
         tm1py_subset_cls.assert_called_once_with(
@@ -1674,7 +1781,7 @@ class TestSubsetCRUD:
         result = subset.delete_subset(
             tm1_service,
             subset_mock,
-            source_path="dimensions/Dim_Del.hierarchies/Hier_Del.subsets/Subset_Delete.json",
+            uri=tm1_uri_from_path("dimensions/Dim_Del.hierarchies/Hier_Del.subsets/Subset_Delete.json"),
         )
 
         tm1_service.subsets.delete.assert_called_once_with(
@@ -1704,7 +1811,7 @@ class TestSubsetCRUD:
         result = subset.update_subset(
             tm1_service,
             subset_new,
-            source_path="dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json",
+            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json"),
         )
 
         tm1_service.subsets.get.assert_called_once_with(
@@ -1733,7 +1840,7 @@ class TestEdgeCRUD:
         result = edge.create_edge(
             tm1_service,
             edge_obj,
-            source_path="dimensions/Dim_A.hierarchies/Hier_A.json/Parent_A:Child_A",
+            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.json/Parent_A:Child_A"),
         )
 
         tm1_service.elements.add_edges.assert_called_once_with(
@@ -1759,7 +1866,7 @@ class TestEdgeCRUD:
         result = edge.update_edge(
             tm1_service,
             edge_obj,
-            source_path="dimensions/Dim_B.hierarchies/Hier_B.json/Parent_B:Child_B",
+            uri=tm1_uri_from_path("dimensions/Dim_B.hierarchies/Hier_B.json/Parent_B:Child_B"),
         )
 
         tm1_service.hierarchies.get.assert_called_once_with(
@@ -1787,7 +1894,7 @@ class TestEdgeCRUD:
         result = edge.delete_edge(
             tm1_service,
             edge_obj,
-            source_path="dimensions/Dim_C.hierarchies/Hier_C.json/Parent_C:Child_C",
+            uri=tm1_uri_from_path("dimensions/Dim_C.hierarchies/Hier_C.json/Parent_C:Child_C"),
         )
 
         tm1_service.elements.remove_edge.assert_called_once_with(
@@ -1816,7 +1923,7 @@ class TestElementCRUD:
         result = element.create_element(
             tm1_service,
             element_obj,
-            source_path="dimensions/Dim_A.hierarchies/Hier_A.json/Elem_A",
+            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.json/Elem_A"),
         )
 
         tm1py_element_cls.assert_called_once_with(name="Elem_A", element_type="Numeric")
@@ -1839,7 +1946,7 @@ class TestElementCRUD:
         result = element.delete_element(
             tm1_service,
             element_obj,
-            source_path="dimensions/Dim_B.hierarchies/Hier_B.json/Elem_B",
+            uri=tm1_uri_from_path("dimensions/Dim_B.hierarchies/Hier_B.json/Elem_B"),
         )
 
         tm1_service.elements.delete.assert_called_once_with(
@@ -1877,7 +1984,7 @@ class TestHierarchyCRUD:
         result = hierarchy.create_hierarchy(
             tm1_service,
             hierarchy_mock,
-            source_path="dimensions/Dimension_A.hierarchies/Hierarchy_A.json",
+            uri=tm1_uri_from_path("dimensions/Dimension_A.hierarchies/Hierarchy_A.json"),
         )
 
         # Assert: TM1py.Hierarchy constructed with correct name + dimension
@@ -1909,7 +2016,7 @@ class TestHierarchyCRUD:
         result = hierarchy.delete_hierarchy(
             tm1_service,
             hierarchy_mock,
-            source_path="dimensions/Dimension_X.hierarchies/Hierarchy_Delete.json",
+            uri=tm1_uri_from_path("dimensions/Dimension_X.hierarchies/Hierarchy_Delete.json"),
         )
 
         tm1_service.hierarchies.delete.assert_called_once_with(
@@ -1967,7 +2074,7 @@ class TestMDXViewCRUD:
         result = mdxview.create_mdxview(
             tm1_service,
             mdx_view,
-            source_path="cubes/Cube_A.views/View_A.json",
+            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
         )
 
         tm1py_mdxview_cls.assert_called_once_with(
@@ -1990,7 +2097,7 @@ class TestMDXViewCRUD:
         result = mdxview.delete_mdxview(
             tm1_service,
             mdx_view,
-            source_path="cubes/Cube_A.views/View_A.json",
+            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
         )
 
         tm1_service.views.delete.assert_called_once_with(view_name=mdx_view.name, cube_name="Cube_A")
@@ -2014,7 +2121,7 @@ class TestMDXViewCRUD:
         result = mdxview.update_mdxview(
             tm1_service,
             mdx_view_new,
-            source_path="cubes/Cube_A.views/View_A.json",
+            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
         )
 
         # Assert: we got the existing MDX view from TM1

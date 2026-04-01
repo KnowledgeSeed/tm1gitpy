@@ -15,7 +15,7 @@ class ChangeSetOperationLog:
     action: str  # CREATE / UPDATE / DELETE
     object_type: str
     object_name: Optional[str] = None
-    source_path: Optional[str] = None
+    uri: Optional[str] = None
     before_state: Optional[dict] = None
     ok: Optional[bool] = None
     status_code: Optional[int] = None
@@ -88,7 +88,7 @@ class ChangeSetStatusStore:
             action: str,
             object_type: str,
             object_name: Optional[str],
-            source_path: Optional[str],
+            uri: Optional[str],
             before_state: Optional[dict] = None
     ) -> None:
         assert self.status.operations is not None
@@ -97,7 +97,7 @@ class ChangeSetStatusStore:
             action=action,
             object_type=object_type,
             object_name=object_name,
-            source_path=source_path,
+            uri=uri,
             before_state=before_state,
             started_at=time.time(),
         ))
@@ -158,8 +158,15 @@ class ChangeSetStatusStore:
     def load(status_dir: Union[str, Path], execution_id: str) -> ChangeSetExecutionStatus:
         path = Path(status_dir).expanduser().resolve() / f"{execution_id}.json"
         raw = json.loads(path.read_text(encoding="utf-8"))
-        ops = [ChangeSetOperationLog(**op) for op in raw.get("operations", [])]
-        raw["operations"] = ops
+        operations_raw = []
+        for op in raw.get("operations", []):
+            if not isinstance(op, dict):
+                continue
+            op = dict(op)
+            if "uri" not in op and "source_path" in op:
+                op["uri"] = op.pop("source_path")
+            operations_raw.append(ChangeSetOperationLog(**op))
+        raw["operations"] = operations_raw
         return ChangeSetExecutionStatus(**raw)
 
 

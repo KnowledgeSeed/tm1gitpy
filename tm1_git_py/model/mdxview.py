@@ -90,21 +90,23 @@ class MDXView:
 
 logger = logging.getLogger(__name__)
 
-def _view_context_from_path(source_path: str) -> Tuple[str, str]:
-    cube_name = re.search(r'/([\w}]*)(.views)', source_path).group(1)
-    view_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+def _view_context_from_uri(uri: str) -> Tuple[str, str]:
+    match = re.search(r"^Cubes\('([^']+)'\)/Views\('([^']+)'\)$", uri or "")
+    if not match:
+        raise ValueError(f"Invalid mdx view uri format: '{uri}'")
+    cube_name, view_name = match.groups()
     return cube_name, view_name
 
 
-def create_mdxview(tm1_service: TM1Service, mdx_view: MDXView, source_path: Optional[str] = None) -> Response:
-    cube_name, _ = _view_context_from_path(source_path)
+def create_mdxview(tm1_service: TM1Service, mdx_view: MDXView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _view_context_from_uri(uri)
     mdx_view_object = TM1py.MDXView(cube_name=cube_name, view_name=mdx_view.name, MDX=mdx_view.mdx)
     logger.info(f"Creating MDXView: {mdx_view.name} for Cube: {cube_name}.")
     return tm1_service.views.create(mdx_view_object)
 
 
-def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView, source_path: Optional[str] = None) -> Response:
-    cube_name, _ = _view_context_from_path(source_path)
+def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _view_context_from_uri(uri)
 
     mdx_view_object = tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=mdx_view.name)
     mdx_view_object.mdx = mdx_view.mdx
@@ -112,7 +114,7 @@ def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView, source_path: Opti
     return tm1_service.views.update(mdx_view_object)
 
 
-def delete_mdxview(tm1_service: TM1Service, mdx_view: MDXView, source_path: Optional[str] = None) -> Response:
-    cube_name, _ = _view_context_from_path(source_path)
+def delete_mdxview(tm1_service: TM1Service, mdx_view: MDXView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _view_context_from_uri(uri)
     logger.info(f"Deleting View: {mdx_view.name} from Cube: {cube_name}.")
     return tm1_service.views.delete(view_name=mdx_view.name, cube_name=cube_name)

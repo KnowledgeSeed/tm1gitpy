@@ -315,14 +315,16 @@ class Hierarchy:
 
 logger = logging.getLogger(__name__)
 
-def _hierarchy_context_from_path(source_path: str) -> Tuple[str, str]:
-    dimension_name = re.search(r'/([\w}]*)(.hierarchies)', source_path).group(1)
-    hierarchy_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+def _hierarchy_context_from_uri(uri: str) -> Tuple[str, str]:
+    match = re.search(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)$", uri or "")
+    if not match:
+        raise ValueError(f"Invalid hierarchy uri format: '{uri}'")
+    dimension_name, hierarchy_name = match.groups()
     return dimension_name, hierarchy_name
 
 
-def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, source_path: Optional[str] = None) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(source_path)
+def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     hierarchy_object = TM1py.Hierarchy(name=hierarchy.name, dimension_name=dimension_name)
     response = tm1_service.hierarchies.create(hierarchy_object)
     logger.info(f"Created Hierarchy: {hierarchy.name}.")
@@ -330,8 +332,8 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, source_path:
     return response
 
 
-def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, source_path: Optional[str] = None) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(source_path)
+def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     logger.info("Skipping direct Hierarchy update for '%s'; updates are handled by child changes.", hierarchy.name)
     return _build_noop_update_response(
         resource_url=format_url("/api/v1/Dimensions('{}')/Hierarchies('{}')", dimension_name, hierarchy.name),
@@ -339,8 +341,8 @@ def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, source_path:
     )
 
 
-def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, source_path: Optional[str] = None) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(source_path)
+def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     logger.info(f"Deleting Hierarchy: {hierarchy.name} of Dimension: {dimension_name}.")
     return tm1_service.hierarchies.delete(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
 

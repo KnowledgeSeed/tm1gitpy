@@ -1,4 +1,5 @@
 import tm1_git_py
+import re
 from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.dimension import Dimension
@@ -473,3 +474,41 @@ def make_cube(
         rules=rules,
         views=views,
     )
+
+
+def tm1_uri_from_path(path: str) -> str:
+    p = (path or "").replace("\\", "/").lstrip("/")
+    if not p:
+        return ""
+    m = re.match(r"^cubes/(.+)\.rules$", p)
+    if m:
+        return f"Cubes('{m.group(1)}')/Rules('default')"
+    m = re.match(r"^cubes/(.+)\.views/(.+)\.json$", p)
+    if m:
+        return f"Cubes('{m.group(1)}')/Views('{m.group(2)}')"
+    m = re.match(r"^cubes/([^/]+)$", p)
+    if m:
+        return f"Cubes('{m.group(1)}')"
+    m = re.match(r"^dimensions/([^/]+)\.hierarchies/([^/]+)\.subsets/([^/]+)\.json$", p)
+    if m:
+        return f"Dimensions('{m.group(1)}')/Hierarchies('{m.group(2)}')/Subsets('{m.group(3)}')"
+    m = re.match(r"^dimensions/([^/]+)\.hierarchies/([^/]+)\.json/(.+)$", p)
+    if m:
+        dim, hier, rest = m.group(1), m.group(2), m.group(3)
+        if ":" in rest:
+            parent, comp = rest.split(":", 1)
+            return f"Dimensions('{dim}')/Hierarchies('{hier}')/Edges('{parent}/{comp}')"
+        return f"Dimensions('{dim}')/Hierarchies('{hier}')/Elements('{rest}')"
+    m = re.match(r"^dimensions/([^/]+)\.hierarchies/([^/]+)\.json$", p)
+    if m:
+        return f"Dimensions('{m.group(1)}')/Hierarchies('{m.group(2)}')"
+    m = re.match(r"^dimensions/([^/]+)\.json$", p)
+    if m:
+        return f"Dimensions('{m.group(1)}')"
+    m = re.match(r"^processes/([^/]+)\.json$", p)
+    if m:
+        return f"Processes('{m.group(1)}')"
+    m = re.match(r"^chores/([^/]+)\.json$", p)
+    if m:
+        return f"Chores('{m.group(1)}')"
+    return ""

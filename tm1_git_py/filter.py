@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Iterator, List, Mapping, Optional
 
-from tm1_git_py.changeset import Change, Changeset, ChangeType, normalize_source_path
+from tm1_git_py.changeset import Change, Changeset, ChangeType, normalize_reference_path
 from tm1_git_py.model import Model
 from tm1_git_py.model.disk_backed_list import DiskBackedList
 
@@ -579,10 +579,10 @@ def _selector_rule_matches_context(rule: dict[str, Any], context: dict[str, Any]
     return True
 
 
-def should_exclude_path(source_path: str, filter_rules: List[str]) -> bool:
+def should_exclude_path(object_uri: str, filter_rules: List[str]) -> bool:
     """Return True when the effective winning rule excludes the provided object URL."""
     rules = FilterRules(filter_rules)
-    return rules.should_exclude(source_path)
+    return rules.should_exclude(object_uri)
 
 
 def _escape_odata_string(value: str) -> str:
@@ -835,23 +835,14 @@ def filter(model: Model, filter_rules: List[str]) -> Model:
     return filtered_model
 
 
-def _normalize_path(obj: Any) -> str:
-    source_path_attr = getattr(obj, "source_path", "")
-    if isinstance(source_path_attr, str):
-        return normalize_source_path(source_path_attr)
-    # Some models expose source_path as a callable requiring context.
-    # In that case we fall back to Change.source_path in _change_path().
-    return ""
-
-
 def _normalize_filter_path(path: str) -> str:
     path = (path or "").strip().lstrip("/")
     if not path:
         return ""
     if "|[" in path:
         cube_part, area_part = path.rsplit("|", 1)
-        return f"{normalize_source_path(cube_part)}|{normalize_for_path(area_part)}"
-    return normalize_source_path(path)
+        return f"{normalize_reference_path(cube_part)}|{normalize_for_path(area_part)}"
+    return normalize_reference_path(path)
 
 
 def filter_changeset(
@@ -865,10 +856,7 @@ def filter_changeset(
         return changeset
 
     def _change_path(change: Change) -> str:
-        body_path = _normalize_path(change.body)
-        if body_path:
-            return body_path
-        return normalize_source_path(change.source_path)
+        return _normalize_filter_path(getattr(change, "uri", "") or "")
 
     path_entries: list[tuple[str, str, Change]] = []
     for change in changeset.changes:

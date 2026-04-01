@@ -80,31 +80,30 @@ class Element:
 
 logger = logging.getLogger(__name__)
 
-def _edge_context_from_path(source_path: str) -> tuple[str, str]:
-    normalized_path = (source_path or "").replace("\\", "/").lstrip("/")
-    match = re.search(r"dimensions/([^/]+)\.hierarchies/([^/]+)\.json(?:/|$)", normalized_path)
+def _element_context_from_uri(uri: str) -> tuple[str, str]:
+    match = re.search(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Elements\('([^']+)'\)$", uri or "")
     if not match:
-        raise ValueError(f"Invalid element source_path format: '{source_path}'")
-    dimension_name, hierarchy_name = match.groups()
+        raise ValueError(f"Invalid element uri format: '{uri}'")
+    dimension_name, hierarchy_name, _element_name = match.groups()
     return dimension_name, hierarchy_name
 
 
-def create_element(tm1_service: TM1Service, element: Element, source_path: Optional[str] = None) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=source_path)
+def create_element(tm1_service: TM1Service, element: Element, uri: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _element_context_from_uri(uri=uri)
     element_object = TM1py.Element(name=element.name, element_type=element.type)
     logger.debug(f"Creating Element: {element.name} in Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.create(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element=element_object)
 
 
-def update_element(tm1_service: TM1Service, element: Element, source_path: Optional[str] = None) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=source_path)
+def update_element(tm1_service: TM1Service, element: Element, uri: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _element_context_from_uri(uri=uri)
     element_object = tm1_service.elements.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element_name=element.name)
     element_object.element_type = element.type
     logger.debug(f"Updating Element: {element.name} in Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.update(dimension_name=dimension_name, hierarchy_name=hierarchy_name, element=element_object)
 
 
-def delete_element(tm1_service: TM1Service, element: Element, source_path: Optional[str] = None) -> Response:
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=source_path)
+def delete_element(tm1_service: TM1Service, element: Element, uri: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _element_context_from_uri(uri=uri)
     logger.debug(f"Deleting Element: {element.name} of Hierarchy: {hierarchy_name}.")
     return tm1_service.elements.delete(hierarchy_name=hierarchy_name, dimension_name=dimension_name, element_name=element.name)

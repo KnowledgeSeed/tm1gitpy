@@ -88,11 +88,11 @@ def apply(
         action = ChangeType.from_raw(change.change_type)
         action_name = action.value
         obj_type = change.object_type.value
-        obj_path = change.source_path
+        obj_path = change.uri
         obj_name = getattr(obj, "name", "")
 
         if store is not None:
-            store.begin_operation(i, action_name, obj_type, obj_name, obj_path)
+            store.begin_operation(i, action_name, obj_type, obj_name, change.uri)
 
         try:
             if action == ChangeType.ADD:
@@ -100,21 +100,21 @@ def apply(
                     tm1_service=tm1_service,
                     object_instance=obj,
                     object_type=obj_type,
-                    source_path=change.source_path,
+                    uri=change.uri,
                 )
             elif action == ChangeType.MODIFY:
                 resp = update_object(
                     tm1_service=tm1_service,
                     object_instance=obj,
                     object_type=obj_type,
-                    source_path=change.source_path,
+                    uri=change.uri,
                 )
             elif action == ChangeType.REMOVE:
                 resp = delete_object(
                     tm1_service=tm1_service,
                     object_instance=obj,
                     object_type=obj_type,
-                    source_path=change.source_path,
+                    uri=change.uri,
                 )
             else:
                 raise ValueError(f"Unknown action: {action_name}")
@@ -208,39 +208,31 @@ def _resolve_handler(module, action: str, object_type: str):
     )
 
 
-def create_object(tm1_service: TM1Service, object_instance: T, object_type, source_path: Optional[str] = None) -> Response:
+def create_object(tm1_service: TM1Service, object_instance: T, object_type, uri: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     create = _resolve_handler(module, "create", object_type)
     try:
-        return create(tm1_service, object_instance, source_path=source_path)
+        return create(tm1_service, object_instance, uri=uri)
     except TypeError:
         return create(tm1_service, object_instance)
 
 
-def delete_object(tm1_service: TM1Service, object_instance: T, object_type, source_path: Optional[str] = None) -> Response:
+def delete_object(tm1_service: TM1Service, object_instance: T, object_type, uri: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     delete = _resolve_handler(module, "delete", object_type)
     try:
-        return delete(tm1_service, object_instance, source_path=source_path)
+        return delete(tm1_service, object_instance, uri=uri)
     except TypeError:
         return delete(tm1_service, object_instance)
 
 
-def update_object(tm1_service: TM1Service, object_instance: T, object_type, source_path: Optional[str] = None) -> Response:
+def update_object(tm1_service: TM1Service, object_instance: T, object_type, uri: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     update = _resolve_handler(module, "update", object_type)
     try:
-        return update(tm1_service, object_instance, source_path=source_path)
+        return update(tm1_service, object_instance, uri=uri)
     except TypeError:
         return update(tm1_service, object_instance)
-
-
-def _cube_name_from_rule_source_path(source_path: str) -> str:
-    normalized = (source_path or "").replace("\\", "/").lstrip("/")
-    match = re.match(r"cubes/(.+)\.rules$", normalized)
-    if not match:
-        raise ValueError(f"Invalid rule source_path: '{source_path}'")
-    return match.group(1)
 
 
 def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
@@ -250,7 +242,9 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
 
     for change in changes:
         if change.object_type == ObjectType.RULE:
-            cube_name = _cube_name_from_rule_source_path(change.source_path)
+            cube_name = Rule.cube_name_from_uri(change.uri)
+            if not cube_name:
+                raise ValueError(f"Invalid rule change uri: '{change.uri}'")
             # Keep the last rule change for a cube; compare path now emits one unified entry.
             rule_changes_by_cube[cube_name] = change
         else:
@@ -268,7 +262,7 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CUBE,
-                source_path=f"cubes/{cube_name}.json",
+                uri=Cube.uri_for(cube_name),
                 body=Cube(
                     name=cube_name,
                     dimensions=[],

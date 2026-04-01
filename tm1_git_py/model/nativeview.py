@@ -179,9 +179,11 @@ def view_title_selection_to_dict(title_selection) -> Dict[str, Any]:
     return body
 
 
-def _native_view_context_from_path(source_path: str) -> Tuple[str, str]:
-    cube_name = re.search(r'/([^/]+)\.views', source_path).group(1)
-    view_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+def _native_view_context_from_uri(uri: str) -> Tuple[str, str]:
+    match = re.search(r"^Cubes\('([^']+)'\)/Views\('([^']+)'\)$", uri or "")
+    if not match:
+        raise ValueError(f"Invalid native view uri format: '{uri}'")
+    cube_name, view_name = match.groups()
     return cube_name, view_name
 
 
@@ -210,8 +212,8 @@ def _to_tm1py_native_view_dict(native_view: NativeView) -> Dict[str, Any]:
 logger = logging.getLogger(__name__)
 
 
-def create_native_view(tm1_service: TM1Service, native_view: NativeView, source_path: Optional[str] = None) -> Response:
-    cube_name, _ = _native_view_context_from_path(source_path)
+def create_native_view(tm1_service: TM1Service, native_view: NativeView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _native_view_context_from_uri(uri)
     native_view_object = TM1py.NativeView.from_dict(
         view_as_dict=_to_tm1py_native_view_dict(native_view),
         cube_name=cube_name,
@@ -220,8 +222,8 @@ def create_native_view(tm1_service: TM1Service, native_view: NativeView, source_
     return tm1_service.views.create(native_view_object)
 
 
-def update_native_view(tm1_service: TM1Service, native_view: NativeView, source_path: Optional[str] = None) -> Response:
-    cube_name, _ = _native_view_context_from_path(source_path)
+def update_native_view(tm1_service: TM1Service, native_view: NativeView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _native_view_context_from_uri(uri)
     native_view_object = TM1py.NativeView.from_dict(
         view_as_dict=_to_tm1py_native_view_dict(native_view),
         cube_name=cube_name,
@@ -230,7 +232,7 @@ def update_native_view(tm1_service: TM1Service, native_view: NativeView, source_
     return tm1_service.views.update(native_view_object)
 
 
-def delete_native_view(tm1_service: TM1Service, native_view: NativeView, source_path: Optional[str] = None) -> Response:
-    cube_name, _ = _native_view_context_from_path(source_path)
+def delete_native_view(tm1_service: TM1Service, native_view: NativeView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _native_view_context_from_uri(uri)
     logger.info(f"Deleting NativeView: {native_view.name} from Cube: {cube_name}.")
     return tm1_service.views.delete(view_name=native_view.name, cube_name=cube_name)

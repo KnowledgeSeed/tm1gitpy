@@ -75,14 +75,16 @@ class Subset:
 
 logger = logging.getLogger(__name__)
 
-def _subset_context_from_path(source_path: str) -> Tuple[str, str]:
-    dimension_name = re.search(r'/([\w}]*)(.hierarchies)', source_path).group(1)
-    hierarchy_name = re.search(r'/([\w}]*)(.subsets)', source_path).group(1)
+def _subset_context_from_uri(uri: str) -> Tuple[str, str]:
+    match = re.search(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Subsets\('([^']+)'\)$", uri or "")
+    if not match:
+        raise ValueError(f"Invalid subset uri format: '{uri}'")
+    dimension_name, hierarchy_name, _subset_name = match.groups()
     return dimension_name, hierarchy_name
 
 
-def create_subset(tm1_service: TM1Service, subset: Subset, source_path: Optional[str] = None) -> Response:
-    dimension_name, hierarchy_name = _subset_context_from_path(source_path)
+def create_subset(tm1_service: TM1Service, subset: Subset, uri: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _subset_context_from_uri(uri)
 
     subset_object = TM1py.Subset(
         subset_name=subset.name,
@@ -95,8 +97,8 @@ def create_subset(tm1_service: TM1Service, subset: Subset, source_path: Optional
     return tm1_service.subsets.create(subset_object)
 
 
-def update_subset(tm1_service: TM1Service, subset: Subset, source_path: Optional[str] = None) -> Response:
-    dimension_name, hierarchy_name = _subset_context_from_path(source_path)
+def update_subset(tm1_service: TM1Service, subset: Subset, uri: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _subset_context_from_uri(uri)
 
     subset_object = tm1_service.subsets.get(
         subset_name=subset.name,
@@ -109,8 +111,8 @@ def update_subset(tm1_service: TM1Service, subset: Subset, source_path: Optional
     return tm1_service.subsets.update(subset_object)
 
 
-def delete_subset(tm1_service: TM1Service, subset: Subset, source_path: Optional[str] = None) -> Response:
-    dimension_name, hierarchy_name = _subset_context_from_path(source_path)
+def delete_subset(tm1_service: TM1Service, subset: Subset, uri: Optional[str] = None) -> Response:
+    dimension_name, hierarchy_name = _subset_context_from_uri(uri)
 
     logger.info(f"Deleting Subset: {subset.name} from Hierarchy: {hierarchy_name}.")
     return tm1_service.subsets.delete(

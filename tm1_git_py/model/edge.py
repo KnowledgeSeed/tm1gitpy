@@ -100,24 +100,23 @@ class Edge:
 
 logger = logging.getLogger(__name__)
 
-def _edge_context_from_path(source_path: str) -> tuple[str, str]:
-    normalized_path = (source_path or "").replace("\\", "/").lstrip("/")
-    match = re.search(r"dimensions/([^/]+)\.hierarchies/([^/]+)\.json(?:/|$)", normalized_path)
+def _edge_context_from_uri(uri: str) -> tuple[str, str]:
+    match = re.search(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Edges\('([^']+)'\)$", uri or "")
     if not match:
-        raise ValueError(f"Invalid edge source_path format: '{source_path}'")
-    dimension_name, hierarchy_name = match.groups()
+        raise ValueError(f"Invalid edge uri format: '{uri}'")
+    dimension_name, hierarchy_name, _edge_id = match.groups()
     return dimension_name, hierarchy_name
 
 
-def create_edge(tm1_service: TM1Service, edge: Edge, source_path: Optional[str] = None) -> Response:
-    dimension, hierarchy = _edge_context_from_path(source_path=source_path)
+def create_edge(tm1_service: TM1Service, edge: Edge, uri: Optional[str] = None) -> Response:
+    dimension, hierarchy = _edge_context_from_uri(uri=uri)
     edge_name = {(edge.parent, edge.component_name): edge.weight}
     logger.debug(f"Creating Edge: {edge.component_name} in Hierarchy: {hierarchy}.")
     return tm1_service.elements.add_edges(hierarchy, dimension, edge_name)
 
 
-def update_edge(tm1_service: TM1Service, edge: Edge, source_path: Optional[str] = None) -> Response:
-    dimension, hierarchy = _edge_context_from_path(source_path=source_path)
+def update_edge(tm1_service: TM1Service, edge: Edge, uri: Optional[str] = None) -> Response:
+    dimension, hierarchy = _edge_context_from_uri(uri=uri)
     hierarchy_object = tm1_service.hierarchies.get(dimension_name=dimension, hierarchy_name=hierarchy)
     hierarchy_object.update_edge(parent=edge.parent, component=edge.component_name, weight=edge.weight)
     resp = tm1_service.hierarchies.update(hierarchy_object)
@@ -126,7 +125,7 @@ def update_edge(tm1_service: TM1Service, edge: Edge, source_path: Optional[str] 
     return resp
 
 
-def delete_edge(tm1_service: TM1Service, edge: Edge, source_path: Optional[str] = None) -> Response:
-    dimension, hierarchy = _edge_context_from_path(source_path=source_path)
+def delete_edge(tm1_service: TM1Service, edge: Edge, uri: Optional[str] = None) -> Response:
+    dimension, hierarchy = _edge_context_from_uri(uri=uri)
     logger.debug(f"Removing Edge: {edge.component_name} from Hierarchy: {hierarchy}.")
     return tm1_service.elements.remove_edge(hierarchy, dimension, edge.parent, edge.component_name)

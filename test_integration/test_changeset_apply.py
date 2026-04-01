@@ -12,6 +12,7 @@ from test_integration.test_base import (
     tm1_service,
 )
 from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
+from tests.utility import tm1_uri_from_path
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.element import Element
@@ -213,7 +214,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.ADD,
             object_type=ObjectType.MDX_VIEW,
-            source_path=source_path,
+            uri=tm1_uri_from_path(source_path),
             body=MDXView(name=view_name,
                          mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]")
         )]
@@ -235,7 +236,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.REMOVE,
             object_type=ObjectType.MDX_VIEW,
-            source_path=source_path,
+            uri=tm1_uri_from_path(source_path),
             body=MDXView(name=view_name, mdx="")
         )]
         try:
@@ -270,7 +271,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.REMOVE,
             object_type=ObjectType.NATIVE_VIEW,
-            source_path=source_path,
+            uri=tm1_uri_from_path(source_path),
             body=NativeView(
                 name=view_name,
                 columns=[],
@@ -298,7 +299,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.MODIFY,
             object_type=ObjectType.NATIVE_VIEW,
-            source_path=source_path,
+            uri=tm1_uri_from_path(source_path),
             body=NativeView(
                 name=view_name,
                 columns=[{
@@ -460,7 +461,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.ADD,
             object_type=ObjectType.ELEMENT,
-            source_path=source_path,
+            uri=tm1_uri_from_path(source_path),
             body=Element(name=element_name, type="Numeric")
         )]
         try:
@@ -482,7 +483,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.REMOVE,
             object_type=ObjectType.EDGE,
-            source_path=edge_source,
+            uri=tm1_uri_from_path(edge_source),
             body=Edge(parent="DimElemC", component_name="a", weight=1)
         )]
         try:
@@ -500,7 +501,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.MODIFY,
             object_type=ObjectType.EDGE,
-            source_path=edge_source,
+            uri=tm1_uri_from_path(edge_source),
             body=Edge(parent="DimElemC", component_name="b", weight=2)
         )]
         try:
@@ -528,7 +529,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.ADD,
             object_type=ObjectType.SUBSET,
-            source_path=source_path,
+            uri=tm1_uri_from_path(source_path),
             body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].Members}")
         )]
         try:
@@ -550,7 +551,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.REMOVE,
             object_type=ObjectType.SUBSET,
-            source_path=source_path,
+            uri=tm1_uri_from_path(source_path),
             body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].Members}")
         )]
         try:
@@ -571,7 +572,7 @@ class TestChangesetApply:
         changeset.changes = [Change(
             change_type=ChangeType.MODIFY,
             object_type=ObjectType.SUBSET,
-            source_path=source_path,
+            uri=tm1_uri_from_path(source_path),
             body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].[TestDim1Elem1]}")
         )]
         try:
@@ -782,7 +783,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.ELEMENT,
-                source_path="dimensions/TestDimMultiHier.hierarchies/Leaves.json/b",
+                uri=tm1_uri_from_path("dimensions/TestDimMultiHier.hierarchies/Leaves.json/b"),
                 body=Element(
                     name="b",
                     type="Numeric",
@@ -791,7 +792,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.EDGE,
-                source_path="dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:DimElem1",
+                uri=tm1_uri_from_path("dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:DimElem1"),
                 body=Edge(
                     parent="DimElemC",
                     component_name="DimElem1",
@@ -801,7 +802,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.HIERARCHY,
-                source_path=f"dimensions/TestDim1.hierarchies/{temp_hierarchy_name}.json",
+                uri=tm1_uri_from_path(f"dimensions/TestDim1.hierarchies/{temp_hierarchy_name}.json"),
                 body=GitHierarchy(
                     name=temp_hierarchy_name,
                     elements=[],
@@ -812,7 +813,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.MDX_VIEW,
-                source_path=f"cubes/{cube_name}.views/{view_name}.json",
+                uri=tm1_uri_from_path(f"cubes/{cube_name}.views/{view_name}.json"),
                 body=MDXView(
                     name=view_name,
                     mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
@@ -821,7 +822,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.RULE,
-                source_path=f"cubes/{rule_cube_name}.rules",
+                uri=tm1_uri_from_path(f"cubes/{rule_cube_name}.rules"),
                 body=Rule(
                     name="default",
                     area="[default]",
@@ -831,7 +832,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.NATIVE_VIEW,
-                source_path=f"cubes/{cube_name}.views/{native_view_name}.json",
+                uri=tm1_uri_from_path(f"cubes/{cube_name}.views/{native_view_name}.json"),
                 body=NativeView(
                     name=native_view_name,
                     columns=[{
@@ -855,7 +856,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                source_path=f"processes/{process_name}.json",
+                uri=tm1_uri_from_path(f"processes/{process_name}.json"),
                 body=GitProcess(
                     name=process_name,
                     hasSecurityAccess=False,

@@ -1,9 +1,9 @@
 import logging
-import re
 from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
 
 from tm1_git_py.changeset import Changeset, Change, ChangeType, ObjectType
 from tm1_git_py.model import Hierarchy, MDXView, NativeView, Subset, Element, Edge, Rule
+from tm1_git_py.model.disk_backed_list import DiskBackedList
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -61,10 +61,6 @@ def _is_leaf_hierarchy(hierarchy_obj: Any) -> bool:
     return getattr(hierarchy_obj, "name", "").strip().lower() == "leaves"
 
 
-def _decode_odata_literal(value: str) -> str:
-    return (value or "").replace("''", "'")
-
-
 def _uri_from_object(obj: Any, context: Optional[dict[str, str]] = None) -> str:
     context = context or {}
     try:
@@ -86,87 +82,9 @@ def _uri_from_object(obj: Any, context: Optional[dict[str, str]] = None) -> str:
         return ""
 
 
-def _source_path_from_uri(uri: str) -> str:
-    if not uri:
-        return ""
-
-    cube_rule_match = re.match(r"^Cubes\('((?:''|[^'])+)'\)/Rules\('(?:''|[^'])+'\)$", uri)
-    if cube_rule_match:
-        cube_name = _decode_odata_literal(cube_rule_match.group(1))
-        return f"cubes/{cube_name}.rules"
-
-    cube_view_match = re.match(r"^Cubes\('((?:''|[^'])+)'\)/Views\('((?:''|[^'])+)'\)$", uri)
-    if cube_view_match:
-        cube_name = _decode_odata_literal(cube_view_match.group(1))
-        view_name = _decode_odata_literal(cube_view_match.group(2))
-        return f"cubes/{cube_name}.views/{view_name}.json"
-
-    cube_match = re.match(r"^Cubes\('((?:''|[^'])+)'\)$", uri)
-    if cube_match:
-        cube_name = _decode_odata_literal(cube_match.group(1))
-        return f"cubes/{cube_name}"
-
-    subset_match = re.match(
-        r"^Dimensions\('((?:''|[^'])+)'\)/Hierarchies\('((?:''|[^'])+)'\)/Subsets\('((?:''|[^'])+)'\)$",
-        uri,
-    )
-    if subset_match:
-        dim_name = _decode_odata_literal(subset_match.group(1))
-        hier_name = _decode_odata_literal(subset_match.group(2))
-        subset_name = _decode_odata_literal(subset_match.group(3))
-        return f"dimensions/{dim_name}.hierarchies/{hier_name}.subsets/{subset_name}.json"
-
-    edge_match = re.match(
-        r"^Dimensions\('((?:''|[^'])+)'\)/Hierarchies\('((?:''|[^'])+)'\)/Edges\('((?:''|[^'])+)'\)$",
-        uri,
-    )
-    if edge_match:
-        dim_name = _decode_odata_literal(edge_match.group(1))
-        hier_name = _decode_odata_literal(edge_match.group(2))
-        edge_key = _decode_odata_literal(edge_match.group(3))
-        parent, component = edge_key.split("/", 1) if "/" in edge_key else (edge_key, "")
-        return f"dimensions/{dim_name}.hierarchies/{hier_name}.json/{parent}:{component}"
-
-    element_match = re.match(
-        r"^Dimensions\('((?:''|[^'])+)'\)/Hierarchies\('((?:''|[^'])+)'\)/Elements\('((?:''|[^'])+)'\)$",
-        uri,
-    )
-    if element_match:
-        dim_name = _decode_odata_literal(element_match.group(1))
-        hier_name = _decode_odata_literal(element_match.group(2))
-        element_name = _decode_odata_literal(element_match.group(3))
-        return f"dimensions/{dim_name}.hierarchies/{hier_name}.json/{element_name}"
-
-    hierarchy_match = re.match(r"^Dimensions\('((?:''|[^'])+)'\)/Hierarchies\('((?:''|[^'])+)'\)$", uri)
-    if hierarchy_match:
-        dim_name = _decode_odata_literal(hierarchy_match.group(1))
-        hier_name = _decode_odata_literal(hierarchy_match.group(2))
-        return f"dimensions/{dim_name}.hierarchies/{hier_name}.json"
-
-    dimension_match = re.match(r"^Dimensions\('((?:''|[^'])+)'\)$", uri)
-    if dimension_match:
-        dim_name = _decode_odata_literal(dimension_match.group(1))
-        return f"dimensions/{dim_name}.json"
-
-    process_match = re.match(r"^Processes\('((?:''|[^'])+)'\)$", uri)
-    if process_match:
-        process_name = _decode_odata_literal(process_match.group(1))
-        return f"processes/{process_name}.json"
-
-    chore_match = re.match(r"^Chores\('((?:''|[^'])+)'\)$", uri)
-    if chore_match:
-        chore_name = _decode_odata_literal(chore_match.group(1))
-        return f"chores/{chore_name}.json"
-
-    return ""
-
-
-def _resolve_change_source_path(obj: Any, context: Optional[dict[str, str]] = None) -> str:
+def _resolve_change_uri(obj: Any, context: Optional[dict[str, str]] = None) -> str:
     object_uri = _uri_from_object(obj, context=context)
-    source_path = _source_path_from_uri(object_uri)
-    if source_path:
-        return source_path
-    return _resolve_source_path(obj, context=context)
+    return object_uri or ""
 
 
 def _object_identity(obj: Any, context: Optional[dict[str, str]] = None) -> str:
@@ -200,43 +118,6 @@ def _object_identity(obj: Any, context: Optional[dict[str, str]] = None) -> str:
     raise AttributeError(f"Object '{obj}' has neither uri nor name.")
 
 
-def _resolve_source_path(obj: Any, context: Optional[dict[str, str]] = None) -> str:
-    context = context or {}
-    try:
-        if isinstance(obj, Rule):
-            cube_name = context.get("cube_name")
-            return f"cubes/{cube_name}.rules" if cube_name else ""
-        if isinstance(obj, (MDXView, NativeView)):
-            cube_name = context.get("cube_name")
-            return f"cubes/{cube_name}.views/{obj.name}.json" if cube_name else ""
-        if isinstance(obj, Hierarchy):
-            dim_name = context.get("dimension_name")
-            return f"dimensions/{dim_name}.hierarchies/{obj.name}.json" if dim_name else ""
-        if isinstance(obj, Subset):
-            dim_name = context.get("dimension_name")
-            hier_name = context.get("hierarchy_name")
-            return f"dimensions/{dim_name}.hierarchies/{hier_name}.subsets/{obj.name}.json" if dim_name and hier_name else ""
-        if isinstance(obj, Element):
-            dim_name = context.get("dimension_name")
-            hier_name = context.get("hierarchy_name")
-            return f"dimensions/{dim_name}.hierarchies/{hier_name}.json/{obj.name}" if dim_name and hier_name else ""
-        if isinstance(obj, Edge):
-            dim_name = context.get("dimension_name")
-            hier_name = context.get("hierarchy_name")
-            return f"dimensions/{dim_name}.hierarchies/{hier_name}.json/{obj.parent}:{obj.name}" if dim_name and hier_name else ""
-        if isinstance(obj, Dimension):
-            return f"dimensions/{obj.name}.json"
-        if isinstance(obj, Cube):
-            return f"cubes/{obj.name}"
-        if isinstance(obj, Process):
-            return f"processes/{obj.name}.json"
-        if isinstance(obj, Chore):
-            return f"chores/{obj.name}.json"
-    except Exception:
-        return ""
-    return ""
-
-
 def _normalize_filter(
         filter_rules: Optional[Union[list[str], dict]] = None
 ) -> list[str]:
@@ -266,8 +147,6 @@ def _normalize_filter(
 
 
 class Comparator:
-    DEFAULT_FILTER_RULES: list[str] = ["-Cubes('}*')", "-Dimensions('}*')"]
-
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
         Hierarchy: [("subsets", Subset), ("elements", Element), ("edges", Edge)],
@@ -279,14 +158,6 @@ class Comparator:
         Hierarchy: _hierarchies_equal_shallow,
         Cube: _cubes_equal_shallow
     }
-
-    def __init__(
-            self,
-            *,
-            use_default_filter: bool = True
-    ):
-        self.use_default_filter = use_default_filter
-        self.default_filter_rules = list(self.DEFAULT_FILTER_RULES)
 
     def compare(
             self,
@@ -301,11 +172,7 @@ class Comparator:
         mode='add_only' emits add/modify changes.
         """
 
-        logger.info(
-            "Starting model compare mode=%s use_default_filter=%s",
-            mode,
-            self.use_default_filter,
-        )
+        logger.info("Starting model compare mode=%s", mode)
         logger.debug(
             "Input object counts old(cubes=%d dimensions=%d processes=%d chores=%d) "
             "new(cubes=%d dimensions=%d processes=%d chores=%d)",
@@ -318,11 +185,6 @@ class Comparator:
             len(model2.processes),
             len(model2.chores),
         )
-
-        if self.use_default_filter:
-            logger.debug("Applying default comparator filters: %s", self.default_filter_rules)
-            model1 = filter(model1, self.default_filter_rules)
-            model2 = filter(model2, self.default_filter_rules)
 
         if filter_rules:
             if isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules):
@@ -372,13 +234,13 @@ class Comparator:
             *,
             change_type: ChangeType,
             obj: Any,
-            source_path: str = "",
+            uri: str = "",
     ) -> None:
         changeset.changes.append(
             Change(
                 change_type=change_type,
                 object_type=ObjectType.from_object(obj),
-                source_path=source_path,
+                uri=uri,
                 body=obj,
             )
         )
@@ -398,13 +260,14 @@ class Comparator:
         object_type_name = getattr(parent_cls, "__name__", str(parent_cls))
 
         parent_pairs = self._compare_object_lists(
-            list(old_list),
-            list(new_list),
+            old_list,
+            new_list,
             changeset,
             object_type_name=object_type_name,
             mode=mode,
             equals_fn=equals_fn,
             context=context,
+            parent_cls=parent_cls,
         )
 
         child_relations = self._CHILD_RELATIONS.get(parent_cls, [])
@@ -414,14 +277,20 @@ class Comparator:
                     # "Leaves" hierarchy elements are auto-managed by TM1 and should not be diffed.
                     if isinstance(new_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(new_obj):
                         continue
-                    old_children = [
-                        child for child in (getattr(old_obj, child_attr, None) or [])
-                        if isinstance(child, child_cls)
-                    ]
-                    new_children = [
-                        child for child in (getattr(new_obj, child_attr, None) or [])
-                        if isinstance(child, child_cls)
-                    ]
+                    slot_old = getattr(old_obj, child_attr, None) or []
+                    slot_new = getattr(new_obj, child_attr, None) or []
+                    if isinstance(slot_old, DiskBackedList) and isinstance(slot_new, DiskBackedList):
+                        old_children = slot_old
+                        new_children = slot_new
+                    else:
+                        old_children = [
+                            child for child in slot_old
+                            if isinstance(child, child_cls)
+                        ]
+                        new_children = [
+                            child for child in slot_new
+                            if isinstance(child, child_cls)
+                        ]
                     try:
                         child_context = dict(context or {})
                         if parent_cls is Cube:
@@ -443,18 +312,145 @@ class Comparator:
 
         return parent_pairs
 
+    def _compare_disk_backed_sorted_merge(
+            self,
+            old_db: DiskBackedList,
+            new_db: DiskBackedList,
+            changeset: Changeset,
+            *,
+            object_type_name: str,
+            mode: Literal['full', 'add_only'],
+            equals_fn: Optional[Callable[[Any, Any], bool]],
+            context: Optional[dict[str, str]],
+    ) -> dict[str, tuple[Any, Any]]:
+        """
+        Compare two on-disk JSONL collections in merge order.
+
+        Callers must ensure both sides iterate in ascending order by
+        ``_object_identity(..., context)`` (same order as TM1/export queries).
+        """
+        old_it = iter(old_db)
+        new_it = iter(new_db)
+        old_item: Any = next(old_it, None)
+        new_item: Any = next(new_it, None)
+        added_c = removed_c = common_c = 0
+
+        while old_item is not None or new_item is not None:
+            if old_item is None:
+                self._append_change(
+                    changeset,
+                    change_type=ChangeType.ADD,
+                    obj=new_item,
+                    uri=_resolve_change_uri(new_item, context),
+                )
+                added_c += 1
+                new_item = next(new_it, None)
+                continue
+            if new_item is None:
+                if mode == 'full':
+                    self._append_change(
+                        changeset,
+                        change_type=ChangeType.REMOVE,
+                        obj=old_item,
+                        uri=_resolve_change_uri(old_item, context),
+                    )
+                    removed_c += 1
+                old_item = next(old_it, None)
+                continue
+
+            try:
+                key_old = _object_identity(old_item, context=context)
+                key_new = _object_identity(new_item, context=context)
+            except AttributeError as exc:
+                logger.error(
+                    "Objects missing identity fields in %s streaming compare: %s",
+                    object_type_name,
+                    exc,
+                    exc_info=True,
+                )
+                raise
+
+            if key_old < key_new:
+                if mode == 'full':
+                    self._append_change(
+                        changeset,
+                        change_type=ChangeType.REMOVE,
+                        obj=old_item,
+                        uri=_resolve_change_uri(old_item, context),
+                    )
+                    removed_c += 1
+                old_item = next(old_it, None)
+            elif key_old > key_new:
+                self._append_change(
+                    changeset,
+                    change_type=ChangeType.ADD,
+                    obj=new_item,
+                    uri=_resolve_change_uri(new_item, context),
+                )
+                added_c += 1
+                new_item = next(new_it, None)
+            else:
+                common_c += 1
+                try:
+                    objects_equal = equals_fn(old_item, new_item) if equals_fn else old_item == new_item
+                    if not objects_equal:
+                        self._append_change(
+                            changeset,
+                            change_type=ChangeType.MODIFY,
+                            obj=new_item,
+                            uri=_resolve_change_uri(new_item, context),
+                        )
+                except Exception as exc:
+                    logger.error(
+                        "Failed comparing %s '%s': %s",
+                        object_type_name,
+                        key_old,
+                        exc,
+                        exc_info=True,
+                    )
+                    raise
+                old_item = next(old_it, None)
+                new_item = next(new_it, None)
+
+        logger.debug(
+            "Diff counts for %s (streaming): added=%d removed=%d common=%d",
+            object_type_name,
+            added_c,
+            removed_c,
+            common_c,
+        )
+        return {}
+
     def _compare_object_lists(self,
-                              old_list: list[Any],
-                              new_list: list[Any],
+                              old_list: Iterable[Any],
+                              new_list: Iterable[Any],
                               changeset: Changeset,
                               object_type_name: str,
                               mode: Literal['full', 'add_only'],
                               equals_fn: Optional[Callable[[Any, Any], bool]] = None,
-                              context: Optional[dict[str, str]] = None) -> dict[str, tuple[Any, Any]]:
+                              context: Optional[dict[str, str]] = None,
+                              parent_cls: Optional[type] = None) -> dict[str, tuple[Any, Any]]:
+
+        if (
+            parent_cls in (Element, Edge)
+            and isinstance(old_list, DiskBackedList)
+            and isinstance(new_list, DiskBackedList)
+        ):
+            return self._compare_disk_backed_sorted_merge(
+                old_list,
+                new_list,
+                changeset,
+                object_type_name=object_type_name,
+                mode=mode,
+                equals_fn=equals_fn,
+                context=context,
+            )
 
         try:
-            old_map = {_object_identity(obj, context=context): obj for obj in old_list}
-            new_map = {_object_identity(obj, context=context): obj for obj in new_list}
+            old_list_m = list(old_list)
+            new_list_m = list(new_list)
+            old_map = {_object_identity(obj, context=context): obj for obj in old_list_m}
+            new_map = {_object_identity(obj, context=context): obj for obj in new_list_m}
         except AttributeError as exc:
             logger.error("Objects missing identity fields in %s comparison: %s", object_type_name, exc, exc_info=True)
             raise
@@ -477,7 +473,7 @@ class Comparator:
                 changeset,
                 change_type=ChangeType.ADD,
                 obj=new_map[name],
-                source_path=_resolve_change_source_path(new_map[name], context),
+                uri=_resolve_change_uri(new_map[name], context),
             )
 
         if mode == 'full':
@@ -486,7 +482,7 @@ class Comparator:
                     changeset,
                     change_type=ChangeType.REMOVE,
                     obj=old_map[name],
-                    source_path=_resolve_change_source_path(old_map[name], context),
+                    uri=_resolve_change_uri(old_map[name], context),
                 )
 
         matched_pairs: dict[str, tuple[Any, Any]] = {}
@@ -501,7 +497,7 @@ class Comparator:
                         changeset,
                         change_type=ChangeType.MODIFY,
                         obj=new_obj,
-                        source_path=_resolve_change_source_path(new_obj, context),
+                        uri=_resolve_change_uri(new_obj, context),
                     )
             except Exception as exc:
                 logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc, exc_info=True)

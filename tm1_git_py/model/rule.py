@@ -74,3 +74,10 @@ class Rule:
 
     def uri(self, cube_name: str) -> str:
         return self.uri_for(cube_name)
+
+    @staticmethod
+    def cube_name_from_uri(uri: str) -> str:
+        match = re.match(r"^Cubes\('((?:''|[^'])+)'\)/Rules\('(?:''|[^'])+'\)$", uri or "")
+        if not match:
+            return ""
+        return match.group(1).replace("''", "'")
