@@ -251,6 +251,125 @@ class TestDeserializer:
         deserialize_dimensions(dimension_dir=dimensions_dir)
         assert not (dimensions_dir.parent / ".internal").exists()
 
+    def test_deserialize_dimensions_creates_jsonl_count_sidecars(self, tmp_path):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        dimensions, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        hierarchy_obj = dimensions["testbenchVersion"].hierarchies[0]
+        internal_hier_dir = dimensions_dir.parent / ".dimensions" / "testbenchVersion.hierarchies"
+
+        elements_jsonl = internal_hier_dir / ".testbenchVersion.elements.jsonl"
+        edges_jsonl = internal_hier_dir / ".testbenchVersion.edges.jsonl"
+        subsets_jsonl = internal_hier_dir / ".testbenchVersion.subsets.jsonl"
+
+        for jsonl_file, expected_count in (
+            (elements_jsonl, len(hierarchy_obj.elements)),
+            (edges_jsonl, len(hierarchy_obj.edges)),
+            (subsets_jsonl, len(hierarchy_obj.subsets)),
+        ):
+            sidecar_path = Path(DiskBackedList.sidecar_path_for_jsonl(str(jsonl_file)))
+            assert sidecar_path.exists()
+            sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            assert sidecar["count"] == expected_count
+            assert sidecar["hash_algo"] == DiskBackedList.HASH_ALGO
+            assert isinstance(sidecar["content_hash"], str)
+            assert len(sidecar["content_hash"]) == 64
+
+    def test_disk_backed_list_reuses_count_sidecar(self, tmp_path, monkeypatch):
+        jsonl_path = tmp_path / "elements.jsonl"
+        disk_list = DiskBackedList.for_elements_sink(
+            store_items=False,
+            jsonl_path=str(jsonl_path),
+            truncate=True,
+        )
+        disk_list.extend(
+            [
+                Element(name="E1", type="Numeric"),
+                Element(name="E2", type="String"),
+            ]
+        )
+
+        def _scan_should_not_run(_self):
+            raise AssertionError("line scan should not run when sidecar is valid")
+
+        monkeypatch.setattr(DiskBackedList, "_count_lines_by_scan", _scan_should_not_run)
+        reopened = DiskBackedList.for_elements_sink(
+            store_items=False,
+            jsonl_path=str(jsonl_path),
+        )
+        assert len(reopened) == 2
+
+    def test_disk_backed_list_append_updates_hash_without_full_recompute(self, tmp_path, monkeypatch):
+        jsonl_path = tmp_path / "elements.jsonl"
+        disk_list = DiskBackedList.for_elements_sink(
+            store_items=False,
+            jsonl_path=str(jsonl_path),
+            truncate=True,
+        )
+        disk_list.append(Element(name="E1", type="Numeric"))
+
+        def _scan_should_not_run(_self):
+            raise AssertionError("full scan should not run for append incremental hash update")
+
+        monkeypatch.setattr(DiskBackedList, "_scan_count_and_hash_from_file", _scan_should_not_run)
+        disk_list.append(Element(name="E2", type="String"))
+        signature = disk_list.sidecar_content_signature()
+        assert signature is not None
+        assert signature[0] == 2
+
+    def test_disk_backed_list_replace_and_filter_refresh_hash(self, tmp_path):
+        jsonl_path = tmp_path / "elements.jsonl"
+        disk_list = DiskBackedList.for_elements_sink(
+            store_items=False,
+            jsonl_path=str(jsonl_path),
+            truncate=True,
+        )
+        disk_list.extend(
+            [
+                Element(name="A", type="Numeric"),
+                Element(name="B", type="Numeric"),
+                Element(name="C", type="String"),
+            ]
+        )
+        disk_list.replace_with_payloads(
+            [
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "String"},
+            ]
+        )
+        disk_list.filter_in_place(lambda item: item.name != "A")
+
+        reopened = DiskBackedList.for_elements_sink(store_items=False, jsonl_path=str(jsonl_path))
+        signature = reopened.sidecar_content_signature()
+        assert signature is not None
+        count, content_hash = signature
+        scanned_count, scanned_hash = reopened._scan_count_and_hash_from_file()
+        assert count == scanned_count == 1
+        assert content_hash == scanned_hash
+
+    def test_disk_backed_list_repairs_stale_sidecar(self, tmp_path):
+        jsonl_path = tmp_path / "elements.jsonl"
+        disk_list = DiskBackedList.for_elements_sink(
+            store_items=False,
+            jsonl_path=str(jsonl_path),
+            truncate=True,
+        )
+        disk_list.extend([Element(name="A", type="Numeric"), Element(name="B", type="String")])
+
+        sidecar_path = Path(DiskBackedList.sidecar_path_for_jsonl(str(jsonl_path)))
+        stale_sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        stale_sidecar["size"] = stale_sidecar["size"] + 1
+        sidecar_path.write_text(json.dumps(stale_sidecar), encoding="utf-8")
+
+        reopened = DiskBackedList.for_elements_sink(store_items=False, jsonl_path=str(jsonl_path))
+        assert len(reopened) == 2
+        repaired_sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        assert repaired_sidecar["size"] == os.path.getsize(jsonl_path)
+        assert repaired_sidecar["hash_algo"] == DiskBackedList.HASH_ALGO
+        assert isinstance(repaired_sidecar["content_hash"], str)
+
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):
         expected_cube_names = ['testbenchSales']
@@ -588,6 +707,48 @@ class TestComparator:
         assert modified_rule_changes[0].uri == "Cubes('testbenchSales')/Rules('default')"
         assert unified_rule.full_statement == new_cube.get_rule_text()
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
+
+    def test_comparator_skips_disk_backed_compare_when_hash_matches(self, tmp_path, caplog):
+        def disk_elements(path: Path, *elems: Element) -> DiskBackedList:
+            db = DiskBackedList.for_elements_sink(
+                store_items=False,
+                jsonl_path=str(path),
+                truncate=True,
+            )
+            for e in sorted(elems, key=lambda x: (x.name or "")):
+                db.append(e)
+            return db
+
+        h_old = Hierarchy(
+            name="H1",
+            elements=disk_elements(
+                tmp_path / "old_el_hash.jsonl",
+                Element(name="A", type="Numeric"),
+                Element(name="B", type="Numeric"),
+            ),
+            edges=[],
+            subsets=[],
+        )
+        h_new = Hierarchy(
+            name="H1",
+            elements=disk_elements(
+                tmp_path / "new_el_hash.jsonl",
+                Element(name="A", type="Numeric"),
+                Element(name="B", type="Numeric"),
+            ),
+            edges=[],
+            subsets=[],
+        )
+        d_old = Dimension(name="DimA", hierarchies=[h_old], defaultHierarchy=h_old)
+        d_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+        model_old = Model(dimensions=[d_old], cubes=[], processes=[], chores=[])
+        model_new = Model(dimensions=[d_new], cubes=[], processes=[], chores=[])
+
+        caplog.set_level("INFO")
+        changeset = Comparator().compare(model_old, model_new, mode="full")
+
+        assert len(changeset.changes) == 0
+        assert "Skipping Element streaming compare: count+hash match" in caplog.text
 
     def test_comparator_ignores_leaf_hierarchy_elements(self):
         model1 = build_mock_model()
@@ -1248,11 +1409,11 @@ class TestExporter:
         assert result.skip_all is False
 
     def test_to_tm1_edge_name_filter_parent_component_format(self):
-        """Edge rules use Edges('parentName/componentName') format."""
+        """Edge rules use Edges('parentName'/'componentName') format."""
         pf = FilterRules(
             [
-                "Dimensions('Sales')/Hierarchies('Main')/Edges('Total*/*')",
-                "!Dimensions('Sales')/Hierarchies('Main')/Edges('*/Leaf*')",
+                "Dimensions('Sales')/Hierarchies('Main')/Edges('Total*'/'*')",
+                "!Dimensions('Sales')/Hierarchies('Main')/Edges('*'/'Leaf*')",
             ]
         )
         result = pf.to_tm1_edge_name_filter("Sales", "Main")
@@ -1571,6 +1732,31 @@ class TestChangeset:
             assert expected.object_type == actual.object_type
             assert expected.uri == actual.uri
             assert expected.body.__class__ == actual.body.__class__
+
+    def test_export_changeset_preserves_unicode_characters(self, tmp_path):
+        changes = Changeset(changeset_name="unicode_changes")
+        subset = make_subset(
+            name="Subset_Día",
+            expression="{[Dim].[Hier].[café]}",
+            dimension_name="Dim",
+            hierarchy_name="Hier",
+        )
+        changes.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.SUBSET,
+                uri=tm1_uri_from_path("dimensions/Dim.hierarchies/Hier.subsets/Subset_Día.json"),
+                body=subset,
+            )
+        ]
+
+        export_path = tmp_path / "unicode_changes.yml"
+        changes.export(export_path)
+        raw_yaml = export_path.read_text(encoding="utf-8")
+
+        assert "Subset_Día" in raw_yaml
+        assert "café" in raw_yaml
+        assert "\\x" not in raw_yaml
 
 
 class TestChangesetFiltering:

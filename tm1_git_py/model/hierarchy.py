@@ -75,6 +75,9 @@ class _HierarchyStagedWriter:
             self.elements_jsonl_path,
             self.edges_jsonl_path,
             self.subsets_jsonl_path,
+            DiskBackedList.sidecar_path_for_jsonl(self.elements_jsonl_path),
+            DiskBackedList.sidecar_path_for_jsonl(self.edges_jsonl_path),
+            DiskBackedList.sidecar_path_for_jsonl(self.subsets_jsonl_path),
         ):
             if os.path.exists(path):
                 os.remove(path)

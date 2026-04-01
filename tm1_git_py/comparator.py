@@ -147,6 +147,8 @@ def _normalize_filter(
 
 
 class Comparator:
+    DISK_BACKED_PROGRESS_EVERY: int = 100_000
+
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
         Hierarchy: [("subsets", Subset), ("elements", Element), ("edges", Edge)],
@@ -334,6 +336,51 @@ class Comparator:
         old_item: Any = next(old_it, None)
         new_item: Any = next(new_it, None)
         added_c = removed_c = common_c = 0
+        old_total = len(old_db)
+        new_total = len(new_db)
+        old_seen = 0
+        new_seen = 0
+        progress_every = max(1, self.DISK_BACKED_PROGRESS_EVERY)
+        next_log_at = progress_every
+        old_signature = old_db.sidecar_content_signature()
+        new_signature = new_db.sidecar_content_signature()
+
+        if old_signature and new_signature and old_signature == new_signature:
+            logger.info(
+                "Skipping %s streaming compare: count+hash match count=%d hash_algo=%s",
+                object_type_name,
+                old_signature[0],
+                DiskBackedList.HASH_ALGO,
+            )
+            return {}
+
+        logger.info(
+            "Starting %s streaming compare old_size=%d new_size=%d progress_every=%d",
+            object_type_name,
+            old_total,
+            new_total,
+            progress_every,
+        )
+
+        def _log_progress(force: bool = False) -> None:
+            nonlocal next_log_at
+            current = max(old_seen, new_seen)
+            should_log = force or current >= next_log_at
+            if not should_log:
+                return
+            logger.info(
+                "Streaming compare progress for %s old=%d/%d new=%d/%d added=%d removed=%d common=%d",
+                object_type_name,
+                old_seen,
+                old_total,
+                new_seen,
+                new_total,
+                added_c,
+                removed_c,
+                common_c,
+            )
+            while current >= next_log_at:
+                next_log_at += progress_every
 
         while old_item is not None or new_item is not None:
             if old_item is None:
@@ -345,6 +392,8 @@ class Comparator:
                 )
                 added_c += 1
                 new_item = next(new_it, None)
+                new_seen += 1
+                _log_progress()
                 continue
             if new_item is None:
                 if mode == 'full':
@@ -356,6 +405,8 @@ class Comparator:
                     )
                     removed_c += 1
                 old_item = next(old_it, None)
+                old_seen += 1
+                _log_progress()
                 continue
 
             try:
@@ -380,6 +431,8 @@ class Comparator:
                     )
                     removed_c += 1
                 old_item = next(old_it, None)
+                old_seen += 1
+                _log_progress()
             elif key_old > key_new:
                 self._append_change(
                     changeset,
@@ -389,6 +442,8 @@ class Comparator:
                 )
                 added_c += 1
                 new_item = next(new_it, None)
+                new_seen += 1
+                _log_progress()
             else:
                 common_c += 1
                 try:
@@ -411,7 +466,11 @@ class Comparator:
                     raise
                 old_item = next(old_it, None)
                 new_item = next(new_it, None)
+                old_seen += 1
+                new_seen += 1
+                _log_progress()
 
+        _log_progress(force=True)
         logger.debug(
             "Diff counts for %s (streaming): added=%d removed=%d common=%d",
             object_type_name,

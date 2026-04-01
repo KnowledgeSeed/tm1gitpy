@@ -277,7 +277,10 @@ class Changeset:
 
         output_path = Path(file_path).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+        output_path.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
         logger.info("Exported changeset '%s' with %d change(s)", self.changeset_name, len(self.changes))
 
     def to_json(self, changeset_name: Optional[str] = None) -> dict[str, Any]:

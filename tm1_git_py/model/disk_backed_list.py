@@ -1,5 +1,6 @@
 import json
 import os
+import hashlib
 from collections.abc import Iterable, Iterator, MutableSequence
 from typing import Callable, Generic, Optional, TypeVar
 
@@ -8,6 +9,8 @@ T = TypeVar("T")
 
 class DiskBackedList(MutableSequence[T], Generic[T]):
     """Append-optimized list-like collection with optional JSONL backing."""
+    HASH_ALGO = "sha256-chain-v1"
+    EMPTY_CONTENT_HASH = hashlib.sha256(b"").hexdigest()
 
     def __init__(
         self,
@@ -32,9 +35,47 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
             if truncate:
                 with open(self._jsonl_path, "w", encoding="utf-8"):
                     pass
+                self._write_sidecar(count=0, content_hash=self.EMPTY_CONTENT_HASH, hash_algo=self.HASH_ALGO)
             self._count = self._count_lines()
             if self._items is not None and self._count:
                 self._items.extend(list(self._iter_file_items()))
+
+    @staticmethod
+    def sidecar_path_for_jsonl(jsonl_path: str) -> str:
+        return f"{jsonl_path}.meta.json"
+
+    @classmethod
+    def _hash_line(cls, previous_hash: str, line_bytes: bytes) -> str:
+        hasher = hashlib.sha256()
+        hasher.update(bytes.fromhex(previous_hash))
+        hasher.update(line_bytes)
+        return hasher.hexdigest()
+
+    @classmethod
+    def write_count_sidecar_for_jsonl(
+        cls,
+        jsonl_path: str,
+        count: int,
+        *,
+        content_hash: Optional[str] = None,
+        hash_algo: Optional[str] = None,
+    ) -> None:
+        sidecar_path = cls.sidecar_path_for_jsonl(jsonl_path)
+        if not os.path.exists(jsonl_path):
+            return
+        stat = os.stat(jsonl_path)
+        payload = {
+            "count": int(max(0, count)),
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        }
+        if content_hash:
+            payload["content_hash"] = content_hash
+            payload["hash_algo"] = hash_algo or cls.HASH_ALGO
+        tmp_path = f"{sidecar_path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        os.replace(tmp_path, sidecar_path)
 
     def _ensure_items_access(self) -> list[T]:
         if self._items is None:
@@ -46,12 +87,85 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
     def _count_lines(self) -> int:
         if not self._jsonl_path or not os.path.exists(self._jsonl_path):
             return 0
-        count = 0
-        with open(self._jsonl_path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                if line.strip():
-                    count += 1
+        sidecar = self._read_validated_sidecar()
+        if sidecar is not None:
+            return sidecar["count"]
+        count, content_hash = self._scan_count_and_hash_from_file()
+        self._write_sidecar(count=count, content_hash=content_hash, hash_algo=self.HASH_ALGO)
         return count
+
+    def _count_lines_by_scan(self) -> int:
+        count, _ = self._scan_count_and_hash_from_file()
+        return count
+
+    def _scan_count_and_hash_from_file(self) -> tuple[int, str]:
+        if not self._jsonl_path or not os.path.exists(self._jsonl_path):
+            return 0, self.EMPTY_CONTENT_HASH
+        count = 0
+        content_hash = self.EMPTY_CONTENT_HASH
+        with open(self._jsonl_path, "rb") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                count += 1
+                content_hash = self._hash_line(content_hash, line)
+        return count, content_hash
+
+    def _read_validated_sidecar(self) -> Optional[dict]:
+        if not self._jsonl_path:
+            return None
+        sidecar_path = self.sidecar_path_for_jsonl(self._jsonl_path)
+        if not os.path.exists(sidecar_path):
+            return None
+        try:
+            with open(sidecar_path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+            count = int(payload.get("count"))
+            size = int(payload.get("size"))
+            mtime_ns = int(payload.get("mtime_ns"))
+            stat = os.stat(self._jsonl_path)
+            if stat.st_size != size or int(stat.st_mtime_ns) != mtime_ns or count < 0:
+                return None
+            content_hash = payload.get("content_hash")
+            hash_algo = payload.get("hash_algo")
+            if content_hash is not None:
+                if not isinstance(content_hash, str):
+                    return None
+                if not isinstance(hash_algo, str):
+                    return None
+            return {
+                "count": count,
+                "size": size,
+                "mtime_ns": mtime_ns,
+                "content_hash": content_hash,
+                "hash_algo": hash_algo,
+            }
+        except Exception:
+            return None
+
+    def _write_sidecar(self, *, count: int, content_hash: Optional[str], hash_algo: Optional[str]) -> None:
+        if not self._jsonl_path:
+            return
+        self.write_count_sidecar_for_jsonl(
+            self._jsonl_path,
+            count,
+            content_hash=content_hash,
+            hash_algo=hash_algo,
+        )
+
+    @staticmethod
+    def _payload_to_jsonl_line(payload: dict) -> str:
+        return f"{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n"
+
+    def sidecar_content_signature(self) -> Optional[tuple[int, str]]:
+        sidecar = self._read_validated_sidecar()
+        if not sidecar:
+            return None
+        content_hash = sidecar.get("content_hash")
+        hash_algo = sidecar.get("hash_algo")
+        if not content_hash or hash_algo != self.HASH_ALGO:
+            return None
+        return sidecar["count"], content_hash
 
     def _iter_file_payloads(self) -> Iterator[dict]:
         if not self._jsonl_path or not os.path.exists(self._jsonl_path):
@@ -67,13 +181,16 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         for payload in self._iter_file_payloads():
             yield self._from_dict(payload)
 
-    def _append_payloads_to_file(self, payload_batch: list[dict]) -> None:
+    def _append_payloads_to_file(self, payload_batch: list[dict]) -> list[bytes]:
         if not self._jsonl_path:
-            return
+            return []
+        line_bytes_batch: list[bytes] = []
         with open(self._jsonl_path, "a", encoding="utf-8") as fh:
             for payload in payload_batch:
-                fh.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-                fh.write("\n")
+                line = self._payload_to_jsonl_line(payload)
+                fh.write(line)
+                line_bytes_batch.append(line.encode("utf-8"))
+        return line_bytes_batch
 
     def __len__(self) -> int:
         return self._count
@@ -151,12 +268,38 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
             payload_batch.append(self._to_dict(item))
         if not payload_batch:
             return
+        old_count = self._count
+        old_sidecar = self._read_validated_sidecar() if self._jsonl_path else None
         if self._items is not None:
             self._items.extend(object_batch)
-        self._append_payloads_to_file(payload_batch)
+        line_bytes_batch = self._append_payloads_to_file(payload_batch)
         if self._on_append:
             self._on_append(payload_batch)
         self._count += len(payload_batch)
+        if self._jsonl_path:
+            content_hash: Optional[str] = None
+            hash_algo: Optional[str] = None
+            if (
+                old_sidecar
+                and old_sidecar.get("count") == old_count
+                and old_sidecar.get("hash_algo") == self.HASH_ALGO
+                and isinstance(old_sidecar.get("content_hash"), str)
+            ):
+                content_hash = old_sidecar["content_hash"]
+                for line_bytes in line_bytes_batch:
+                    content_hash = self._hash_line(content_hash, line_bytes)
+                hash_algo = self.HASH_ALGO
+            elif old_count == 0:
+                content_hash = self.EMPTY_CONTENT_HASH
+                for line_bytes in line_bytes_batch:
+                    content_hash = self._hash_line(content_hash, line_bytes)
+                hash_algo = self.HASH_ALGO
+            else:
+                recomputed_count, recomputed_hash = self._scan_count_and_hash_from_file()
+                self._count = recomputed_count
+                content_hash = recomputed_hash
+                hash_algo = self.HASH_ALGO
+            self._write_sidecar(count=self._count, content_hash=content_hash, hash_algo=hash_algo)
 
     def append(self, item: T) -> None:  # type: ignore[override]
         self.extend([item])
@@ -176,16 +319,19 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         if self._jsonl_path:
             tmp_path = f"{self._jsonl_path}.tmp"
             kept_count = 0
+            content_hash = self.EMPTY_CONTENT_HASH
             kept_items: Optional[list[T]] = [] if self._items is not None else None
             with open(tmp_path, "w", encoding="utf-8") as out:
                 for payload in payloads:
-                    out.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-                    out.write("\n")
+                    line = self._payload_to_jsonl_line(payload)
+                    out.write(line)
                     kept_count += 1
+                    content_hash = self._hash_line(content_hash, line.encode("utf-8"))
                     if kept_items is not None:
                         kept_items.append(self._from_dict(payload))
             os.replace(tmp_path, self._jsonl_path)
             self._count = kept_count
+            self._write_sidecar(count=self._count, content_hash=content_hash, hash_algo=self.HASH_ALGO)
             if kept_items is not None:
                 self._items = kept_items
             return
@@ -198,19 +344,22 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         if self._jsonl_path:
             tmp_path = f"{self._jsonl_path}.tmp"
             kept_count = 0
+            content_hash = self.EMPTY_CONTENT_HASH
             kept_items: Optional[list[T]] = [] if self._items is not None else None
             with open(tmp_path, "w", encoding="utf-8") as out:
                 for payload in self._iter_file_payloads():
                     item = self._from_dict(payload)
                     if not predicate(item):
                         continue
-                    out.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-                    out.write("\n")
+                    line = self._payload_to_jsonl_line(payload)
+                    out.write(line)
                     kept_count += 1
+                    content_hash = self._hash_line(content_hash, line.encode("utf-8"))
                     if kept_items is not None:
                         kept_items.append(item)
             os.replace(tmp_path, self._jsonl_path)
             self._count = kept_count
+            self._write_sidecar(count=self._count, content_hash=content_hash, hash_algo=self.HASH_ALGO)
             if kept_items is not None:
                 self._items = kept_items
             return

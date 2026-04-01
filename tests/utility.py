@@ -497,7 +497,7 @@ def tm1_uri_from_path(path: str) -> str:
         dim, hier, rest = m.group(1), m.group(2), m.group(3)
         if ":" in rest:
             parent, comp = rest.split(":", 1)
-            return f"Dimensions('{dim}')/Hierarchies('{hier}')/Edges('{parent}/{comp}')"
+            return f"Dimensions('{dim}')/Hierarchies('{hier}')/Edges('{parent}'/'{comp}')"
         return f"Dimensions('{dim}')/Hierarchies('{hier}')/Elements('{rest}')"
     m = re.match(r"^dimensions/([^/]+)\.hierarchies/([^/]+)\.json$", p)
     if m:

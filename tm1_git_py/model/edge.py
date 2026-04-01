@@ -84,7 +84,7 @@ class Edge:
         if dimension_name and hierarchy_name and parent and component:
             return (
                 f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')/"
-                f"Edges('{parent}/{component}')"
+                f"Edges('{parent}'/'{component}')"
             )
         return None
 
@@ -101,10 +101,13 @@ class Edge:
 logger = logging.getLogger(__name__)
 
 def _edge_context_from_uri(uri: str) -> tuple[str, str]:
-    match = re.search(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Edges\('([^']+)'\)$", uri or "")
+    match = re.search(
+        r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Edges\((?:'[^']+'/'[^']+'|'[^']+')\)$",
+        uri or "",
+    )
     if not match:
         raise ValueError(f"Invalid edge uri format: '{uri}'")
-    dimension_name, hierarchy_name, _edge_id = match.groups()
+    dimension_name, hierarchy_name = match.groups()
     return dimension_name, hierarchy_name
 
 

@@ -28,8 +28,13 @@ _ENTITY_RULE_PATTERNS: dict[EntityType, str] = {
     EntityType.HIERARCHY: r"^Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)$",
     EntityType.ELEMENT: r"^Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)/Elements\('([^']*)'\)$",
     EntityType.SUBSET: r"^Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)/Subsets\('([^']*)'\)$",
-    # Edge format: Edges('parentName/componentName') or Edges('*') for all edges
-    EntityType.EDGE: r"^Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)/Edges\('(?:([^'/]*)/([^']*)|([^']*))'\)$",
+    # Edge format (preferred): Edges('parentName'/'componentName')
+    # Backward compatible: Edges('parentName/componentName') or Edges('*')
+    EntityType.EDGE: (
+        r"^Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)/Edges\("
+        r"(?:'([^']*)'/'([^']*)'|'([^'/]*)/([^']*)'|'([^']*)')"
+        r"\)$"
+    ),
     EntityType.CUBE: r"^Cubes\('([^']*)'\)$",
     EntityType.VIEW: r"^Cubes\('([^']*)'\)/Views\('([^']*)'\)$",
     EntityType.RULE: r"^Cubes\('([^']*)'\)/Rules\('([^']*)'\)(?:\|.*)?$",
@@ -337,8 +342,9 @@ class FilterRules:
     ) -> Tm1FilterResult:
         """Build TM1 OData $filter for edges under a specific dimension/hierarchy.
 
-        Edge is represented as {parentName}/{componentName}. Filter rules use this
-        format, e.g. Edges('Total*/*') or Edges('*/Leaf*').
+        Edge is represented as {parentName}/{componentName}. Preferred filter format:
+        Edges('parentNamePattern'/'componentPattern'), e.g.
+        Edges('Total*'/'*') or Edges('*'/'Leaf*').
         """
         chain = [
             (EntityType.DIMENSION, dimension_name),
@@ -486,12 +492,14 @@ def _extract_ancestor_child_patterns_from_match(
         return [(EntityType.DIMENSION, groups[0]), (EntityType.HIERARCHY, groups[1])], groups[2]
     if entity_type == EntityType.SUBSET and len(groups) >= 3:
         return [(EntityType.DIMENSION, groups[0]), (EntityType.HIERARCHY, groups[1])], groups[2]
-    if entity_type == EntityType.EDGE and len(groups) >= 5:
-        # Groups: dim, hier, parent, component, single. parent/component when slash present, else single.
-        if groups[4] is not None:
-            edge_pattern = groups[4]  # Edges('*')
+    if entity_type == EntityType.EDGE and len(groups) >= 7:
+        # Groups: dim, hier, new_parent, new_component, old_parent, old_component, single.
+        if groups[2] is not None and groups[3] is not None:
+            edge_pattern = f"{groups[2]}/{groups[3]}"  # Edges('parent'/'component')
+        elif groups[6] is not None:
+            edge_pattern = groups[6]  # Edges('*')
         else:
-            edge_pattern = f"{groups[2]}/{groups[3]}"  # Edges('parentName/componentName')
+            edge_pattern = f"{groups[4]}/{groups[5]}"  # Edges('parent/component')
         return [(EntityType.DIMENSION, groups[0]), (EntityType.HIERARCHY, groups[1])], edge_pattern
     return None
 

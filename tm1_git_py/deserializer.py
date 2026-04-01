@@ -23,6 +23,7 @@ from tm1_git_py.model.ti import TI
 
 
 logger = logging.getLogger(__name__)
+METADATA_PROGRESS_EVERY = 10_0000
 
 
 def _hierarchy_jsonl_paths(hier_dir_path: str, hier_name: str) -> tuple[str, str, str]:
@@ -44,6 +45,17 @@ def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path:
     in_array = False
     buffer = ""
     written = 0
+    content_hash = DiskBackedList.EMPTY_CONTENT_HASH
+    progress_every = max(1, METADATA_PROGRESS_EVERY)
+    next_log_at = progress_every
+
+    logger.info(
+        "Building %s metadata jsonl from '%s' -> '%s' progress_every=%d",
+        array_key,
+        hierarchy_json_path,
+        jsonl_path,
+        progress_every,
+    )
 
     with open(hierarchy_json_path, "r", encoding="utf-8") as src, open(jsonl_path, "w", encoding="utf-8") as dst:
         for line in src:
@@ -73,6 +85,18 @@ def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path:
                 if not buffer:
                     break
                 if buffer[0] == "]":
+                    DiskBackedList.write_count_sidecar_for_jsonl(
+                        jsonl_path,
+                        written,
+                        content_hash=content_hash,
+                        hash_algo=DiskBackedList.HASH_ALGO,
+                    )
+                    logger.info(
+                        "Completed %s metadata jsonl build path='%s' records=%d",
+                        array_key,
+                        jsonl_path,
+                        written,
+                    )
                     return written
                 if buffer[0] == ",":
                     buffer = buffer[1:]
@@ -81,18 +105,59 @@ def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path:
                     payload, end_pos = decoder.raw_decode(buffer)
                 except json.JSONDecodeError:
                     break
-                dst.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-                dst.write("\n")
+                line = DiskBackedList._payload_to_jsonl_line(payload)
+                dst.write(line)
+                content_hash = DiskBackedList._hash_line(content_hash, line.encode("utf-8"))
                 written += 1
+                if written >= next_log_at:
+                    logger.info(
+                        "Metadata build progress for %s path='%s' records=%d",
+                        array_key,
+                        jsonl_path,
+                        written,
+                    )
+                    while written >= next_log_at:
+                        next_log_at += progress_every
                 buffer = buffer[end_pos:]
-
+    DiskBackedList.write_count_sidecar_for_jsonl(
+        jsonl_path,
+        written,
+        content_hash=content_hash,
+        hash_algo=DiskBackedList.HASH_ALGO,
+    )
+    logger.info(
+        "Completed %s metadata jsonl build path='%s' records=%d",
+        array_key,
+        jsonl_path,
+        written,
+    )
     return written
 
 
 def _initialize_subset_jsonl_from_subset_dir(subset_dir_path: str, subset_jsonl_path: str) -> int:
     written = 0
+    content_hash = DiskBackedList.EMPTY_CONTENT_HASH
+    progress_every = max(1, METADATA_PROGRESS_EVERY)
+    next_log_at = progress_every
+    logger.info(
+        "Building Subsets metadata jsonl from '%s' -> '%s' progress_every=%d",
+        subset_dir_path,
+        subset_jsonl_path,
+        progress_every,
+    )
     with open(subset_jsonl_path, "w", encoding="utf-8") as dst:
         if not os.path.isdir(subset_dir_path):
+            DiskBackedList.write_count_sidecar_for_jsonl(
+                subset_jsonl_path,
+                written,
+                content_hash=content_hash,
+                hash_algo=DiskBackedList.HASH_ALGO,
+            )
+            logger.info(
+                "Completed Subsets metadata jsonl build path='%s' records=%d (subset directory missing)",
+                subset_jsonl_path,
+                written,
+            )
             return written
         for subset_file_name in sorted(os.listdir(subset_dir_path)):
             if not subset_file_name.endswith(".json"):
@@ -104,9 +169,29 @@ def _initialize_subset_jsonl_from_subset_dir(subset_dir_path: str, subset_jsonl_
                 "name": subset_json.get("Name") or subset_json.get("name"),
                 "expression": subset_json.get("Expression") or subset_json.get("expression"),
             }
-            dst.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-            dst.write("\n")
+            line = DiskBackedList._payload_to_jsonl_line(payload)
+            dst.write(line)
+            content_hash = DiskBackedList._hash_line(content_hash, line.encode("utf-8"))
             written += 1
+            if written >= next_log_at:
+                logger.info(
+                    "Metadata build progress for Subsets path='%s' records=%d",
+                    subset_jsonl_path,
+                    written,
+                )
+                while written >= next_log_at:
+                    next_log_at += progress_every
+    DiskBackedList.write_count_sidecar_for_jsonl(
+        subset_jsonl_path,
+        written,
+        content_hash=content_hash,
+        hash_algo=DiskBackedList.HASH_ALGO,
+    )
+    logger.info(
+        "Completed Subsets metadata jsonl build path='%s' records=%d",
+        subset_jsonl_path,
+        written,
+    )
     return written
 
 
@@ -125,6 +210,13 @@ def _ensure_hierarchy_jsonls(
         _stream_array_to_jsonl(hierarchy_json_path, "Edges", edges_jsonl_path)
     if not os.path.exists(subsets_jsonl_path):
         _initialize_subset_jsonl_from_subset_dir(subset_dir_path, subsets_jsonl_path)
+    logger.debug(
+        "Metadata jsonl paths ready for hierarchy '%s': elements='%s' edges='%s' subsets='%s'",
+        hierarchy_name,
+        elements_jsonl_path,
+        edges_jsonl_path,
+        subsets_jsonl_path,
+    )
 
     return elements_jsonl_path, edges_jsonl_path, subsets_jsonl_path
 
