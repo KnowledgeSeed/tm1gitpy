@@ -58,9 +58,9 @@ def _write_json_object_block(
 
 class _HierarchyStagedWriter:
     """JSONL-backed hierarchy writer with streaming finalize."""
-    ELEMENT_SORT_KEY = "element-name-type"
-    EDGE_SORT_KEY = "edge-parent-component-weight"
-    SUBSET_SORT_KEY = "subset-name"
+    ELEMENT_SORT_KEY = "element-name-type-v1"
+    EDGE_SORT_KEY = "edge-parent-component-weight-v1"
+    SUBSET_SORT_KEY = "subset-name-expression-v1"
 
     def __init__(self, model_output_dir: str, dimension_name: str, hierarchy_name: str):
         final_parent_dir = os.path.join(model_output_dir, "dimensions", f"{dimension_name}.hierarchies")
@@ -208,6 +208,12 @@ class _HierarchyStagedWriter:
             fh.write(json.dumps(self._build_subset_links(), ensure_ascii=False))
             fh.write("\n}")
         os.replace(self.inprogress_path, self.final_path)
+        final_mtime_ns = int(os.stat(self.final_path).st_mtime_ns)
+        for jsonl_path in (self.elements_jsonl_path, self.edges_jsonl_path, self.subsets_jsonl_path):
+            DiskBackedList.update_sidecar_metadata_for_jsonl(
+                jsonl_path,
+                source_json_mtime_ns=final_mtime_ns,
+            )
         logger.info(
             "Completed hierarchy finalization hierarchy='%s' target='%s'",
             self.hierarchy_name,

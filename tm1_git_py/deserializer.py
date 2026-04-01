@@ -46,6 +46,13 @@ def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path:
     buffer = ""
     written = 0
     content_hash = DiskBackedList.EMPTY_CONTENT_HASH
+    sort_key: str | None = None
+    prev_sort_tuple = None
+    is_sorted = True
+    if array_key == "Elements":
+        sort_key = "element-name-type-v1"
+    elif array_key == "Edges":
+        sort_key = "edge-parent-component-weight-v1"
     progress_every = max(1, METADATA_PROGRESS_EVERY)
     next_log_at = progress_every
 
@@ -56,6 +63,7 @@ def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path:
         jsonl_path,
         progress_every,
     )
+    source_json_mtime_ns = int(os.stat(hierarchy_json_path).st_mtime_ns) if os.path.exists(hierarchy_json_path) else None
 
     with open(hierarchy_json_path, "r", encoding="utf-8") as src, open(jsonl_path, "w", encoding="utf-8") as dst:
         for line in src:
@@ -90,6 +98,9 @@ def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path:
                         written,
                         content_hash=content_hash,
                         hash_algo=DiskBackedList.HASH_ALGO,
+                        sorted=is_sorted if sort_key else None,
+                        sort_key=sort_key if (sort_key and is_sorted) else None,
+                        source_json_mtime_ns=source_json_mtime_ns,
                     )
                     logger.info(
                         "Completed %s metadata jsonl build path='%s' records=%d",
@@ -109,6 +120,24 @@ def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path:
                 dst.write(line)
                 content_hash = DiskBackedList._hash_line(content_hash, line.encode("utf-8"))
                 written += 1
+                if sort_key:
+                    if array_key == "Elements":
+                        current_sort_tuple = (
+                            str(payload.get("Name") or payload.get("name") or ""),
+                            str(payload.get("Type") or payload.get("type") or ""),
+                        )
+                    else:
+                        weight = payload.get("Weight")
+                        if weight is None:
+                            weight = payload.get("weight")
+                        current_sort_tuple = (
+                            str(payload.get("ParentName") or payload.get("parentName") or payload.get("parent") or ""),
+                            str(payload.get("ComponentName") or payload.get("componentName") or payload.get("name") or ""),
+                            str(weight if weight is not None else ""),
+                        )
+                    if prev_sort_tuple is not None and current_sort_tuple < prev_sort_tuple:
+                        is_sorted = False
+                    prev_sort_tuple = current_sort_tuple
                 if written >= next_log_at:
                     logger.info(
                         "Metadata build progress for %s path='%s' records=%d",
@@ -124,6 +153,9 @@ def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path:
         written,
         content_hash=content_hash,
         hash_algo=DiskBackedList.HASH_ALGO,
+        sorted=is_sorted if sort_key else None,
+        sort_key=sort_key if (sort_key and is_sorted) else None,
+        source_json_mtime_ns=source_json_mtime_ns,
     )
     logger.info(
         "Completed %s metadata jsonl build path='%s' records=%d",
@@ -203,10 +235,29 @@ def _ensure_hierarchy_jsonls(
     subset_dir_path: str,
 ) -> tuple[str, str, str]:
     elements_jsonl_path, edges_jsonl_path, subsets_jsonl_path = _hierarchy_jsonl_paths(hier_dir_path, hierarchy_name)
+    hierarchy_mtime_ns = int(os.stat(hierarchy_json_path).st_mtime_ns) if os.path.exists(hierarchy_json_path) else None
 
-    if not os.path.exists(elements_jsonl_path):
+    def _is_internal_jsonl_up_to_date(jsonl_path: str) -> bool:
+        if not os.path.exists(jsonl_path):
+            return False
+        sidecar_path = DiskBackedList.sidecar_path_for_jsonl(jsonl_path)
+        if not os.path.exists(sidecar_path):
+            return False
+        try:
+            with open(sidecar_path, "r", encoding="utf-8") as fh:
+                sidecar = json.load(fh)
+            sidecar_source_mtime = sidecar.get("source_json_mtime_ns")
+            return (
+                hierarchy_mtime_ns is not None
+                and isinstance(sidecar_source_mtime, int)
+                and int(sidecar_source_mtime) == int(hierarchy_mtime_ns)
+            )
+        except Exception:
+            return False
+
+    if not _is_internal_jsonl_up_to_date(elements_jsonl_path):
         _stream_array_to_jsonl(hierarchy_json_path, "Elements", elements_jsonl_path)
-    if not os.path.exists(edges_jsonl_path):
+    if not _is_internal_jsonl_up_to_date(edges_jsonl_path):
         _stream_array_to_jsonl(hierarchy_json_path, "Edges", edges_jsonl_path)
     if not os.path.exists(subsets_jsonl_path):
         _initialize_subset_jsonl_from_subset_dir(subset_dir_path, subsets_jsonl_path)

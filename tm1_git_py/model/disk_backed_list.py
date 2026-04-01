@@ -64,27 +64,62 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         hash_algo: Optional[str] = None,
         sorted: Optional[bool] = None,
         sort_key: Optional[str] = None,
+        source_json_mtime_ns: Optional[int] = None,
     ) -> None:
         sidecar_path = cls.sidecar_path_for_jsonl(jsonl_path)
         if not os.path.exists(jsonl_path):
             return
         stat = os.stat(jsonl_path)
-        payload = {
+        existing: dict[str, Any] = {}
+        if os.path.exists(sidecar_path):
+            try:
+                with open(sidecar_path, "r", encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                if isinstance(loaded, dict):
+                    existing = loaded
+            except Exception:
+                existing = {}
+
+        payload = dict(existing)
+        payload.update({
             "count": int(max(0, count)),
             "size": int(stat.st_size),
             "mtime_ns": int(stat.st_mtime_ns),
-        }
+        })
         if content_hash:
             payload["content_hash"] = content_hash
             payload["hash_algo"] = hash_algo or cls.HASH_ALGO
         if sorted is not None:
             payload["sorted"] = bool(sorted)
+            if not sorted and sort_key is None:
+                payload.pop("sort_key", None)
         if sort_key is not None:
             payload["sort_key"] = sort_key
+        if source_json_mtime_ns is not None:
+            payload["source_json_mtime_ns"] = int(source_json_mtime_ns)
         tmp_path = f"{sidecar_path}.tmp"
         with open(tmp_path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         os.replace(tmp_path, sidecar_path)
+
+    @classmethod
+    def update_sidecar_metadata_for_jsonl(cls, jsonl_path: str, **metadata: Any) -> bool:
+        sidecar_path = cls.sidecar_path_for_jsonl(jsonl_path)
+        if not os.path.exists(sidecar_path):
+            return False
+        try:
+            with open(sidecar_path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+            if not isinstance(payload, dict):
+                return False
+            payload.update(metadata)
+            tmp_path = f"{sidecar_path}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+            os.replace(tmp_path, sidecar_path)
+            return True
+        except Exception:
+            return False
 
     def _ensure_items_access(self) -> list[T]:
         if self._items is None:
@@ -99,8 +134,17 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         sidecar = self._read_validated_sidecar()
         if sidecar is not None:
             return sidecar["count"]
+        sort_hints = self._read_sidecar_sort_hints()
         count, content_hash = self._scan_count_and_hash_from_file()
-        self._write_sidecar(count=count, content_hash=content_hash, hash_algo=self.HASH_ALGO)
+        hinted_sorted = bool(sort_hints.get("sorted")) if sort_hints else False
+        hinted_sort_key = sort_hints.get("sort_key") if sort_hints else None
+        self._write_sidecar(
+            count=count,
+            content_hash=content_hash,
+            hash_algo=self.HASH_ALGO,
+            sorted=hinted_sorted if hinted_sort_key else None,
+            sort_key=hinted_sort_key if hinted_sorted else None,
+        )
         return count
 
     def _count_lines_by_scan(self) -> int:
@@ -153,6 +197,23 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
             }
         except Exception:
             return None
+
+    def _read_sidecar_sort_hints(self) -> Optional[dict]:
+        if not self._jsonl_path:
+            return None
+        sidecar_path = self.sidecar_path_for_jsonl(self._jsonl_path)
+        if not os.path.exists(sidecar_path):
+            return None
+        try:
+            with open(sidecar_path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+            sort_key = payload.get("sort_key")
+            sorted_flag = bool(payload.get("sorted", False))
+            if sorted_flag and isinstance(sort_key, str) and sort_key:
+                return {"sorted": True, "sort_key": sort_key}
+        except Exception:
+            return None
+        return None
 
     def _write_sidecar(
         self,

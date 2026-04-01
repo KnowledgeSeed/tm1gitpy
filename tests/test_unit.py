@@ -180,6 +180,14 @@ class TestDeserializer:
             "MyHier.subsets/Subset_B.json",
         ]
 
+        final_json_path = tmp_path / "dimensions" / "MyDim.hierarchies" / "MyHier.json"
+        final_mtime_ns = int(final_json_path.stat().st_mtime_ns)
+        internal_hier_dir = tmp_path / ".dimensions" / "MyDim.hierarchies"
+        for name in ("elements", "edges", "subsets"):
+            sidecar_path = internal_hier_dir / f".MyHier.{name}.jsonl.meta.json"
+            sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            assert sidecar.get("source_json_mtime_ns") == final_mtime_ns
+
     def test_hierarchy_staged_writer_overwrites_partial_content(self, tmp_path):
         internal_model_dir = str(tmp_path)
 
@@ -317,6 +325,39 @@ class TestDeserializer:
             assert sidecar["hash_algo"] == DiskBackedList.HASH_ALGO
             assert isinstance(sidecar["content_hash"], str)
             assert len(sidecar["content_hash"]) == 64
+            if jsonl_file in (elements_jsonl, edges_jsonl):
+                assert isinstance(sidecar.get("source_json_mtime_ns"), int)
+            if jsonl_file == elements_jsonl:
+                if sidecar.get("sorted"):
+                    assert sidecar.get("sort_key") == "element-name-type-v1"
+            if jsonl_file == edges_jsonl:
+                if sidecar.get("sorted"):
+                    assert sidecar.get("sort_key") == "edge-parent-component-weight-v1"
+
+    def test_deserialize_rebuilds_internal_jsonl_when_source_hierarchy_is_newer(self, tmp_path):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        deserialize_dimensions(dimension_dir=dimensions_dir)
+
+        hierarchy_json = dimensions_dir / "testbenchVersion.hierarchies" / "testbenchVersion.json"
+        with open(hierarchy_json, "r+", encoding="utf-8") as fh:
+            payload = json.load(fh)
+            payload["Name"] = payload.get("Name", "testbenchVersion")
+            fh.seek(0)
+            fh.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            fh.truncate()
+
+        deserialize_dimensions(dimension_dir=dimensions_dir)
+        sidecar_path = (
+            dimensions_dir.parent
+            / ".dimensions"
+            / "testbenchVersion.hierarchies"
+            / ".testbenchVersion.elements.jsonl.meta.json"
+        )
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        assert sidecar.get("source_json_mtime_ns") == int(hierarchy_json.stat().st_mtime_ns)
 
     def test_disk_backed_list_reuses_count_sidecar(self, tmp_path, monkeypatch):
         jsonl_path = tmp_path / "elements.jsonl"
@@ -1007,6 +1048,58 @@ class TestComparator:
         )
         assert add_names == ["B"]
         assert remove_names == []
+
+    def test_comparator_does_not_resort_when_sidecar_sorted_matches(self, tmp_path, monkeypatch):
+        def disk_elements_sorted(path: Path, *elems: Element) -> DiskBackedList:
+            db = DiskBackedList.for_elements_sink(
+                store_items=False,
+                jsonl_path=str(path),
+                truncate=True,
+            )
+            for e in sorted(elems, key=lambda x: (x.name or "", x.type or "")):
+                db.append(e)
+            db.sort_external_in_place(
+                lambda p: (p.get("Name") or "", p.get("Type") or ""),
+                sort_key="element-name-type-v1",
+            )
+            return db
+
+        old_elements = disk_elements_sorted(
+            tmp_path / "old_sorted_el.jsonl",
+            Element(name="A", type="Numeric"),
+            Element(name="C", type="Numeric"),
+        )
+        new_elements = disk_elements_sorted(
+            tmp_path / "new_sorted_el.jsonl",
+            Element(name="A", type="Numeric"),
+            Element(name="B", type="Numeric"),
+            Element(name="C", type="Numeric"),
+        )
+
+        original_sort = DiskBackedList.sort_external_in_place
+
+        def _fail_if_called(self, key_fn, *, sort_key, chunk_size=100_000, tmp_dir=None):
+            if self.sidecar_is_sorted_for(sort_key):
+                raise AssertionError("compare should not re-sort when sidecar already matches sort key")
+            return original_sort(self, key_fn, sort_key=sort_key, chunk_size=chunk_size, tmp_dir=tmp_dir)
+
+        monkeypatch.setattr(DiskBackedList, "sort_external_in_place", _fail_if_called)
+
+        h_old = Hierarchy(name="H1", elements=old_elements, edges=[], subsets=[])
+        h_new = Hierarchy(name="H1", elements=new_elements, edges=[], subsets=[])
+        d_old = Dimension(name="DimA", hierarchies=[h_old], defaultHierarchy=h_old)
+        d_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+        changeset = Comparator().compare(
+            Model(dimensions=[d_old], cubes=[], processes=[], chores=[]),
+            Model(dimensions=[d_new], cubes=[], processes=[], chores=[]),
+            mode="full",
+        )
+        add_names = sorted(
+            c.body.name
+            for c in changeset.changes
+            if c.change_type == ChangeType.ADD and c.object_type == ObjectType.ELEMENT
+        )
+        assert add_names == ["B"]
 
     def test_comparator_tracks_native_view_changes(self):
         model1 = build_mock_model()
