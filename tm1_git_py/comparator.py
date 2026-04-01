@@ -148,6 +148,7 @@ def _normalize_filter(
 
 class Comparator:
     DISK_BACKED_PROGRESS_EVERY: int = 100_000
+    LOCAL_SORT_CHUNK_SIZE: int = 100_000
 
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
@@ -495,6 +496,8 @@ class Comparator:
             and isinstance(old_list, DiskBackedList)
             and isinstance(new_list, DiskBackedList)
         ):
+            self._ensure_disk_backed_sort_for_compare(old_list, parent_cls)
+            self._ensure_disk_backed_sort_for_compare(new_list, parent_cls)
             return self._compare_disk_backed_sorted_merge(
                 old_list,
                 new_list,
@@ -563,3 +566,41 @@ class Comparator:
                 raise
 
         return matched_pairs
+
+    def _ensure_disk_backed_sort_for_compare(self, db: DiskBackedList, parent_cls: type) -> None:
+        if parent_cls is Element:
+            sort_key_id = "element-name-type-v1"
+
+            def _payload_key(payload: dict[str, Any]) -> tuple[str, str]:
+                return (
+                    str(payload.get("Name") or payload.get("name") or ""),
+                    str(payload.get("Type") or payload.get("type") or ""),
+                )
+        elif parent_cls is Edge:
+            sort_key_id = "edge-parent-component-weight-v1"
+
+            def _payload_key(payload: dict[str, Any]) -> tuple[str, str, str]:
+                weight = payload.get("Weight")
+                if weight is None:
+                    weight = payload.get("weight")
+                return (
+                    str(payload.get("ParentName") or payload.get("parentName") or payload.get("parent") or ""),
+                    str(payload.get("ComponentName") or payload.get("componentName") or payload.get("name") or ""),
+                    str(weight if weight is not None else ""),
+                )
+        else:
+            return
+
+        if db.sidecar_is_sorted_for(sort_key_id):
+            logger.debug("Skipping local sort for %s disk list (already sorted sidecar).", parent_cls.__name__)
+            return
+        logger.info(
+            "Running local external sort for %s disk list (chunk_size=%d).",
+            parent_cls.__name__,
+            self.LOCAL_SORT_CHUNK_SIZE,
+        )
+        db.sort_external_in_place(
+            _payload_key,
+            sort_key=sort_key_id,
+            chunk_size=self.LOCAL_SORT_CHUNK_SIZE,
+        )

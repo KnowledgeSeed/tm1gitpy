@@ -58,6 +58,9 @@ def _write_json_object_block(
 
 class _HierarchyStagedWriter:
     """JSONL-backed hierarchy writer with streaming finalize."""
+    ELEMENT_SORT_KEY = "element-name-type"
+    EDGE_SORT_KEY = "edge-parent-component-weight"
+    SUBSET_SORT_KEY = "subset-name"
 
     def __init__(self, model_output_dir: str, dimension_name: str, hierarchy_name: str):
         final_parent_dir = os.path.join(model_output_dir, "dimensions", f"{dimension_name}.hierarchies")
@@ -118,9 +121,81 @@ class _HierarchyStagedWriter:
             links.append(format_url("{}.subsets/{}.json", self.hierarchy_name, subset_name))
         return links
 
+    def _sort_staged_jsonls(self) -> None:
+        elements_db = DiskBackedList.for_elements_sink(store_items=False, jsonl_path=self.elements_jsonl_path)
+        elements_count = len(elements_db)
+        logger.info(
+            "Finalization sort start hierarchy='%s' collection=Elements count=%d",
+            self.hierarchy_name,
+            elements_count,
+        )
+        elements_sorted = elements_db.sort_external_in_place(
+            lambda payload: (
+                str(payload.get("Name") or payload.get("name") or ""),
+                str(payload.get("Type") or payload.get("type") or ""),
+            ),
+            sort_key=self.ELEMENT_SORT_KEY,
+        )
+        logger.info(
+            "Finalization sort done hierarchy='%s' collection=Elements count=%d sorted=%s",
+            self.hierarchy_name,
+            len(elements_db),
+            elements_sorted,
+        )
+
+        edges_db = DiskBackedList.for_edges_sink(store_items=False, jsonl_path=self.edges_jsonl_path)
+        edges_count = len(edges_db)
+        logger.info(
+            "Finalization sort start hierarchy='%s' collection=Edges count=%d",
+            self.hierarchy_name,
+            edges_count,
+        )
+        edges_sorted = edges_db.sort_external_in_place(
+            lambda payload: (
+                str(payload.get("ParentName") or payload.get("parentName") or payload.get("parent") or ""),
+                str(payload.get("ComponentName") or payload.get("componentName") or payload.get("name") or ""),
+                str(payload.get("Weight") if payload.get("Weight") is not None else payload.get("weight") or ""),
+            ),
+            sort_key=self.EDGE_SORT_KEY,
+        )
+        logger.info(
+            "Finalization sort done hierarchy='%s' collection=Edges count=%d sorted=%s",
+            self.hierarchy_name,
+            len(edges_db),
+            edges_sorted,
+        )
+
+        subsets_db = DiskBackedList.for_subsets_sink(store_items=False, jsonl_path=self.subsets_jsonl_path)
+        subsets_count = len(subsets_db)
+        logger.info(
+            "Finalization sort start hierarchy='%s' collection=Subsets count=%d",
+            self.hierarchy_name,
+            subsets_count,
+        )
+        subsets_sorted = subsets_db.sort_external_in_place(
+            lambda payload: (
+                str(payload.get("name") or payload.get("Name") or ""),
+                str(payload.get("expression") or payload.get("Expression") or ""),
+            ),
+            sort_key=self.SUBSET_SORT_KEY,
+        )
+        logger.info(
+            "Finalization sort done hierarchy='%s' collection=Subsets count=%d sorted=%s",
+            self.hierarchy_name,
+            len(subsets_db),
+            subsets_sorted,
+        )
+
     def finalize(self) -> str:
         if self._finalized:
+            logger.debug("Skipping finalize for hierarchy='%s' (already finalized)", self.hierarchy_name)
             return self.final_path
+        logger.info(
+            "Starting hierarchy finalization hierarchy='%s' target='%s'",
+            self.hierarchy_name,
+            self.final_path,
+        )
+        self._sort_staged_jsonls()
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")
             fh.write('\t"@type": "Hierarchy",\n')
@@ -133,6 +208,11 @@ class _HierarchyStagedWriter:
             fh.write(json.dumps(self._build_subset_links(), ensure_ascii=False))
             fh.write("\n}")
         os.replace(self.inprogress_path, self.final_path)
+        logger.info(
+            "Completed hierarchy finalization hierarchy='%s' target='%s'",
+            self.hierarchy_name,
+            self.final_path,
+        )
         self._finalized = True
         return self.final_path
 

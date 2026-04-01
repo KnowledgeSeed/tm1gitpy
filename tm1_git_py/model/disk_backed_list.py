@@ -1,8 +1,11 @@
 import json
 import os
 import hashlib
+import heapq
+import shutil
+import tempfile
 from collections.abc import Iterable, Iterator, MutableSequence
-from typing import Callable, Generic, Optional, TypeVar
+from typing import Any, Callable, Generic, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -59,6 +62,8 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         *,
         content_hash: Optional[str] = None,
         hash_algo: Optional[str] = None,
+        sorted: Optional[bool] = None,
+        sort_key: Optional[str] = None,
     ) -> None:
         sidecar_path = cls.sidecar_path_for_jsonl(jsonl_path)
         if not os.path.exists(jsonl_path):
@@ -72,6 +77,10 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         if content_hash:
             payload["content_hash"] = content_hash
             payload["hash_algo"] = hash_algo or cls.HASH_ALGO
+        if sorted is not None:
+            payload["sorted"] = bool(sorted)
+        if sort_key is not None:
+            payload["sort_key"] = sort_key
         tmp_path = f"{sidecar_path}.tmp"
         with open(tmp_path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
@@ -139,11 +148,21 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
                 "mtime_ns": mtime_ns,
                 "content_hash": content_hash,
                 "hash_algo": hash_algo,
+                "sorted": bool(payload.get("sorted", False)),
+                "sort_key": payload.get("sort_key"),
             }
         except Exception:
             return None
 
-    def _write_sidecar(self, *, count: int, content_hash: Optional[str], hash_algo: Optional[str]) -> None:
+    def _write_sidecar(
+        self,
+        *,
+        count: int,
+        content_hash: Optional[str],
+        hash_algo: Optional[str],
+        sorted: Optional[bool] = None,
+        sort_key: Optional[str] = None,
+    ) -> None:
         if not self._jsonl_path:
             return
         self.write_count_sidecar_for_jsonl(
@@ -151,6 +170,8 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
             count,
             content_hash=content_hash,
             hash_algo=hash_algo,
+            sorted=sorted,
+            sort_key=sort_key,
         )
 
     @staticmethod
@@ -166,6 +187,12 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         if not content_hash or hash_algo != self.HASH_ALGO:
             return None
         return sidecar["count"], content_hash
+
+    def sidecar_is_sorted_for(self, sort_key: str) -> bool:
+        sidecar = self._read_validated_sidecar()
+        if not sidecar:
+            return False
+        return bool(sidecar.get("sorted")) and sidecar.get("sort_key") == sort_key
 
     def _iter_file_payloads(self) -> Iterator[dict]:
         if not self._jsonl_path or not os.path.exists(self._jsonl_path):
@@ -299,7 +326,13 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
                 self._count = recomputed_count
                 content_hash = recomputed_hash
                 hash_algo = self.HASH_ALGO
-            self._write_sidecar(count=self._count, content_hash=content_hash, hash_algo=hash_algo)
+            self._write_sidecar(
+                count=self._count,
+                content_hash=content_hash,
+                hash_algo=hash_algo,
+                sorted=False,
+                sort_key=None,
+            )
 
     def append(self, item: T) -> None:  # type: ignore[override]
         self.extend([item])
@@ -331,7 +364,13 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
                         kept_items.append(self._from_dict(payload))
             os.replace(tmp_path, self._jsonl_path)
             self._count = kept_count
-            self._write_sidecar(count=self._count, content_hash=content_hash, hash_algo=self.HASH_ALGO)
+            self._write_sidecar(
+                count=self._count,
+                content_hash=content_hash,
+                hash_algo=self.HASH_ALGO,
+                sorted=False,
+                sort_key=None,
+            )
             if kept_items is not None:
                 self._items = kept_items
             return
@@ -359,7 +398,13 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
                         kept_items.append(item)
             os.replace(tmp_path, self._jsonl_path)
             self._count = kept_count
-            self._write_sidecar(count=self._count, content_hash=content_hash, hash_algo=self.HASH_ALGO)
+            self._write_sidecar(
+                count=self._count,
+                content_hash=content_hash,
+                hash_algo=self.HASH_ALGO,
+                sorted=False,
+                sort_key=None,
+            )
             if kept_items is not None:
                 self._items = kept_items
             return
@@ -367,6 +412,114 @@ class DiskBackedList(MutableSequence[T], Generic[T]):
         if self._items is not None:
             self._items = [item for item in self._items if predicate(item)]
             self._count = len(self._items)
+
+    def sort_external_in_place(
+        self,
+        key_fn: Callable[[dict], Any],
+        *,
+        sort_key: str,
+        chunk_size: int = 100_000,
+        tmp_dir: Optional[str] = None,
+    ) -> bool:
+        if not self._jsonl_path or not os.path.exists(self._jsonl_path):
+            return False
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be greater than 0")
+        if self.sidecar_is_sorted_for(sort_key):
+            return False
+
+        run_root = tmp_dir or os.path.dirname(self._jsonl_path)
+        work_dir = tempfile.mkdtemp(prefix=".disk_sort_", dir=run_root)
+        run_files: list[str] = []
+
+        def _spill_chunk(chunk_rows: list[tuple[Any, str]]) -> None:
+            if not chunk_rows:
+                return
+            chunk_rows.sort(key=lambda x: x[0])
+            run_path = os.path.join(work_dir, f"run_{len(run_files):06d}.jsonl")
+            with open(run_path, "w", encoding="utf-8") as run_fh:
+                for _, line in chunk_rows:
+                    run_fh.write(line)
+            run_files.append(run_path)
+            chunk_rows.clear()
+
+        def _read_run_line(run_fh) -> Optional[tuple[Any, str]]:
+            while True:
+                line = run_fh.readline()
+                if not line:
+                    return None
+                raw = line.strip()
+                if not raw:
+                    continue
+                payload = json.loads(raw)
+                canonical_line = self._payload_to_jsonl_line(payload)
+                return key_fn(payload), canonical_line
+
+        try:
+            chunk_rows: list[tuple[Any, str]] = []
+            with open(self._jsonl_path, "r", encoding="utf-8") as src:
+                for line in src:
+                    raw = line.strip()
+                    if not raw:
+                        continue
+                    payload = json.loads(raw)
+                    chunk_rows.append((key_fn(payload), self._payload_to_jsonl_line(payload)))
+                    if len(chunk_rows) >= chunk_size:
+                        _spill_chunk(chunk_rows)
+                _spill_chunk(chunk_rows)
+
+            out_tmp = f"{self._jsonl_path}.sort.tmp"
+            count = 0
+            content_hash = self.EMPTY_CONTENT_HASH
+            with open(out_tmp, "w", encoding="utf-8") as out_fh:
+                if not run_files:
+                    pass
+                elif len(run_files) == 1:
+                    with open(run_files[0], "r", encoding="utf-8") as run_fh:
+                        for line in run_fh:
+                            raw = line.strip()
+                            if not raw:
+                                continue
+                            out_fh.write(line)
+                            count += 1
+                            content_hash = self._hash_line(content_hash, line.encode("utf-8"))
+                else:
+                    heap: list[tuple[Any, int, str]] = []
+                    run_handles = [open(path, "r", encoding="utf-8") for path in run_files]
+                    try:
+                        for idx, run_fh in enumerate(run_handles):
+                            next_row = _read_run_line(run_fh)
+                            if next_row is not None:
+                                row_key, row_line = next_row
+                                heapq.heappush(heap, (row_key, idx, row_line))
+
+                        while heap:
+                            _, idx, row_line = heapq.heappop(heap)
+                            out_fh.write(row_line)
+                            count += 1
+                            content_hash = self._hash_line(content_hash, row_line.encode("utf-8"))
+                            next_row = _read_run_line(run_handles[idx])
+                            if next_row is not None:
+                                row_key, row_line = next_row
+                                heapq.heappush(heap, (row_key, idx, row_line))
+                    finally:
+                        for run_fh in run_handles:
+                            run_fh.close()
+
+            os.replace(out_tmp, self._jsonl_path)
+            self._count = count
+            if self._items is not None:
+                self._items = list(self._iter_file_items())
+            self._write_sidecar(
+                count=count,
+                content_hash=content_hash,
+                hash_algo=self.HASH_ALGO,
+                sorted=True,
+                sort_key=sort_key,
+            )
+            return True
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     @classmethod
     def for_elements_sink(

@@ -27,7 +27,7 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
-            "args": ["filter", "--filter=examples/filter.txt",  "--model_output_folder=export2", "--overwrite"]
+            "args": ["filter", "--filter=examples/filter.txt",  "--model_output_folder=export", "--overwrite"]
         },
          {
             "name": "Export",
@@ -51,8 +51,8 @@
             },
             "args": [
                 "compare",
-                "--source=export",
-                "--target=export2",
+                "--source=export2",
+                "--target=export3",
                 "--output=changeset.yml",
                 "--mode=full",
                 "--format=yaml"

@@ -48,7 +48,6 @@ def _get_edges_page(
     - $skip: Number of edges to skip
     - $top: Maximum number of edges to return
     - $count: Include total count in response when True
-    - $orderby: ParentName, ComponentName, Weight (stable ordering)
 
     :param tm1_conn: TM1Service connection
     :param dimension_name: Name of the dimension
@@ -61,7 +60,7 @@ def _get_edges_page(
     :return: PaginatedEdgesResult with edges, count (if requested), skip, top
     """
     base_url = format_url(
-        "/Dimensions('{}')/Hierarchies('{}')/Edges?$select=ParentName,ComponentName,Weight&$orderby=ParentName,ComponentName,Weight",
+        "/Dimensions('{}')/Hierarchies('{}')/Edges?$select=ParentName,ComponentName,Weight",
         dimension_name,
         hierarchy_name,
     )

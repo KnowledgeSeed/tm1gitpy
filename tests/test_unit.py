@@ -139,6 +139,47 @@ class TestDeserializer:
         ]
         assert payload["Subsets@Code.links"] == ["MyHier.subsets/S1.json"]
 
+    def test_hierarchy_finalize_sorts_staged_jsonls(self, tmp_path):
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            internal_model_dir=str(tmp_path),
+        )
+        hierarchy_obj.elements.extend(
+            [
+                Element(name="C", type="Numeric"),
+                Element(name="A", type="String"),
+                Element(name="A", type="Numeric"),
+            ]
+        )
+        hierarchy_obj.edges.extend(
+            [
+                Edge(parent="Root", component_name="B", weight=2),
+                Edge(parent="Root", component_name="A", weight=1),
+            ]
+        )
+        hierarchy_obj.subsets.extend(
+            [
+                Subset(name="Subset_B", expression="{B}"),
+                Subset(name="Subset_A", expression="{A}"),
+            ]
+        )
+
+        payload = json.loads(hierarchy_obj.as_json())
+        assert [(e["Name"], e["Type"]) for e in payload["Elements"]] == [
+            ("A", "Numeric"),
+            ("A", "String"),
+            ("C", "Numeric"),
+        ]
+        assert [(e["ParentName"], e["ComponentName"], e["Weight"]) for e in payload["Edges"]] == [
+            ("Root", "A", 1),
+            ("Root", "B", 2),
+        ]
+        assert payload["Subsets@Code.links"] == [
+            "MyHier.subsets/Subset_A.json",
+            "MyHier.subsets/Subset_B.json",
+        ]
+
     def test_hierarchy_staged_writer_overwrites_partial_content(self, tmp_path):
         internal_model_dir = str(tmp_path)
 
@@ -369,6 +410,42 @@ class TestDeserializer:
         assert repaired_sidecar["size"] == os.path.getsize(jsonl_path)
         assert repaired_sidecar["hash_algo"] == DiskBackedList.HASH_ALGO
         assert isinstance(repaired_sidecar["content_hash"], str)
+
+    def test_disk_backed_list_external_sort_updates_sidecar(self, tmp_path):
+        jsonl_path = tmp_path / "elements_unsorted.jsonl"
+        disk_list = DiskBackedList.for_elements_sink(
+            store_items=False,
+            jsonl_path=str(jsonl_path),
+            truncate=True,
+        )
+        disk_list.extend(
+            [
+                Element(name="C", type="Numeric"),
+                Element(name="A", type="Numeric"),
+                Element(name="B", type="String"),
+            ]
+        )
+
+        changed = disk_list.sort_external_in_place(
+            lambda p: (p.get("Name", ""), p.get("Type", "")),
+            sort_key="element-name-type-v1",
+            chunk_size=2,
+        )
+        assert changed is True
+
+        sorted_names = [item.name for item in DiskBackedList.for_elements_sink(store_items=False, jsonl_path=str(jsonl_path))]
+        assert sorted_names == ["A", "B", "C"]
+
+        sidecar = json.loads(Path(DiskBackedList.sidecar_path_for_jsonl(str(jsonl_path))).read_text(encoding="utf-8"))
+        assert sidecar["sorted"] is True
+        assert sidecar["sort_key"] == "element-name-type-v1"
+
+        changed_again = disk_list.sort_external_in_place(
+            lambda p: (p.get("Name", ""), p.get("Type", "")),
+            sort_key="element-name-type-v1",
+            chunk_size=2,
+        )
+        assert changed_again is False
 
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):
@@ -883,6 +960,53 @@ class TestComparator:
         assert sorted(change_key(c) for c in cs_disk.changes) == sorted(
             change_key(c) for c in cs_mem.changes
         )
+
+    def test_comparator_sorts_unsorted_disk_backed_lists_before_merge(self, tmp_path):
+        def disk_elements_unsorted(path: Path, *elems: Element) -> DiskBackedList:
+            db = DiskBackedList.for_elements_sink(
+                store_items=False,
+                jsonl_path=str(path),
+                truncate=True,
+            )
+            for e in elems:
+                db.append(e)
+            return db
+
+        old_elements = disk_elements_unsorted(
+            tmp_path / "old_unsorted_el.jsonl",
+            Element(name="C", type="Numeric"),
+            Element(name="A", type="Numeric"),
+        )
+        new_elements = disk_elements_unsorted(
+            tmp_path / "new_unsorted_el.jsonl",
+            Element(name="A", type="Numeric"),
+            Element(name="B", type="Numeric"),
+            Element(name="C", type="Numeric"),
+        )
+
+        h_old = Hierarchy(name="H1", elements=old_elements, edges=[], subsets=[])
+        h_new = Hierarchy(name="H1", elements=new_elements, edges=[], subsets=[])
+        d_old = Dimension(name="DimA", hierarchies=[h_old], defaultHierarchy=h_old)
+        d_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+
+        changeset = Comparator().compare(
+            Model(dimensions=[d_old], cubes=[], processes=[], chores=[]),
+            Model(dimensions=[d_new], cubes=[], processes=[], chores=[]),
+            mode="full",
+        )
+
+        add_names = sorted(
+            c.body.name
+            for c in changeset.changes
+            if c.change_type == ChangeType.ADD and c.object_type == ObjectType.ELEMENT
+        )
+        remove_names = sorted(
+            c.body.name
+            for c in changeset.changes
+            if c.change_type == ChangeType.REMOVE and c.object_type == ObjectType.ELEMENT
+        )
+        assert add_names == ["B"]
+        assert remove_names == []
 
     def test_comparator_tracks_native_view_changes(self):
         model1 = build_mock_model()
