@@ -9,7 +9,9 @@ __pycache__/
 *.pyd
 export
 export2
+export3
 **/tm1servers.yaml
+.tm1gitpy
 
 # Virtual environment
 .env/
@@ -41,4 +43,4 @@ tests/config.ini
 dist/
 
 **/License.xml
-.dimensions
+.internal

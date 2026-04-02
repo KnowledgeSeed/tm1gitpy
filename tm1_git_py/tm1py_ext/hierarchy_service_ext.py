@@ -12,11 +12,17 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class HierarchyIdentity:
+    name: str
+    etag: Optional[str]
+
+
+@dataclass
 class HierarchyNamesResult:
     """Result of an extended hierarchy get_all_names call."""
 
-    names: List[str]
-    """Hierarchy names in this page."""
+    hierarchies: List[HierarchyIdentity]
+    """Hierarchy identities (name + etag) in this page."""
 
     count: Optional[int]
     """Total number of hierarchies (when $count=true). None if not requested."""
@@ -55,16 +61,26 @@ def _get_all_names_page(
     if params:
         url = f"{base_url}&{'&'.join(params)}"
 
-    response = tm1_conn.connection.GET(url, **kwargs)
+    request_kwargs = dict(kwargs)
+    request_headers = dict(request_kwargs.get("headers") or {})
+    request_headers["Accept"] = "application/json;odata.metadata=minimal"
+    request_kwargs["headers"] = request_headers
+
+    response = tm1_conn.connection.GET(url, **request_kwargs)
     data = response.json()
 
-    names = [entry["Name"] for entry in data.get("value", [])]
+    hierarchies: List[HierarchyIdentity] = []
+    for entry in data.get("value", []):
+        name = entry.get("Name")
+        if not name:
+            continue
+        hierarchies.append(HierarchyIdentity(name=name, etag=entry.get("@odata.etag")))
     total_count = data.get("@odata.count")
     if total_count is not None:
         total_count = int(total_count)
 
     return HierarchyNamesResult(
-        names=names,
+        hierarchies=hierarchies,
         count=total_count if count else None,
         skip=skip,
         top=top,
@@ -78,8 +94,8 @@ def get_all_names(
     filter: Optional[str] = None,
     page_size: int = 1000,
     **kwargs,
-) -> List[str]:
-    """Fetch all hierarchy names page-by-page.
+) -> List[HierarchyIdentity]:
+    """Fetch all hierarchy identities (name + etag) page-by-page.
 
     Requests pages with $skip / $top until all rows are fetched. The first page
     requests $count=true to determine total row count and terminate reliably when
@@ -90,10 +106,10 @@ def get_all_names(
     :param filter: Optional OData filter expression (without \"$filter=\" prefix)
     :param page_size: Number of hierarchies per page (default 1000)
     :param kwargs: Passed through to REST GET (e.g. timeout)
-    :return: All fetched hierarchy names
+    :return: All fetched hierarchy identities (name + etag)
     """
 
-    all_names: List[str] = []
+    all_hierarchies: List[HierarchyIdentity] = []
 
     def _fetcher(
         conn: "TM1Service",
@@ -101,7 +117,7 @@ def get_all_names(
         skip: int,
         top: int,
         **kw,
-    ) -> tuple[List[str], Optional[int]]:
+    ) -> tuple[List[HierarchyIdentity], Optional[int]]:
         kw.pop("dimension_name", None)  # use closure value
         result = _get_all_names_page(
             conn,
@@ -112,8 +128,8 @@ def get_all_names(
             count=(skip == 0),
             **kw,
         )
-        all_names.extend(result.names)
-        return (result.names, result.count)
+        all_hierarchies.extend(result.hierarchies)
+        return (result.hierarchies, result.count)
 
     paginate_by_pages(
         tm1_conn,
@@ -124,4 +140,4 @@ def get_all_names(
         entity_type="hierarchy",
         **kwargs,
     )
-    return all_names
+    return all_hierarchies

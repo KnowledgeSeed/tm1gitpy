@@ -22,6 +22,7 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
+from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
@@ -38,6 +39,7 @@ def export(
     tm1_conn: TM1Service,
     filter_rules_list: Optional[list[str]] = None,
     internal_model_dir: Optional[str] = None,
+    internal_model_id: Optional[int] = None,
 ) -> tuple[Model, Dict[str, str]]:
     logger.info("TM1 export started")
     effective_rules = list(filter_rules_list or [])
@@ -52,6 +54,7 @@ def export(
         tm1_conn,
         filter_rules=filter_rules,
         internal_model_dir=internal_model_dir,
+        internal_model_id=internal_model_id,
     )
 
     _cubes, _cube_errors = cubes_to_model(
@@ -318,6 +321,7 @@ def dimensions_to_model(
     tm1_conn: TM1Service,
     filter_rules: FilterRules,
     internal_model_dir: Optional[str] = None,
+    internal_model_id: Optional[int] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
     
     dimensions_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.DIMENSION)
@@ -328,6 +332,7 @@ def dimensions_to_model(
 
     _errors: Dict[str, str] = {}
     _dimensions: Dict[str, Dimension] = {}
+    model_store = ModelStore.for_main_dir() if internal_model_id is not None else None
 
     logger.info("Exporting %d dimensions", len(all_dims))
 
@@ -335,54 +340,111 @@ def dimensions_to_model(
 
         try:
             hierarchies_tm1_filter = filter_rules.to_tm1_hierarchy_name_filter(dim_name)
-            all_hierarchies = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(
+            hierarchy_identities = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(
                 tm1_conn, dim_name,
                 filter=hierarchies_tm1_filter.filter_expr
             )
 
             hierarchy_list: List[Hierarchy] = []
-            for idx, hierarchy_name in enumerate(all_hierarchies):
+            for idx, hierarchy_identity in enumerate(hierarchy_identities):
+                hierarchy_name = hierarchy_identity.name
+                incoming_hierarchy_etag = hierarchy_identity.etag
+                elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
+                subsets_tm1_filter = filter_rules.to_tm1_subset_name_filter(dim_name, hierarchy_name)
+                edges_tm1_filter = filter_rules.to_tm1_edge_name_filter(dim_name, hierarchy_name)
+
+                can_reuse_elements = False
+                can_reuse_subsets = False
+                can_reuse_edges = False
+                if model_store is not None and incoming_hierarchy_etag is not None:
+                    existing_elements_etag, existing_elements_rules = model_store.get_group_reuse_metadata(
+                        model_id=internal_model_id,
+                        dimension_name=dim_name,
+                        hierarchy_name=hierarchy_name,
+                        object_type="elements",
+                    )
+                    existing_subsets_etag, existing_subsets_rules = model_store.get_group_reuse_metadata(
+                        model_id=internal_model_id,
+                        dimension_name=dim_name,
+                        hierarchy_name=hierarchy_name,
+                        object_type="subsets",
+                    )
+                    existing_edges_etag, existing_edges_rules = model_store.get_group_reuse_metadata(
+                        model_id=internal_model_id,
+                        dimension_name=dim_name,
+                        hierarchy_name=hierarchy_name,
+                        object_type="edges",
+                    )
+                    can_reuse_elements = (
+                        existing_elements_etag == incoming_hierarchy_etag
+                        and existing_elements_rules == elements_tm1_filter.applicable_rules
+                    )
+                    can_reuse_subsets = (
+                        existing_subsets_etag == incoming_hierarchy_etag
+                        and existing_subsets_rules == subsets_tm1_filter.applicable_rules
+                    )
+                    can_reuse_edges = (
+                        existing_edges_etag == incoming_hierarchy_etag
+                        and existing_edges_rules == edges_tm1_filter.applicable_rules
+                    )
                 hierarchy = (
                     Hierarchy(
                         name=hierarchy_name,
                         dimension_name=dim_name,
                         internal_model_dir=internal_model_dir,
+                        internal_model_id=internal_model_id,
+                        hierarchy_etag=incoming_hierarchy_etag,
+                        reuse_existing_store=bool(internal_model_dir),
+                        elements_filter_rules=elements_tm1_filter.applicable_rules,
+                        edges_filter_rules=edges_tm1_filter.applicable_rules,
+                        subsets_filter_rules=subsets_tm1_filter.applicable_rules,
                     )
                     if internal_model_dir
                     else Hierarchy(name=hierarchy_name, elements=[], edges=[], subsets=[])
                 )
 
-                elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
-                if not elements_tm1_filter.skip_all:
-                    get_elements(
-                        tm1_conn,
+                if can_reuse_elements and can_reuse_subsets and can_reuse_edges:
+                    logger.info(
+                        "Reusing hierarchy from model store dimension='%s' hierarchy='%s' etag='%s' (elements/subsets/edges unchanged)",
                         dim_name,
                         hierarchy_name,
-                        filter=elements_tm1_filter.filter_expr,
-                        collector=hierarchy.elements,
+                        incoming_hierarchy_etag,
                     )
+                else:
+                    if not can_reuse_elements and hasattr(hierarchy.elements, "replace_with_payloads"):
+                        hierarchy.elements.replace_with_payloads(())
+                    if not can_reuse_elements and not elements_tm1_filter.skip_all:
+                        get_elements(
+                            tm1_conn,
+                            dim_name,
+                            hierarchy_name,
+                            filter=elements_tm1_filter.filter_expr,
+                            collector=hierarchy.elements,
+                        )
 
-                subsets_tm1_filter = filter_rules.to_tm1_subset_name_filter(dim_name, hierarchy_name)
-                if not subsets_tm1_filter.skip_all:
-                    get_subsets(
-                        tm1_conn,
-                        dimension_name=dim_name,
-                        hierarchy_name=hierarchy_name,
-                        filter=subsets_tm1_filter.filter_expr,
-                        collector=hierarchy.subsets,
-                    )
+                    if not can_reuse_subsets and hasattr(hierarchy.subsets, "replace_with_payloads"):
+                        hierarchy.subsets.replace_with_payloads(())
+                    if not can_reuse_subsets and not subsets_tm1_filter.skip_all:
+                        get_subsets(
+                            tm1_conn,
+                            dimension_name=dim_name,
+                            hierarchy_name=hierarchy_name,
+                            filter=subsets_tm1_filter.filter_expr,
+                            collector=hierarchy.subsets,
+                        )
 
-                edges_tm1_filter = filter_rules.to_tm1_edge_name_filter(dim_name, hierarchy_name)
-                if not edges_tm1_filter.skip_all:
-                    get_edges(
-                        tm1_conn,
-                        dim_name,
-                        hierarchy_name,
-                        filter=edges_tm1_filter.filter_expr,
-                        collector=hierarchy.edges,
-                    )
+                    if not can_reuse_edges and hasattr(hierarchy.edges, "replace_with_payloads"):
+                        hierarchy.edges.replace_with_payloads(())
+                    if not can_reuse_edges and not edges_tm1_filter.skip_all:
+                        get_edges(
+                            tm1_conn,
+                            dim_name,
+                            hierarchy_name,
+                            filter=edges_tm1_filter.filter_expr,
+                            collector=hierarchy.edges,
+                        )
 
-                hierarchy.finalize_staged_json()
+                hierarchy.finalize()
                 hierarchy_list.append(hierarchy)
 
             if len(hierarchy_list) > 0:

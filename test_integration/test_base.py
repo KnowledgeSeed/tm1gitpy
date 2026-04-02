@@ -20,7 +20,7 @@ from tm1_git_py.filter import filter
 logger = logging.getLogger(__name__)
 
 # Directories under a serialized model root to compare in integration "no diff" checks.
-# Other paths (e.g. ``.dimensions`` internal artifacts) are ignored.
+# Other paths (e.g. ``.internal`` internal artifacts) are ignored.
 MODEL_COMPARE_SUBDIRS = ("dimensions", "cubes", "chores", "processes")
 
 
@@ -47,7 +47,7 @@ def assert_export_matches_expected_subdirs(actual_root: str, expected_root: str)
     """
     Compare only model payload directories between two serialized model roots.
 
-    Ignores siblings such as ``.dimensions`` or any other top-level entries not listed
+    Ignores siblings such as ``.internal`` or any other top-level entries not listed
     in ``MODEL_COMPARE_SUBDIRS``.
     """
     for sub in MODEL_COMPARE_SUBDIRS:

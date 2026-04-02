@@ -74,7 +74,7 @@ def serialize_dimensions(dimensions: List[Dimension], dim_dir):
                 os.makedirs(subsets_dir, exist_ok=True)
                 with open(subsets_dir + '/' + _subset.name + '.json', 'w', encoding='utf-8') as subset_file:
                     subset_file.write(_subset.as_json())
-            staged_final_path = _hierarchy.finalize_staged_json()
+            staged_final_path = _hierarchy.finalize()
             target_hierarchy_path = os.path.join(hierarchy_dir, _hierarchy.name + '.json')
             if staged_final_path and os.path.abspath(staged_final_path) == os.path.abspath(target_hierarchy_path):
                 continue

@@ -3,7 +3,8 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
+import orjson
 
 from tm1_git_py.model import Edge
 from tm1_git_py.model.chore import Chore
@@ -14,7 +15,8 @@ from tm1_git_py.model.hierarchy import Hierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.model import Model
-from tm1_git_py.model.disk_backed_list import DiskBackedList
+from tm1_git_py.model.model_store import ModelStore
+from tm1_git_py.model.store_backed_sequence import StoreBackedSequence
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
 from tm1_git_py.model.subset import Subset
@@ -23,253 +25,106 @@ from tm1_git_py.model.ti import TI
 
 
 logger = logging.getLogger(__name__)
-METADATA_PROGRESS_EVERY = 10_0000
 
 
-def _hierarchy_jsonl_paths(hier_dir_path: str, hier_name: str) -> tuple[str, str, str]:
-    dimensions_dir = os.path.dirname(hier_dir_path)
-    model_root = os.path.dirname(dimensions_dir)
-    internal_hier_dir_path = os.path.join(model_root, ".dimensions", os.path.basename(hier_dir_path))
-    os.makedirs(internal_hier_dir_path, exist_ok=True)
+def _json_load_text(raw: str) -> Any:
+    return orjson.loads(raw)
+
+
+def _json_load_file(path: str) -> Any:
+    with open(path, "r", encoding="utf-8") as src:
+        return _json_load_text(src.read())
+
+
+def _subset_sort_tuple(payload: dict) -> tuple[str, str]:
     return (
-        os.path.join(internal_hier_dir_path, f".{hier_name}.elements.jsonl"),
-        os.path.join(internal_hier_dir_path, f".{hier_name}.edges.jsonl"),
-        os.path.join(internal_hier_dir_path, f".{hier_name}.subsets.jsonl"),
+        str(payload.get("name") or payload.get("Name") or ""),
+        str(payload.get("expression") or payload.get("Expression") or ""),
     )
 
 
-def _stream_array_to_jsonl(hierarchy_json_path: str, array_key: str, jsonl_path: str) -> int:
-    decoder = json.JSONDecoder()
-    key_token = f'"{array_key}"'
-    waiting_for_open = False
-    in_array = False
-    buffer = ""
-    written = 0
-    content_hash = DiskBackedList.EMPTY_CONTENT_HASH
-    sort_key: str | None = None
-    prev_sort_tuple = None
-    is_sorted = True
-    if array_key == "Elements":
-        sort_key = "element-name-type-v1"
-    elif array_key == "Edges":
-        sort_key = "edge-parent-component-weight-v1"
-    progress_every = max(1, METADATA_PROGRESS_EVERY)
-    next_log_at = progress_every
-
-    logger.info(
-        "Building %s metadata jsonl from '%s' -> '%s' progress_every=%d",
-        array_key,
-        hierarchy_json_path,
-        jsonl_path,
-        progress_every,
-    )
-    source_json_mtime_ns = int(os.stat(hierarchy_json_path).st_mtime_ns) if os.path.exists(hierarchy_json_path) else None
-
-    with open(hierarchy_json_path, "r", encoding="utf-8") as src, open(jsonl_path, "w", encoding="utf-8") as dst:
-        for line in src:
-            if not in_array:
-                if waiting_for_open:
-                    open_idx = line.find("[")
-                    if open_idx == -1:
-                        continue
-                    in_array = True
-                    waiting_for_open = False
-                    buffer += line[open_idx + 1:]
-                else:
-                    key_idx = line.find(key_token)
-                    if key_idx == -1:
-                        continue
-                    open_idx = line.find("[", key_idx)
-                    if open_idx == -1:
-                        waiting_for_open = True
-                        continue
-                    in_array = True
-                    buffer += line[open_idx + 1:]
-            else:
-                buffer += line
-
-            while in_array:
-                buffer = buffer.lstrip()
-                if not buffer:
-                    break
-                if buffer[0] == "]":
-                    DiskBackedList.write_count_sidecar_for_jsonl(
-                        jsonl_path,
-                        written,
-                        content_hash=content_hash,
-                        hash_algo=DiskBackedList.HASH_ALGO,
-                        sorted=is_sorted if sort_key else None,
-                        sort_key=sort_key if (sort_key and is_sorted) else None,
-                        source_json_mtime_ns=source_json_mtime_ns,
-                    )
-                    logger.info(
-                        "Completed %s metadata jsonl build path='%s' records=%d",
-                        array_key,
-                        jsonl_path,
-                        written,
-                    )
-                    return written
-                if buffer[0] == ",":
-                    buffer = buffer[1:]
-                    continue
-                try:
-                    payload, end_pos = decoder.raw_decode(buffer)
-                except json.JSONDecodeError:
-                    break
-                line = DiskBackedList._payload_to_jsonl_line(payload)
-                dst.write(line)
-                content_hash = DiskBackedList._hash_line(content_hash, line.encode("utf-8"))
-                written += 1
-                if sort_key:
-                    if array_key == "Elements":
-                        current_sort_tuple = (
-                            str(payload.get("Name") or payload.get("name") or ""),
-                            str(payload.get("Type") or payload.get("type") or ""),
-                        )
-                    else:
-                        weight = payload.get("Weight")
-                        if weight is None:
-                            weight = payload.get("weight")
-                        current_sort_tuple = (
-                            str(payload.get("ParentName") or payload.get("parentName") or payload.get("parent") or ""),
-                            str(payload.get("ComponentName") or payload.get("componentName") or payload.get("name") or ""),
-                            str(weight if weight is not None else ""),
-                        )
-                    if prev_sort_tuple is not None and current_sort_tuple < prev_sort_tuple:
-                        is_sorted = False
-                    prev_sort_tuple = current_sort_tuple
-                if written >= next_log_at:
-                    logger.info(
-                        "Metadata build progress for %s path='%s' records=%d",
-                        array_key,
-                        jsonl_path,
-                        written,
-                    )
-                    while written >= next_log_at:
-                        next_log_at += progress_every
-                buffer = buffer[end_pos:]
-    DiskBackedList.write_count_sidecar_for_jsonl(
-        jsonl_path,
-        written,
-        content_hash=content_hash,
-        hash_algo=DiskBackedList.HASH_ALGO,
-        sorted=is_sorted if sort_key else None,
-        sort_key=sort_key if (sort_key and is_sorted) else None,
-        source_json_mtime_ns=source_json_mtime_ns,
-    )
-    logger.info(
-        "Completed %s metadata jsonl build path='%s' records=%d",
-        array_key,
-        jsonl_path,
-        written,
-    )
-    return written
+def _subset_source_mtime_ns(subset_dir_path: str) -> int:
+    if not os.path.isdir(subset_dir_path):
+        return 0
+    latest = 0
+    for subset_file_name in os.listdir(subset_dir_path):
+        if not subset_file_name.endswith(".json"):
+            continue
+        subset_path = os.path.join(subset_dir_path, subset_file_name)
+        try:
+            mtime_ns = int(os.stat(subset_path).st_mtime_ns)
+        except OSError:
+            continue
+        if mtime_ns > latest:
+            latest = mtime_ns
+    return latest
 
 
-def _initialize_subset_jsonl_from_subset_dir(subset_dir_path: str, subset_jsonl_path: str) -> int:
-    written = 0
-    content_hash = DiskBackedList.EMPTY_CONTENT_HASH
-    progress_every = max(1, METADATA_PROGRESS_EVERY)
-    next_log_at = progress_every
-    logger.info(
-        "Building Subsets metadata jsonl from '%s' -> '%s' progress_every=%d",
-        subset_dir_path,
-        subset_jsonl_path,
-        progress_every,
-    )
-    with open(subset_jsonl_path, "w", encoding="utf-8") as dst:
-        if not os.path.isdir(subset_dir_path):
-            DiskBackedList.write_count_sidecar_for_jsonl(
-                subset_jsonl_path,
-                written,
-                content_hash=content_hash,
-                hash_algo=DiskBackedList.HASH_ALGO,
-            )
-            logger.info(
-                "Completed Subsets metadata jsonl build path='%s' records=%d (subset directory missing)",
-                subset_jsonl_path,
-                written,
-            )
-            return written
-        for subset_file_name in sorted(os.listdir(subset_dir_path)):
-            if not subset_file_name.endswith(".json"):
-                continue
-            subset_path = os.path.join(subset_dir_path, subset_file_name)
-            with open(subset_path, "r", encoding="utf-8") as src:
-                subset_json = json.load(src)
-            payload = {
-                "name": subset_json.get("Name") or subset_json.get("name"),
-                "expression": subset_json.get("Expression") or subset_json.get("expression"),
-            }
-            line = DiskBackedList._payload_to_jsonl_line(payload)
-            dst.write(line)
-            content_hash = DiskBackedList._hash_line(content_hash, line.encode("utf-8"))
-            written += 1
-            if written >= next_log_at:
-                logger.info(
-                    "Metadata build progress for Subsets path='%s' records=%d",
-                    subset_jsonl_path,
-                    written,
-                )
-                while written >= next_log_at:
-                    next_log_at += progress_every
-    DiskBackedList.write_count_sidecar_for_jsonl(
-        subset_jsonl_path,
-        written,
-        content_hash=content_hash,
-        hash_algo=DiskBackedList.HASH_ALGO,
-    )
-    logger.info(
-        "Completed Subsets metadata jsonl build path='%s' records=%d",
-        subset_jsonl_path,
-        written,
-    )
-    return written
-
-
-def _ensure_hierarchy_jsonls(
+def _ensure_hierarchy_store_groups(
     *,
     hierarchy_json_path: str,
-    hier_dir_path: str,
+    model_root: str,
+    dimension_name: str,
     hierarchy_name: str,
     subset_dir_path: str,
-) -> tuple[str, str, str]:
-    elements_jsonl_path, edges_jsonl_path, subsets_jsonl_path = _hierarchy_jsonl_paths(hier_dir_path, hierarchy_name)
-    hierarchy_mtime_ns = int(os.stat(hierarchy_json_path).st_mtime_ns) if os.path.exists(hierarchy_json_path) else None
-
-    def _is_internal_jsonl_up_to_date(jsonl_path: str) -> bool:
-        if not os.path.exists(jsonl_path):
-            return False
-        sidecar_path = DiskBackedList.sidecar_path_for_jsonl(jsonl_path)
-        if not os.path.exists(sidecar_path):
-            return False
-        try:
-            with open(sidecar_path, "r", encoding="utf-8") as fh:
-                sidecar = json.load(fh)
-            sidecar_source_mtime = sidecar.get("source_json_mtime_ns")
-            return (
-                hierarchy_mtime_ns is not None
-                and isinstance(sidecar_source_mtime, int)
-                and int(sidecar_source_mtime) == int(hierarchy_mtime_ns)
-            )
-        except Exception:
-            return False
-
-    if not _is_internal_jsonl_up_to_date(elements_jsonl_path):
-        _stream_array_to_jsonl(hierarchy_json_path, "Elements", elements_jsonl_path)
-    if not _is_internal_jsonl_up_to_date(edges_jsonl_path):
-        _stream_array_to_jsonl(hierarchy_json_path, "Edges", edges_jsonl_path)
-    if not os.path.exists(subsets_jsonl_path):
-        _initialize_subset_jsonl_from_subset_dir(subset_dir_path, subsets_jsonl_path)
-    logger.debug(
-        "Metadata jsonl paths ready for hierarchy '%s': elements='%s' edges='%s' subsets='%s'",
-        hierarchy_name,
-        elements_jsonl_path,
-        edges_jsonl_path,
-        subsets_jsonl_path,
+) -> tuple[StoreBackedSequence[Element], StoreBackedSequence[Edge], StoreBackedSequence[Subset]]:
+    store = ModelStore.for_main_dir()
+    model_id = store.resolve_model_for_deserialize(model_root)
+    elements = StoreBackedSequence.for_elements_sink(
+        store=store,
+        model_id=model_id,
+        dimension_name=dimension_name,
+        hierarchy_name=hierarchy_name,
     )
+    edges = StoreBackedSequence.for_edges_sink(
+        store=store,
+        model_id=model_id,
+        dimension_name=dimension_name,
+        hierarchy_name=hierarchy_name,
+    )
+    subsets = StoreBackedSequence.for_subsets_sink(
+        store=store,
+        model_id=model_id,
+        dimension_name=dimension_name,
+        hierarchy_name=hierarchy_name,
+    )
+    source_mtime_ns = int(os.stat(hierarchy_json_path).st_mtime_ns) if os.path.exists(hierarchy_json_path) else None
+    needs_elements_rebuild = source_mtime_ns is None or elements.source_json_mtime_ns() != source_mtime_ns
+    needs_edges_rebuild = source_mtime_ns is None or edges.source_json_mtime_ns() != source_mtime_ns
+    subset_source_mtime_ns = _subset_source_mtime_ns(subset_dir_path)
+    needs_subsets_rebuild = subsets.source_json_mtime_ns() != subset_source_mtime_ns
 
-    return elements_jsonl_path, edges_jsonl_path, subsets_jsonl_path
+    if needs_elements_rebuild or needs_edges_rebuild:
+        hierarchy_json = _json_load_file(hierarchy_json_path)
+        if needs_elements_rebuild:
+            element_payloads = hierarchy_json.get("Elements") or []
+            elements.replace_with_payloads(element_payloads)
+            if source_mtime_ns is not None:
+                elements.set_source_json_mtime_ns(source_mtime_ns)
+        if needs_edges_rebuild:
+            edge_payloads = hierarchy_json.get("Edges") or []
+            edges.replace_with_payloads(edge_payloads)
+            if source_mtime_ns is not None:
+                edges.set_source_json_mtime_ns(source_mtime_ns)
+
+    if needs_subsets_rebuild:
+        subset_payloads = []
+        if os.path.isdir(subset_dir_path):
+            for subset_file_name in sorted(os.listdir(subset_dir_path)):
+                if not subset_file_name.endswith(".json"):
+                    continue
+                subset_path = os.path.join(subset_dir_path, subset_file_name)
+                subset_json = _json_load_file(subset_path)
+                subset_payloads.append(
+                    {
+                        "name": subset_json.get("Name") or subset_json.get("name"),
+                        "expression": subset_json.get("Expression") or subset_json.get("expression"),
+                    }
+                )
+        subset_payloads.sort(key=lambda p: _subset_sort_tuple(p))
+        subsets.replace_with_payloads(subset_payloads)
+        subsets.set_source_json_mtime_ns(subset_source_mtime_ns)
+    return elements, edges, subsets
 
 
 
@@ -332,8 +187,7 @@ def deserialize_chores(chore_dir) -> tuple[Dict[str, Chore], Dict[str, str]]:
         if not file_name.endswith('.json'): continue
         file_name_base, _, _ = file_name.rpartition('.')
         try:
-            with open(os.path.join(chore_dir, file_name), 'r', encoding='utf-8') as file:
-                chore_json = json.load(file)
+            chore_json = _json_load_file(os.path.join(chore_dir, file_name))
 
             tasks = []
             for task_data in chore_json.get('Tasks', []):
@@ -378,7 +232,7 @@ def deserialize_processes(process_dir) -> tuple[Dict[str, Process], Dict[str, st
         with open(os.path.join(process_dir, file_name), 'r', encoding='utf-8') as file:
             try:
                 data = file.read()
-                process_json = json.loads(data)
+                process_json = _json_load_text(data)
             except Exception as e:
                 process_errors[process_link] = e.__repr__()
                 logger.warning("Failed to parse process json '%s': %s", file_name, e, exc_info=True)
@@ -441,7 +295,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
         with open(os.path.join(dimension_dir, file_name), 'r', encoding='utf-8') as file:
             try:
                 data = file.read()
-                dim_json = json.loads(data)
+                dim_json = _json_load_text(data)
             except Exception as e:
                 dimension_errors[dim_link] = e.__repr__()
                 logger.warning("Failed to parse dimension json '%s': %s", file_name, e, exc_info=True)
@@ -490,24 +344,13 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
             try:
                 subset_dir_name = hier_file_name_base + '.subsets'
                 subset_dir_path = os.path.join(hier_dir_path, subset_dir_name)
-                elements_jsonl_path, edges_jsonl_path, subsets_jsonl_path = _ensure_hierarchy_jsonls(
+                model_root = os.path.dirname(dimension_dir)
+                elements, edges, subsets = _ensure_hierarchy_store_groups(
                     hierarchy_json_path=hierarchy_json_path,
-                    hier_dir_path=hier_dir_path,
+                    model_root=model_root,
+                    dimension_name=file_name_base,
                     hierarchy_name=hier_file_name_base,
                     subset_dir_path=subset_dir_path,
-                )
-
-                elements = DiskBackedList.for_elements_sink(
-                    store_items=False,
-                    jsonl_path=elements_jsonl_path,
-                )
-                edges = DiskBackedList.for_edges_sink(
-                    store_items=False,
-                    jsonl_path=edges_jsonl_path,
-                )
-                subsets = DiskBackedList.for_subsets_sink(
-                    store_items=False,
-                    jsonl_path=subsets_jsonl_path,
                 )
 
                 _hierarchy = Hierarchy(
@@ -563,7 +406,7 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
         cube_json = None
 
         with open(os.path.join(cubes_dir, file_name), 'r', encoding='utf-8') as file:
-            cube_json = json.load(file)
+            cube_json = _json_load_text(file.read())
             rules_list = []
             rule_file_path = os.path.join(cubes_dir, file_name_base + '.rules')
             if os.path.exists(rule_file_path):
@@ -594,7 +437,7 @@ def deserialize_cubes(cubes_dir, _dimensions: Dict[str, Dimension]) -> tuple[Dic
                     with open(os.path.join(view_dir_path, view_file_name), 'r', encoding='utf-8') as file:
                         try:
                             data = file.read()
-                            view = json.loads(data)
+                            view = _json_load_text(data)
                         except Exception as e:
                             cube_errors[file_name_base + '.views/' + view_file_name] = e.__repr__()
                             logger.warning(

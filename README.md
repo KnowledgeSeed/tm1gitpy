@@ -103,11 +103,17 @@ Chores('Daily*')/Tasks('LoadData')
   - `*a` -> ends with `a`
   - `a` -> exact match
 - Rules are evaluated per entity level (dimensions, hierarchies, elements, subsets, cubes, views, processes, chores, tasks).
-- Hierarchy traversal is parent-first: if a parent is excluded, descendants are not evaluated (`parent_blocks_child`).
+- Hierarchy traversal is parent-first, with force-include branch retention:
+  - normally, excluded parent excludes descendants
+  - if a descendant is force-included (`!`), its required parent chain is retained
+    (e.g. force-include element keeps matching hierarchy and dimension references)
 - At each level, filter expression is composed as:
   - base excludes: `not (<exclude_1>) and not (<exclude_2>) and ...`
   - plus force includes: `or (<include_group>)`
   - effective shape: `(not (<exclude_1>) and not (<exclude_2>) and ...) or (<include_group>)`
+- TM1 export filters inherit force-includes from descendants:
+  - a force-included hierarchy contributes include criteria to the dimension-level TM1 filter
+  - a force-included element/subset/edge contributes include criteria to the hierarchy-level TM1 filter
 
 #### Supported Rule Patterns
 
@@ -163,7 +169,7 @@ For paginated element/subset fetching (e.g., large hierarchies), use `tm1_git_py
 Build a standalone executable using Nuitka:
 
 ```bash
-python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-execution --mode=onefile --include-module=ijson.backends.yajl2_c --output-filename=tm1gitpy
+python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-execution --mode=onefile --output-filename=tm1gitpy
 ```
 
 ## Development

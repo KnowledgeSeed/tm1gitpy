@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterator, List, Mapping, Optional
 
 from tm1_git_py.changeset import Change, Changeset, ChangeType, normalize_reference_path
 from tm1_git_py.model import Model
-from tm1_git_py.model.disk_backed_list import DiskBackedList
+from tm1_git_py.model.store_backed_sequence import StoreBackedSequence
 
 class EntityType(str, Enum):
     DIMENSION = "dimension"
@@ -53,6 +53,9 @@ class Tm1FilterResult:
 
     skip_all: bool
     """If True, the filter would exclude everything; exporter can skip TM1 calls."""
+
+    applicable_rules: List[str]
+    """Normalized filter rules that were applicable to this TM1 filter scope."""
 
 
 def _chain_matches(
@@ -138,6 +141,7 @@ class FilterRules:
         context = _parse_object_selector(object_url)
         if not context:
             return False
+        force_include_branch = self._is_force_include_related_to_target(context)
 
         chain = context["ancestor_chain"]
         for idx, (entity_type, name) in enumerate(chain):
@@ -147,14 +151,19 @@ class FilterRules:
                 identifier=name,
                 area=None,
             ):
+                if force_include_branch:
+                    continue
                 return True
 
-        return self._is_excluded_at_level(
+        is_excluded = self._is_excluded_at_level(
             entity_type=context["entity_type"],
             ancestor_chain=chain,
             identifier=context["identifier"],
             area=context["area"],
         )
+        if is_excluded and force_include_branch:
+            return False
+        return is_excluded
 
     def get_winning_rule(self, object_url: str) -> dict[str, str] | None:
         """Return the winning rule for the given object URL, or None."""
@@ -214,6 +223,101 @@ class FilterRules:
                 matched_rules.append(rule)
         return matched_rules
 
+    def _parsed_rules_for_entity(self, entity_type: EntityType) -> List[dict[str, Any]]:
+        matched: List[dict[str, Any]] = []
+        for parsed_rule in self._parsed_rules:
+            match = _match_entity_pattern(entity_type, parsed_rule["pattern"])
+            if match:
+                matched.append(parsed_rule)
+        return matched
+
+    def _force_include_patterns_for_target(
+        self,
+        *,
+        target_entity_type: EntityType,
+        ancestor_chain: list[tuple[EntityType, str]],
+    ) -> tuple[list[str], list[str]]:
+        """Extract target-level identifier patterns from descendant include rules.
+
+        Example:
+        - target=Dimension, chain=[] from
+          !Dimensions('Sales')/Hierarchies('Main')/Elements('Leaf*')
+          => includes Dimension pattern 'Sales'
+        - target=Hierarchy, chain=[(Dimension,'Sales')] from
+          !Dimensions('Sales')/Hierarchies('Main')/Elements('Leaf*')
+          => includes Hierarchy pattern 'Main'
+        """
+        identifier_patterns: list[str] = []
+        applicable_rules: list[str] = []
+        for parsed_rule in self._parsed_rules:
+            if parsed_rule.get("op") != "!":
+                continue
+            rule_path = list(parsed_rule.get("ancestor_chain", [])) + [
+                (parsed_rule["entity_type"], parsed_rule["identifier_pattern"])
+            ]
+            if len(rule_path) <= len(ancestor_chain):
+                continue
+
+            prefix_matches = True
+            for (ancestor_type, ancestor_name), (rule_type, rule_pattern) in zip(
+                ancestor_chain, rule_path
+            ):
+                if ancestor_type != rule_type:
+                    prefix_matches = False
+                    break
+                if not _identifier_pattern_matches(ancestor_name, rule_pattern):
+                    prefix_matches = False
+                    break
+            if not prefix_matches:
+                continue
+
+            target_node = rule_path[len(ancestor_chain)]
+            if target_node[0] != target_entity_type:
+                continue
+            target_pattern = str(target_node[1])
+            if target_pattern not in identifier_patterns:
+                identifier_patterns.append(target_pattern)
+            raw_rule = str(parsed_rule["raw_rule"])
+            if raw_rule not in applicable_rules:
+                applicable_rules.append(raw_rule)
+        return identifier_patterns, applicable_rules
+
+    @staticmethod
+    def _context_path(context: dict[str, Any]) -> list[tuple[EntityType, str]]:
+        return list(context.get("ancestor_chain", [])) + [
+            (context["entity_type"], context["identifier"])
+        ]
+
+    @staticmethod
+    def _concrete_matches_rule_prefix(
+        concrete_path: list[tuple[EntityType, str]],
+        rule_path: list[tuple[EntityType, str]],
+    ) -> bool:
+        if len(concrete_path) > len(rule_path):
+            return False
+        for (concrete_type, concrete_name), (rule_type, rule_pattern) in zip(
+            concrete_path, rule_path
+        ):
+            if concrete_type != rule_type:
+                return False
+            if not _identifier_pattern_matches(concrete_name, rule_pattern):
+                return False
+        return True
+
+    def _is_force_include_related_to_target(self, target_context: dict[str, Any]) -> bool:
+        target_path = self._context_path(target_context)
+        for rule in self._parsed_rules:
+            if rule.get("op") != "!":
+                continue
+            rule_path = list(rule.get("ancestor_chain", [])) + [
+                (rule["entity_type"], rule["identifier_pattern"])
+            ]
+            if self._concrete_matches_rule_prefix(target_path, rule_path):
+                return True
+            if self._concrete_matches_rule_prefix(rule_path, target_path):
+                return True
+        return False
+
     def to_tm1_name_filter(
         self, entity_type: EntityType, name_property: str = "Name"
     ) -> Tm1FilterResult:
@@ -222,8 +326,11 @@ class FilterRules:
         exclude_predicates: List[str] = []
         exclude_has_match_all = False
 
-        for rule in self.get_rules_for_entity(entity_type):
-            is_include, pattern = _split_rule_prefix(rule)
+        applicable_rules: List[str] = []
+        for parsed_rule in self._parsed_rules_for_entity(entity_type):
+            rule = str(parsed_rule["raw_rule"])
+            is_include = parsed_rule["op"] == "!"
+            pattern = str(parsed_rule["pattern"])
             match = _match_entity_pattern(entity_type, pattern)
             if not match:
                 continue
@@ -241,11 +348,29 @@ class FilterRules:
                 exclude_predicates.append(predicate)
                 if _is_match_all_identifier(identifier_pattern):
                     exclude_has_match_all = True
+            if rule not in applicable_rules:
+                applicable_rules.append(rule)
+
+        inherited_patterns, inherited_rules = self._force_include_patterns_for_target(
+            target_entity_type=entity_type,
+            ancestor_chain=[],
+        )
+        for identifier_pattern in inherited_patterns:
+            predicate = _identifier_pattern_to_tm1_filter(
+                identifier_pattern=identifier_pattern,
+                name_property=name_property,
+            )
+            if predicate and predicate not in include_predicates:
+                include_predicates.append(predicate)
+        for inherited_rule in inherited_rules:
+            if inherited_rule not in applicable_rules:
+                applicable_rules.append(inherited_rule)
 
         return _compose_tm1_filter_result(
             include_predicates=include_predicates,
             exclude_predicates=exclude_predicates,
             exclude_has_match_all=exclude_has_match_all,
+            applicable_rules=applicable_rules,
         )
 
     def to_tm1_child_name_filter(
@@ -275,8 +400,11 @@ class FilterRules:
         exclude_predicates: List[str] = []
         exclude_has_match_all = False
 
-        for rule in self.get_rules_for_entity(child_entity_type):
-            is_include, pattern = _split_rule_prefix(rule)
+        applicable_rules: List[str] = []
+        for parsed_rule in self._parsed_rules_for_entity(child_entity_type):
+            rule = str(parsed_rule["raw_rule"])
+            is_include = parsed_rule["op"] == "!"
+            pattern = str(parsed_rule["pattern"])
             match = _match_entity_pattern(child_entity_type, pattern)
             extracted = _extract_ancestor_child_patterns_from_match(child_entity_type, match) if match else None
             if not extracted or len(extracted[0]) != len(chain) or not _chain_matches(extracted[0], chain):
@@ -296,11 +424,29 @@ class FilterRules:
                 exclude_predicates.append(predicate)
                 if _is_match_all_identifier(child_identifier_pattern):
                     exclude_has_match_all = True
+            if rule not in applicable_rules:
+                applicable_rules.append(rule)
+
+        inherited_patterns, inherited_rules = self._force_include_patterns_for_target(
+            target_entity_type=child_entity_type,
+            ancestor_chain=chain,
+        )
+        for identifier_pattern in inherited_patterns:
+            predicate = _identifier_pattern_to_tm1_filter(
+                identifier_pattern=identifier_pattern,
+                name_property=name_property,
+            )
+            if predicate and predicate not in include_predicates:
+                include_predicates.append(predicate)
+        for inherited_rule in inherited_rules:
+            if inherited_rule not in applicable_rules:
+                applicable_rules.append(inherited_rule)
 
         return _compose_tm1_filter_result(
             include_predicates=include_predicates,
             exclude_predicates=exclude_predicates,
             exclude_has_match_all=exclude_has_match_all,
+            applicable_rules=applicable_rules,
         )
 
     def to_tm1_hierarchy_name_filter(self, dimension_name: str, name_property: str = "Name") -> Tm1FilterResult:
@@ -354,8 +500,11 @@ class FilterRules:
         exclude_predicates: List[str] = []
         exclude_has_match_all = False
 
-        for rule in self.get_rules_for_entity(EntityType.EDGE):
-            is_include, pattern = _split_rule_prefix(rule)
+        applicable_rules: List[str] = []
+        for parsed_rule in self._parsed_rules_for_entity(EntityType.EDGE):
+            rule = str(parsed_rule["raw_rule"])
+            is_include = parsed_rule["op"] == "!"
+            pattern = str(parsed_rule["pattern"])
             match = _match_entity_pattern(EntityType.EDGE, pattern)
             extracted = _extract_ancestor_child_patterns_from_match(EntityType.EDGE, match) if match else None
             if not extracted or len(extracted[0]) != len(chain) or not _chain_matches(extracted[0], chain):
@@ -379,11 +528,14 @@ class FilterRules:
                 exclude_predicates.append(predicate)
                 if _is_match_all_identifier(edge_pattern):
                     exclude_has_match_all = True
+            if rule not in applicable_rules:
+                applicable_rules.append(rule)
 
         return _compose_tm1_filter_result(
             include_predicates=include_predicates,
             exclude_predicates=exclude_predicates,
             exclude_has_match_all=exclude_has_match_all,
+            applicable_rules=applicable_rules,
         )
 
     @staticmethod
@@ -654,6 +806,7 @@ def _compose_tm1_filter_result(
     include_predicates: List[str],
     exclude_predicates: List[str],
     exclude_has_match_all: bool = False,
+    applicable_rules: Optional[List[str]] = None,
 ) -> Tm1FilterResult:
     """Build Tm1FilterResult. skip_all=True when exclude-only and excludes match everything."""
     filter_expr = _compose_tm1_filter_expression(
@@ -665,7 +818,11 @@ def _compose_tm1_filter_result(
         and exclude_predicates
         and exclude_has_match_all
     )
-    return Tm1FilterResult(filter_expr=filter_expr, skip_all=skip_all)
+    return Tm1FilterResult(
+        filter_expr=filter_expr,
+        skip_all=skip_all,
+        applicable_rules=list(applicable_rules or []),
+    )
 
 
 def _perform_dependency_check(model: Model):
@@ -755,7 +912,7 @@ def filter(model: Model, filter_rules: List[str]) -> Model:
         item_url_fn: Callable[[Any], Optional[str]],
     ) -> Any:
         # Explicitly stream disk-backed collections through their underlying JSONL payloads.
-        if isinstance(collection, DiskBackedList):
+        if isinstance(collection, StoreBackedSequence):
             def _kept_payloads() -> Iterator[dict]:
                 for payload in collection.iter_payloads():
                     item = collection.item_from_payload(payload)

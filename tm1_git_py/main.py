@@ -16,6 +16,7 @@ from tm1_git_py.exporter import export
 from tm1_git_py.filter import filter, import_filter
 from tm1_git_py.logging_config import setup_logging
 from tm1_git_py.model import Model
+from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.serializer import serialize_model
 
 
@@ -108,10 +109,13 @@ def _cmd_export(args: argparse.Namespace) -> None:
 
     logger.info("Exporting model to folder: %s", model_output_folder)
     internal_model_dir = str(Path(model_output_folder))
+    model_store = ModelStore.for_main_dir()
+    internal_model_id = model_store.resolve_model_for_export(args.server, internal_model_dir)
     exported_model, export_errors = export(
         tm1_service,
         filter_rules,
         internal_model_dir=internal_model_dir,
+        internal_model_id=internal_model_id,
     )
 
     if export_errors and any(export_errors.values()):

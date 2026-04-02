@@ -48,12 +48,14 @@ setup(
         "TM1py>=2.1,<3.0",
         "requests>=2.25",
         "PyYAML>=6.0",
+        "orjson",
     ],
     extras_require={
         "dev": [
             "pytest>=7.0",
             "pytest-mock",
             "testcontainers>=4.0.0",
+            "orjson",
         ],
     },
     python_requires=">=3.10",

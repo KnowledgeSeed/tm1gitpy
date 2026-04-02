@@ -2,6 +2,7 @@ import json
 import os.path
 import shutil
 import types
+from unittest import mock
 from pathlib import Path
 from typing import TypeVar
 
@@ -28,7 +29,6 @@ from tm1_git_py.filter import EntityType, FilterRules, filter_changeset, should_
 from tm1_git_py import filter as filter_module
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
-from tm1_git_py.model.disk_backed_list import DiskBackedList
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element
 from tm1_git_py.model.nativeview import NativeView
 from tests.utility import tm1_uri_from_path
@@ -71,16 +71,16 @@ class TestDeserializer:
         assert hier_version.name == 'testbenchVersion'
         assert hier_version.elements[0].to_dict() == {"Name": "Actual", "Type": "Numeric"}
 
-    def test_hierarchy_constructor_with_internal_model_dir_creates_disk_backed_refs(self, tmp_path):
+    def test_hierarchy_constructor_with_internal_model_dir_creates_store_backed_refs(self, tmp_path):
         internal_model_dir = str(tmp_path / ".internal")
         hierarchy_obj = Hierarchy(
             name="MyHier",
             dimension_name="MyDim",
             internal_model_dir=internal_model_dir,
         )
-        assert isinstance(hierarchy_obj.elements, DiskBackedList)
-        assert isinstance(hierarchy_obj.edges, DiskBackedList)
-        assert isinstance(hierarchy_obj.subsets, DiskBackedList)
+        assert isinstance(hierarchy_obj.elements, StoreBackedSequence)
+        assert isinstance(hierarchy_obj.edges, StoreBackedSequence)
+        assert isinstance(hierarchy_obj.subsets, StoreBackedSequence)
 
     def test_hierarchy_constructor_without_internal_model_dir_uses_provided_refs(self):
         elements = [Element(name="E1", type="Numeric")]
@@ -106,7 +106,7 @@ class TestDeserializer:
         assert payload["Edges"] == [{"ParentName": "P", "ComponentName": "E1", "Weight": 1}]
         assert payload["Subsets@Code.links"] == ["MyHier.subsets/S1.json"]
 
-    def test_hierarchy_as_json_streams_disk_backed_collections(self, tmp_path):
+    def test_hierarchy_as_json_streams_store_backed_collections(self, tmp_path):
         hierarchy_obj = Hierarchy(
             name="MyHier",
             dimension_name="MyDim",
@@ -139,7 +139,7 @@ class TestDeserializer:
         ]
         assert payload["Subsets@Code.links"] == ["MyHier.subsets/S1.json"]
 
-    def test_hierarchy_finalize_sorts_staged_jsonls(self, tmp_path):
+    def test_hierarchy_finalize_sorts_store_backed_groups(self, tmp_path):
         hierarchy_obj = Hierarchy(
             name="MyHier",
             dimension_name="MyDim",
@@ -182,11 +182,9 @@ class TestDeserializer:
 
         final_json_path = tmp_path / "dimensions" / "MyDim.hierarchies" / "MyHier.json"
         final_mtime_ns = int(final_json_path.stat().st_mtime_ns)
-        internal_hier_dir = tmp_path / ".dimensions" / "MyDim.hierarchies"
-        for name in ("elements", "edges", "subsets"):
-            sidecar_path = internal_hier_dir / f".MyHier.{name}.jsonl.meta.json"
-            sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-            assert sidecar.get("source_json_mtime_ns") == final_mtime_ns
+        assert hierarchy_obj.elements.source_json_mtime_ns() == final_mtime_ns
+        assert hierarchy_obj.edges.source_json_mtime_ns() == final_mtime_ns
+        assert hierarchy_obj.subsets.source_json_mtime_ns() == final_mtime_ns
 
     def test_hierarchy_staged_writer_overwrites_partial_content(self, tmp_path):
         internal_model_dir = str(tmp_path)
@@ -201,7 +199,7 @@ class TestDeserializer:
 
         assert payload["Elements"] == [{"Name": "New", "Type": "Numeric"}]
 
-    def test_serialize_dimensions_uses_hierarchy_write_json(self, tmp_path, mocker):
+    def test_serialize_dimensions_uses_hierarchy_write_json(self, tmp_path, monkeypatch):
         hierarchy_obj = Hierarchy(
             name="MyHier",
             elements=[Element(name="E1", type="Numeric")],
@@ -209,7 +207,7 @@ class TestDeserializer:
             subsets=[],
         )
         dimension_obj = Dimension(name="MyDim", hierarchies=[hierarchy_obj], defaultHierarchy=hierarchy_obj)
-        mocker.patch.object(Hierarchy, "as_json", side_effect=AssertionError("as_json should not be used"))
+        monkeypatch.setattr(Hierarchy, "as_json", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("as_json should not be used")))
 
         serialize_dimensions([dimension_obj], str(tmp_path))
 
@@ -218,7 +216,7 @@ class TestDeserializer:
         payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
         assert payload["Name"] == "MyHier"
 
-    def test_serialize_dimensions_skips_rewrite_for_staged_hierarchy(self, tmp_path, mocker):
+    def test_serialize_dimensions_skips_rewrite_for_staged_hierarchy(self, tmp_path, monkeypatch):
         hierarchy_obj = Hierarchy(
             name="MyHier",
             dimension_name="MyDim",
@@ -227,7 +225,7 @@ class TestDeserializer:
         hierarchy_obj.elements.extend([Element(name="E1", type="Numeric")])
         dimension_obj = Dimension(name="MyDim", hierarchies=[hierarchy_obj], defaultHierarchy=hierarchy_obj)
 
-        mocker.patch.object(Hierarchy, "write_json", side_effect=AssertionError("write_json should be skipped"))
+        monkeypatch.setattr(Hierarchy, "write_json", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("write_json should be skipped")))
         dim_dir = tmp_path / "dimensions"
         dim_dir.mkdir(exist_ok=True)
         serialize_dimensions([dimension_obj], str(dim_dir))
@@ -250,22 +248,20 @@ class TestDeserializer:
         assert "testbenchVersion" in dimensions
         assert not any("inprogress" in key for key in errors.keys())
 
-    def test_get_subsets_uses_collector(self, mocker):
-        tm1_conn = mocker.Mock()
+    def test_get_subsets_uses_collector(self, monkeypatch):
+        tm1_conn = mock.Mock()
         collector: list[Subset] = []
 
-        mocker.patch.object(
-            subset_service_ext,
-            "_get_subsets_page",
-            side_effect=[
+        sequence = iter([
                 subset_service_ext.PaginatedSubsetsResult(
                     subsets=[Subset(name="S1", expression="{A}")], count=2, skip=0, top=1
                 ),
                 subset_service_ext.PaginatedSubsetsResult(
                     subsets=[Subset(name="S2", expression="{B}")], count=None, skip=1, top=1
                 ),
-            ],
+            ]
         )
+        monkeypatch.setattr(subset_service_ext, "_get_subsets_page", lambda *args, **kwargs: next(sequence))
 
         result = subset_service_ext.get_subsets(
             tm1_conn,
@@ -278,7 +274,7 @@ class TestDeserializer:
         assert result is collector
         assert [s.name for s in collector] == ["S1", "S2"]
 
-    def test_deserialize_dimensions_uses_in_memory_hierarchy_collections(self, tmp_path):
+    def test_deserialize_dimensions_uses_store_backed_hierarchy_collections(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
@@ -287,54 +283,31 @@ class TestDeserializer:
         dim_version = dimensions.get("testbenchVersion")
         assert dim_version is not None
         hier_version = dim_version.hierarchies[0]
-        assert isinstance(hier_version.elements, DiskBackedList)
-        assert isinstance(hier_version.edges, DiskBackedList)
-        assert isinstance(hier_version.subsets, DiskBackedList)
+        assert isinstance(hier_version.elements, StoreBackedSequence)
+        assert isinstance(hier_version.edges, StoreBackedSequence)
+        assert isinstance(hier_version.subsets, StoreBackedSequence)
 
-    def test_deserialize_dimensions_does_not_create_internal_sidecars(self, tmp_path):
+    def test_deserialize_dimensions_creates_sqlite_internal_store(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
         deserialize_dimensions(dimension_dir=dimensions_dir)
         deserialize_dimensions(dimension_dir=dimensions_dir)
-        assert not (dimensions_dir.parent / ".internal").exists()
+        assert (Path.cwd() / ".tm1gitpy" / "model_store.sqlite").exists()
 
-    def test_deserialize_dimensions_creates_jsonl_count_sidecars(self, tmp_path):
+    def test_deserialize_dimensions_populates_store_group_metadata(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
         dimensions, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
         hierarchy_obj = dimensions["testbenchVersion"].hierarchies[0]
-        internal_hier_dir = dimensions_dir.parent / ".dimensions" / "testbenchVersion.hierarchies"
+        assert hierarchy_obj.elements.sidecar_content_signature()[0] == len(hierarchy_obj.elements)
+        assert hierarchy_obj.edges.sidecar_content_signature()[0] == len(hierarchy_obj.edges)
+        assert hierarchy_obj.subsets.sidecar_content_signature()[0] == len(hierarchy_obj.subsets)
 
-        elements_jsonl = internal_hier_dir / ".testbenchVersion.elements.jsonl"
-        edges_jsonl = internal_hier_dir / ".testbenchVersion.edges.jsonl"
-        subsets_jsonl = internal_hier_dir / ".testbenchVersion.subsets.jsonl"
-
-        for jsonl_file, expected_count in (
-            (elements_jsonl, len(hierarchy_obj.elements)),
-            (edges_jsonl, len(hierarchy_obj.edges)),
-            (subsets_jsonl, len(hierarchy_obj.subsets)),
-        ):
-            sidecar_path = Path(DiskBackedList.sidecar_path_for_jsonl(str(jsonl_file)))
-            assert sidecar_path.exists()
-            sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-            assert sidecar["count"] == expected_count
-            assert sidecar["hash_algo"] == DiskBackedList.HASH_ALGO
-            assert isinstance(sidecar["content_hash"], str)
-            assert len(sidecar["content_hash"]) == 64
-            if jsonl_file in (elements_jsonl, edges_jsonl):
-                assert isinstance(sidecar.get("source_json_mtime_ns"), int)
-            if jsonl_file == elements_jsonl:
-                if sidecar.get("sorted"):
-                    assert sidecar.get("sort_key") == "element-name-type-v1"
-            if jsonl_file == edges_jsonl:
-                if sidecar.get("sorted"):
-                    assert sidecar.get("sort_key") == "edge-parent-component-weight-v1"
-
-    def test_deserialize_rebuilds_internal_jsonl_when_source_hierarchy_is_newer(self, tmp_path):
+    def test_deserialize_rebuilds_store_groups_when_source_hierarchy_is_newer(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
@@ -349,144 +322,101 @@ class TestDeserializer:
             fh.write(json.dumps(payload, ensure_ascii=False, indent=2))
             fh.truncate()
 
+        dimensions_after, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        after_hier = dimensions_after["testbenchVersion"].hierarchies[0]
+        assert after_hier.elements.source_json_mtime_ns() == int(hierarchy_json.stat().st_mtime_ns)
+
+    def test_deserialize_uses_store_group_builder(self, tmp_path, monkeypatch):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        calls = {"group_builder": 0}
+
+        import tm1_git_py.deserializer as deserializer_module
+
+        original_builder = deserializer_module._ensure_hierarchy_store_groups
+
+        def _builder_spy(*args, **kwargs):
+            calls["group_builder"] += 1
+            return original_builder(*args, **kwargs)
+
+        monkeypatch.setattr(deserializer_module, "_ensure_hierarchy_store_groups", _builder_spy)
+
         deserialize_dimensions(dimension_dir=dimensions_dir)
-        sidecar_path = (
-            dimensions_dir.parent
-            / ".dimensions"
-            / "testbenchVersion.hierarchies"
-            / ".testbenchVersion.elements.jsonl.meta.json"
+        assert calls["group_builder"] >= 1
+
+    def test_deserialize_subsets_rebuilds_store_only_when_subset_source_changes(self, tmp_path):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        dimensions_before, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        first_hier = dimensions_before["testbenchVersion"].hierarchies[0]
+        before_subset_mtime = first_hier.subsets.source_json_mtime_ns()
+
+        dimensions_again, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        same_hier = dimensions_again["testbenchVersion"].hierarchies[0]
+        assert same_hier.subsets.source_json_mtime_ns() == before_subset_mtime
+
+    def test_store_backed_sequence_append_updates_signature(self, tmp_path):
+        store = ModelStore.for_model_dir(str(tmp_path))
+        seq = StoreBackedSequence.for_elements_sink(
+            store=store,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
         )
-        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        assert sidecar.get("source_json_mtime_ns") == int(hierarchy_json.stat().st_mtime_ns)
-
-    def test_disk_backed_list_reuses_count_sidecar(self, tmp_path, monkeypatch):
-        jsonl_path = tmp_path / "elements.jsonl"
-        disk_list = DiskBackedList.for_elements_sink(
-            store_items=False,
-            jsonl_path=str(jsonl_path),
-            truncate=True,
-        )
-        disk_list.extend(
-            [
-                Element(name="E1", type="Numeric"),
-                Element(name="E2", type="String"),
-            ]
-        )
-
-        def _scan_should_not_run(_self):
-            raise AssertionError("line scan should not run when sidecar is valid")
-
-        monkeypatch.setattr(DiskBackedList, "_count_lines_by_scan", _scan_should_not_run)
-        reopened = DiskBackedList.for_elements_sink(
-            store_items=False,
-            jsonl_path=str(jsonl_path),
-        )
-        assert len(reopened) == 2
-
-    def test_disk_backed_list_append_updates_hash_without_full_recompute(self, tmp_path, monkeypatch):
-        jsonl_path = tmp_path / "elements.jsonl"
-        disk_list = DiskBackedList.for_elements_sink(
-            store_items=False,
-            jsonl_path=str(jsonl_path),
-            truncate=True,
-        )
-        disk_list.append(Element(name="E1", type="Numeric"))
-
-        def _scan_should_not_run(_self):
-            raise AssertionError("full scan should not run for append incremental hash update")
-
-        monkeypatch.setattr(DiskBackedList, "_scan_count_and_hash_from_file", _scan_should_not_run)
-        disk_list.append(Element(name="E2", type="String"))
-        signature = disk_list.sidecar_content_signature()
+        seq.replace_with_payloads(())
+        seq.append(Element(name="E1", type="Numeric"))
+        seq.append(Element(name="E2", type="String"))
+        signature = seq.sidecar_content_signature()
         assert signature is not None
         assert signature[0] == 2
 
-    def test_disk_backed_list_replace_and_filter_refresh_hash(self, tmp_path):
-        jsonl_path = tmp_path / "elements.jsonl"
-        disk_list = DiskBackedList.for_elements_sink(
-            store_items=False,
-            jsonl_path=str(jsonl_path),
-            truncate=True,
+    def test_store_backed_sequence_replace_and_filter_refresh_hash(self, tmp_path):
+        store = ModelStore.for_model_dir(str(tmp_path))
+        seq = StoreBackedSequence.for_elements_sink(
+            store=store,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
         )
-        disk_list.extend(
+        seq.replace_with_payloads(
             [
-                Element(name="A", type="Numeric"),
-                Element(name="B", type="Numeric"),
-                Element(name="C", type="String"),
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "Numeric"},
+                {"Name": "C", "Type": "String"},
             ]
         )
-        disk_list.replace_with_payloads(
+        seq.replace_with_payloads(
             [
                 {"Name": "A", "Type": "Numeric"},
                 {"Name": "B", "Type": "String"},
             ]
         )
-        disk_list.filter_in_place(lambda item: item.name != "A")
-
-        reopened = DiskBackedList.for_elements_sink(store_items=False, jsonl_path=str(jsonl_path))
-        signature = reopened.sidecar_content_signature()
+        seq.filter_in_place(lambda item: item.name != "A")
+        signature = seq.sidecar_content_signature()
         assert signature is not None
-        count, content_hash = signature
-        scanned_count, scanned_hash = reopened._scan_count_and_hash_from_file()
-        assert count == scanned_count == 1
-        assert content_hash == scanned_hash
+        assert signature[0] == 1
 
-    def test_disk_backed_list_repairs_stale_sidecar(self, tmp_path):
-        jsonl_path = tmp_path / "elements.jsonl"
-        disk_list = DiskBackedList.for_elements_sink(
-            store_items=False,
-            jsonl_path=str(jsonl_path),
-            truncate=True,
+    def test_store_backed_sequence_ordered_identity_iteration(self, tmp_path):
+        store = ModelStore.for_model_dir(str(tmp_path))
+        seq = StoreBackedSequence.for_elements_sink(
+            store=store,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
         )
-        disk_list.extend([Element(name="A", type="Numeric"), Element(name="B", type="String")])
-
-        sidecar_path = Path(DiskBackedList.sidecar_path_for_jsonl(str(jsonl_path)))
-        stale_sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        stale_sidecar["size"] = stale_sidecar["size"] + 1
-        sidecar_path.write_text(json.dumps(stale_sidecar), encoding="utf-8")
-
-        reopened = DiskBackedList.for_elements_sink(store_items=False, jsonl_path=str(jsonl_path))
-        assert len(reopened) == 2
-        repaired_sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        assert repaired_sidecar["size"] == os.path.getsize(jsonl_path)
-        assert repaired_sidecar["hash_algo"] == DiskBackedList.HASH_ALGO
-        assert isinstance(repaired_sidecar["content_hash"], str)
-
-    def test_disk_backed_list_external_sort_updates_sidecar(self, tmp_path):
-        jsonl_path = tmp_path / "elements_unsorted.jsonl"
-        disk_list = DiskBackedList.for_elements_sink(
-            store_items=False,
-            jsonl_path=str(jsonl_path),
-            truncate=True,
-        )
-        disk_list.extend(
+        seq.replace_with_payloads(
             [
-                Element(name="C", type="Numeric"),
-                Element(name="A", type="Numeric"),
-                Element(name="B", type="String"),
+                {"Name": "C", "Type": "Numeric"},
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "String"},
             ]
         )
-
-        changed = disk_list.sort_external_in_place(
-            lambda p: (p.get("Name", ""), p.get("Type", "")),
-            sort_key="element-name-type-v1",
-            chunk_size=2,
-        )
-        assert changed is True
-
-        sorted_names = [item.name for item in DiskBackedList.for_elements_sink(store_items=False, jsonl_path=str(jsonl_path))]
+        sorted_names = [
+            Element.from_dict(payload).name
+            for payload in seq.iter_payloads(ordered_by_identity=True)
+        ]
         assert sorted_names == ["A", "B", "C"]
-
-        sidecar = json.loads(Path(DiskBackedList.sidecar_path_for_jsonl(str(jsonl_path))).read_text(encoding="utf-8"))
-        assert sidecar["sorted"] is True
-        assert sidecar["sort_key"] == "element-name-type-v1"
-
-        changed_again = disk_list.sort_external_in_place(
-            lambda p: (p.get("Name", ""), p.get("Type", "")),
-            sort_key="element-name-type-v1",
-            chunk_size=2,
-        )
-        assert changed_again is False
 
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):
@@ -763,7 +693,7 @@ class TestComparator:
         modified = self._changes_by_type(changeset, ChangeType.MODIFY)
         removed = self._changes_by_type(changeset, ChangeType.REMOVE)
 
-        assert len(added) == 6
+        assert len(added) == 7
         assert len(modified) == 5
         assert len(removed) == 0
 
@@ -778,9 +708,9 @@ class TestComparator:
         modified = self._changes_by_type(changeset, ChangeType.MODIFY)
         removed = self._changes_by_type(changeset, ChangeType.REMOVE)
 
-        assert len(added) == 6
+        assert len(added) == 7
         assert len(modified) == 5
-        assert len(removed) == 6
+        assert len(removed) == 7
 
 
     def test_comparator_dimensions_change_propagation(self):
@@ -855,13 +785,16 @@ class TestComparator:
         assert unified_rule.full_statement == new_cube.get_rule_text()
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
 
-    def test_comparator_skips_disk_backed_compare_when_hash_matches(self, tmp_path, caplog):
-        def disk_elements(path: Path, *elems: Element) -> DiskBackedList:
-            db = DiskBackedList.for_elements_sink(
-                store_items=False,
-                jsonl_path=str(path),
-                truncate=True,
+    def test_comparator_skips_store_backed_compare_when_hash_matches(self, tmp_path, caplog):
+        store = ModelStore.for_model_dir(str(tmp_path))
+
+        def disk_elements(group_suffix: str, *elems: Element) -> StoreBackedSequence:
+            db = StoreBackedSequence.for_elements_sink(
+                store=store,
+                dimension_name="DimA",
+                hierarchy_name=group_suffix,
             )
+            db.replace_with_payloads(())
             for e in sorted(elems, key=lambda x: (x.name or "")):
                 db.append(e)
             return db
@@ -869,7 +802,7 @@ class TestComparator:
         h_old = Hierarchy(
             name="H1",
             elements=disk_elements(
-                tmp_path / "old_el_hash.jsonl",
+                "H1_old_hash",
                 Element(name="A", type="Numeric"),
                 Element(name="B", type="Numeric"),
             ),
@@ -879,7 +812,7 @@ class TestComparator:
         h_new = Hierarchy(
             name="H1",
             elements=disk_elements(
-                tmp_path / "new_el_hash.jsonl",
+                "H1_new_hash",
                 Element(name="A", type="Numeric"),
                 Element(name="B", type="Numeric"),
             ),
@@ -926,25 +859,29 @@ class TestComparator:
         ]
         assert not leaf_element_changes
 
-    def test_comparator_streaming_disk_backed_elements_and_edges(self, tmp_path):
-        """DiskBackedList merge compare should match in-memory list compare."""
+    def test_comparator_streaming_store_backed_elements_and_edges(self, tmp_path):
+        """StoreBackedSequence merge compare should match in-memory list compare."""
 
-        def disk_elements(path: Path, *elems: Element) -> DiskBackedList:
-            db = DiskBackedList.for_elements_sink(
-                store_items=False,
-                jsonl_path=str(path),
-                truncate=True,
+        store = ModelStore.for_model_dir(str(tmp_path))
+
+        def disk_elements(group_suffix: str, *elems: Element) -> StoreBackedSequence:
+            db = StoreBackedSequence.for_elements_sink(
+                store=store,
+                dimension_name="DimA",
+                hierarchy_name=group_suffix,
             )
+            db.replace_with_payloads(())
             for e in sorted(elems, key=lambda x: (x.name or "")):
                 db.append(e)
             return db
 
-        def disk_edges(path: Path, *edges: Edge) -> DiskBackedList:
-            db = DiskBackedList.for_edges_sink(
-                store_items=False,
-                jsonl_path=str(path),
-                truncate=True,
+        def disk_edges(group_suffix: str, *edges: Edge) -> StoreBackedSequence:
+            db = StoreBackedSequence.for_edges_sink(
+                store=store,
+                dimension_name="DimA",
+                hierarchy_name=group_suffix,
             )
+            db.replace_with_payloads(())
             for ed in sorted(edges, key=lambda x: (x.parent or "", x.component_name or "")):
                 db.append(ed)
             return db
@@ -952,12 +889,12 @@ class TestComparator:
         h_old = Hierarchy(
             name="H1",
             elements=disk_elements(
-                tmp_path / "old_el.jsonl",
+                "H1_old",
                 Element(name="A", type="Numeric"),
                 Element(name="C", type="Numeric"),
             ),
             edges=disk_edges(
-                tmp_path / "old_ed.jsonl",
+                "H1_old",
                 Edge(parent="R", component_name="A", weight=1.0),
             ),
             subsets=[],
@@ -965,13 +902,13 @@ class TestComparator:
         h_new = Hierarchy(
             name="H1",
             elements=disk_elements(
-                tmp_path / "new_el.jsonl",
+                "H1_new",
                 Element(name="A", type="String"),
                 Element(name="B", type="Numeric"),
                 Element(name="C", type="Numeric"),
             ),
             edges=disk_edges(
-                tmp_path / "new_ed.jsonl",
+                "H1_new",
                 Edge(parent="R", component_name="A", weight=2.0),
                 Edge(parent="R", component_name="B", weight=1.0),
             ),
@@ -1031,24 +968,27 @@ class TestComparator:
             change_key(c) for c in cs_mem.changes
         )
 
-    def test_comparator_sorts_unsorted_disk_backed_lists_before_merge(self, tmp_path):
-        def disk_elements_unsorted(path: Path, *elems: Element) -> DiskBackedList:
-            db = DiskBackedList.for_elements_sink(
-                store_items=False,
-                jsonl_path=str(path),
-                truncate=True,
+    def test_comparator_sorts_unsorted_store_backed_lists_before_merge(self, tmp_path):
+        store = ModelStore.for_model_dir(str(tmp_path))
+
+        def disk_elements_unsorted(group_suffix: str, *elems: Element) -> StoreBackedSequence:
+            db = StoreBackedSequence.for_elements_sink(
+                store=store,
+                dimension_name="DimA",
+                hierarchy_name=group_suffix,
             )
+            db.replace_with_payloads(())
             for e in elems:
                 db.append(e)
             return db
 
         old_elements = disk_elements_unsorted(
-            tmp_path / "old_unsorted_el.jsonl",
+            "H1_old_unsorted",
             Element(name="C", type="Numeric"),
             Element(name="A", type="Numeric"),
         )
         new_elements = disk_elements_unsorted(
-            tmp_path / "new_unsorted_el.jsonl",
+            "H1_new_unsorted",
             Element(name="A", type="Numeric"),
             Element(name="B", type="Numeric"),
             Element(name="C", type="Numeric"),
@@ -1078,41 +1018,31 @@ class TestComparator:
         assert add_names == ["B"]
         assert remove_names == []
 
-    def test_comparator_does_not_resort_when_sidecar_sorted_matches(self, tmp_path, monkeypatch):
-        def disk_elements_sorted(path: Path, *elems: Element) -> DiskBackedList:
-            db = DiskBackedList.for_elements_sink(
-                store_items=False,
-                jsonl_path=str(path),
-                truncate=True,
+    def test_comparator_uses_identity_ordered_iteration_for_store_backed_lists(self, tmp_path):
+        store = ModelStore.for_model_dir(str(tmp_path))
+
+        def disk_elements_sorted(group_suffix: str, *elems: Element) -> StoreBackedSequence:
+            db = StoreBackedSequence.for_elements_sink(
+                store=store,
+                dimension_name="DimA",
+                hierarchy_name=group_suffix,
             )
+            db.replace_with_payloads(())
             for e in sorted(elems, key=lambda x: (x.name or "", x.type or "")):
                 db.append(e)
-            db.sort_external_in_place(
-                lambda p: (p.get("Name") or "", p.get("Type") or ""),
-                sort_key="element-name-type-v1",
-            )
             return db
 
         old_elements = disk_elements_sorted(
-            tmp_path / "old_sorted_el.jsonl",
+            "H1_old_sorted",
             Element(name="A", type="Numeric"),
             Element(name="C", type="Numeric"),
         )
         new_elements = disk_elements_sorted(
-            tmp_path / "new_sorted_el.jsonl",
+            "H1_new_sorted",
             Element(name="A", type="Numeric"),
             Element(name="B", type="Numeric"),
             Element(name="C", type="Numeric"),
         )
-
-        original_sort = DiskBackedList.sort_external_in_place
-
-        def _fail_if_called(self, key_fn, *, sort_key, chunk_size=100_000, tmp_dir=None):
-            if self.sidecar_is_sorted_for(sort_key):
-                raise AssertionError("compare should not re-sort when sidecar already matches sort key")
-            return original_sort(self, key_fn, sort_key=sort_key, chunk_size=chunk_size, tmp_dir=tmp_dir)
-
-        monkeypatch.setattr(DiskBackedList, "sort_external_in_place", _fail_if_called)
 
         h_old = Hierarchy(name="H1", elements=old_elements, edges=[], subsets=[])
         h_new = Hierarchy(name="H1", elements=new_elements, edges=[], subsets=[])
@@ -1485,16 +1415,30 @@ class TestExporter:
         assert pf.should_exclude("Cubes('viewsSales')")
         assert not pf.should_exclude("Cubes('SalesCube')")
 
-    def test_path_filter_parent_blocks_child_even_with_child_include(self):
+    def test_path_filter_force_include_element_keeps_parent_path_only(self):
         pf = FilterRules(
             [
                 "Dimensions('Sales')",
                 "!Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')",
             ]
         )
-        assert pf.should_exclude("Dimensions('Sales')")
-        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')")
-        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')")
+        assert not pf.should_exclude("Dimensions('Sales')")
+        assert not pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')")
+        assert not pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')")
+        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')/Elements('LeafB')")
+        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Other')")
+
+    def test_path_filter_force_include_hierarchy_keeps_only_related_hierarchy(self):
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')",
+                "!Dimensions('Sales')/Hierarchies('Main')",
+            ]
+        )
+        assert not pf.should_exclude("Dimensions('Sales')")
+        assert not pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')")
+        assert not pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')")
+        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Other')")
 
     def test_path_filter_element_validation_accepts_startswith_endswith(self):
         """URL identifier patterns with * at start or end are valid."""
@@ -1566,6 +1510,18 @@ class TestExporter:
         assert result.filter_expr is not None
         assert result.skip_all is True
 
+    def test_to_tm1_dimension_filter_inherits_force_include_from_child_rules(self):
+        pf = FilterRules(
+            [
+                "Dimensions('*')",
+                "!Dimensions('BW Customers Bill To*')/Hierarchies('*')/Elements('(CH) CH AJACCIO*')",
+            ]
+        )
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr is not None
+        assert "startswith(Name, 'BW Customers Bill To')" in result.filter_expr
+        assert result.skip_all is False
+
     def test_to_tm1_hierarchy_name_filter_scopes_to_current_dimension(self):
         pf = FilterRules(
             [
@@ -1582,16 +1538,19 @@ class TestExporter:
         assert marketing_result.filter_expr == "not (startswith(Name, '}'))"
         assert marketing_result.skip_all is False
 
-    def test_to_tm1_child_name_filter_only_uses_direct_child_level_rules(self):
+    def test_to_tm1_hierarchy_name_filter_inherits_force_include_from_element_rules(self):
         pf = FilterRules(
             [
                 "Dimensions('Sales')/Hierarchies('Main*')",
                 "Dimensions('Sales')/Hierarchies('Main*')/Elements('X*')",
+                "!Dimensions('Sales')/Hierarchies('LeafOnly')/Elements('LeafA')",
             ]
         )
 
         result = pf.to_tm1_hierarchy_name_filter("Sales")
-        assert result.filter_expr == "not (startswith(Name, 'Main'))"
+        assert result.filter_expr is not None
+        assert "not (startswith(Name, 'Main'))" in result.filter_expr
+        assert "Name eq 'LeafOnly'" in result.filter_expr
 
     def test_to_tm1_element_name_filter_uses_3_level_rules(self):
         """3-level rules (dim/hier/elem) apply when building element filter. ! = include."""
@@ -1737,7 +1696,7 @@ class TestChangeset:
 
         # For deletes, precedence is:
         # mdx_views -> rules -> cubes -> edges -> elements -> subsets -> hierarchies -> dimensions -> chore -> process
-        assert deleted_types == [MDXView, Cube, Edge, Element, Chore, Process]
+        assert deleted_types == [MDXView, Cube, Edge, Element, Element, Chore, Process]
 
 
     def test_apply_uses_sorted_order_for_create(self, mocker):
@@ -1772,7 +1731,7 @@ class TestChangeset:
 
         # For creates, precedence is:
         # dimensions -> hierarchies -> subsets -> elements -> edges -> cubes -> mdx_views -> rules -> processes -> chores
-        assert created_types == [Subset, Element, Element, Edge, Edge, MDXView]
+        assert created_types == [Subset, Element, Element, Element, Edge, Edge, MDXView]
 
 
     def test_apply_uses_sorted_order_for_update(self, mocker):

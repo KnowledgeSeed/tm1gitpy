@@ -4,7 +4,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
 
 from tm1_git_py.changeset import Changeset, Change, ChangeType, ObjectType
 from tm1_git_py.model import Hierarchy, MDXView, NativeView, Subset, Element, Edge, Rule
-from tm1_git_py.model.disk_backed_list import DiskBackedList
+from tm1_git_py.model.store_backed_sequence import StoreBackedSequence
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -284,109 +284,95 @@ class Comparator:
         )
 
         child_relations = self._CHILD_RELATIONS.get(parent_cls, [])
-        if child_relations:
-            for old_obj, new_obj in compare_result.matched_pairs.values():
-                self._compare_child_relations(
-                    parent_cls=parent_cls,
-                    child_relations=child_relations,
-                    old_obj=old_obj,
-                    new_obj=new_obj,
-                    changeset=changeset,
-                    mode=mode,
-                    context=context,
-                )
+        parent_pairs = compare_result.matched_pairs
+        if child_relations and parent_pairs:
+            for old_obj, new_obj in parent_pairs.values():
+                for child_attr, child_cls in child_relations:
+                    # "Leaves" hierarchy elements are auto-managed by TM1 and should not be diffed.
+                    if isinstance(new_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(new_obj):
+                        continue
+                    slot_old = getattr(old_obj, child_attr, None) or []
+                    slot_new = getattr(new_obj, child_attr, None) or []
+                    if isinstance(slot_old, StoreBackedSequence) and isinstance(slot_new, StoreBackedSequence):
+                        old_children = slot_old
+                        new_children = slot_new
+                    else:
+                        old_children = [
+                            child for child in slot_old
+                            if isinstance(child, child_cls)
+                        ]
+                        new_children = [
+                            child for child in slot_new
+                            if isinstance(child, child_cls)
+                        ]
+                    try:
+                        child_context = dict(context or {})
+                        if parent_cls is Cube:
+                            child_context["cube_name"] = getattr(new_obj, "name", "")
+                        if parent_cls is Dimension:
+                            child_context["dimension_name"] = getattr(new_obj, "name", "")
+                        if parent_cls is Hierarchy:
+                            child_context["hierarchy_name"] = getattr(new_obj, "name", "")
+                        self._compare_with_children(old_children, new_children, child_cls, changeset, mode, context=child_context)
+                    except Exception as exc:
+                        logger.error(
+                            "Child comparison failed for relation '%s' of %s: %s",
+                            child_attr,
+                            object_type_name,
+                            exc,
+                            exc_info=True,
+                        )
+                        raise
+
+        if child_relations and compare_result.added_items:
             for new_obj in compare_result.added_items:
-                self._compare_child_relations(
-                    parent_cls=parent_cls,
-                    child_relations=child_relations,
-                    old_obj=None,
-                    new_obj=new_obj,
-                    changeset=changeset,
-                    mode=mode,
-                    context=context,
-                )
-            if mode == 'full':
-                for old_obj in compare_result.removed_items:
-                    self._compare_child_relations(
-                        parent_cls=parent_cls,
-                        child_relations=child_relations,
-                        old_obj=old_obj,
-                        new_obj=None,
-                        changeset=changeset,
-                        mode=mode,
-                        context=context,
-                    )
+                for child_attr, child_cls in child_relations:
+                    if isinstance(new_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(new_obj):
+                        continue
+                    slot_new = getattr(new_obj, child_attr, None) or []
+                    if isinstance(slot_new, StoreBackedSequence):
+                        new_children = slot_new
+                    else:
+                        new_children = [
+                            child for child in slot_new
+                            if isinstance(child, child_cls)
+                        ]
+                    child_context = dict(context or {})
+                    if parent_cls is Cube:
+                        child_context["cube_name"] = getattr(new_obj, "name", "")
+                    if parent_cls is Dimension:
+                        child_context["dimension_name"] = getattr(new_obj, "name", "")
+                    if parent_cls is Hierarchy:
+                        child_context["hierarchy_name"] = getattr(new_obj, "name", "")
+                    self._compare_with_children([], new_children, child_cls, changeset, mode, context=child_context)
 
+        if mode == "full" and child_relations and compare_result.removed_items:
+            for old_obj in compare_result.removed_items:
+                for child_attr, child_cls in child_relations:
+                    if isinstance(old_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(old_obj):
+                        continue
+                    slot_old = getattr(old_obj, child_attr, None) or []
+                    if isinstance(slot_old, StoreBackedSequence):
+                        old_children = slot_old
+                    else:
+                        old_children = [
+                            child for child in slot_old
+                            if isinstance(child, child_cls)
+                        ]
+                    child_context = dict(context or {})
+                    if parent_cls is Cube:
+                        child_context["cube_name"] = getattr(old_obj, "name", "")
+                    if parent_cls is Dimension:
+                        child_context["dimension_name"] = getattr(old_obj, "name", "")
+                    if parent_cls is Hierarchy:
+                        child_context["hierarchy_name"] = getattr(old_obj, "name", "")
+                    self._compare_with_children(old_children, [], child_cls, changeset, mode, context=child_context)
         return compare_result
-
-    def _compare_child_relations(
-            self,
-            *,
-            parent_cls: type,
-            child_relations: list[tuple[str, type]],
-            old_obj: Optional[Any],
-            new_obj: Optional[Any],
-            changeset: Changeset,
-            mode: Literal['full', 'add_only'],
-            context: Optional[dict[str, str]],
-    ) -> None:
-        object_type_name = getattr(parent_cls, "__name__", str(parent_cls))
-        parent_ref = new_obj if new_obj is not None else old_obj
-        if parent_ref is None:
-            return
-
-        for child_attr, child_cls in child_relations:
-            if isinstance(parent_ref, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(parent_ref):
-                continue
-
-            slot_old = getattr(old_obj, child_attr, None) if old_obj is not None else None
-            slot_new = getattr(new_obj, child_attr, None) if new_obj is not None else None
-            slot_old = slot_old or []
-            slot_new = slot_new or []
-
-            if isinstance(slot_old, DiskBackedList) and isinstance(slot_new, DiskBackedList):
-                old_children = slot_old
-                new_children = slot_new
-            else:
-                old_children = [
-                    child for child in slot_old
-                    if isinstance(child, child_cls)
-                ]
-                new_children = [
-                    child for child in slot_new
-                    if isinstance(child, child_cls)
-                ]
-
-            try:
-                child_context = dict(context or {})
-                if parent_cls is Cube:
-                    child_context["cube_name"] = getattr(parent_ref, "name", "")
-                if parent_cls is Dimension:
-                    child_context["dimension_name"] = getattr(parent_ref, "name", "")
-                if parent_cls is Hierarchy:
-                    child_context["hierarchy_name"] = getattr(parent_ref, "name", "")
-                self._compare_with_children(
-                    old_children,
-                    new_children,
-                    child_cls,
-                    changeset,
-                    mode,
-                    context=child_context,
-                )
-            except Exception as exc:
-                logger.error(
-                    "Child comparison failed for relation '%s' of %s: %s",
-                    child_attr,
-                    object_type_name,
-                    exc,
-                    exc_info=True,
-                )
-                raise
 
     def _compare_disk_backed_sorted_merge(
             self,
-            old_db: DiskBackedList,
-            new_db: DiskBackedList,
+            old_db: Any,
+            new_db: Any,
             changeset: Changeset,
             *,
             object_type_name: str,
@@ -400,8 +386,8 @@ class Comparator:
         Callers must ensure both sides iterate in ascending order by
         ``_object_identity(..., context)`` (same order as TM1/export queries).
         """
-        old_it = iter(old_db)
-        new_it = iter(new_db)
+        old_it = (old_db.item_from_payload(payload) for payload in old_db.iter_payloads(ordered_by_identity=True))
+        new_it = (new_db.item_from_payload(payload) for payload in new_db.iter_payloads(ordered_by_identity=True))
         old_item: Any = next(old_it, None)
         new_item: Any = next(new_it, None)
         added_c = removed_c = common_c = 0
@@ -419,7 +405,7 @@ class Comparator:
                 "Skipping %s streaming compare: count+hash match count=%d hash_algo=%s",
                 object_type_name,
                 old_signature[0],
-                DiskBackedList.HASH_ALGO,
+                getattr(old_db, "HASH_ALGO", "sha256-chain-v1"),
             )
             return _CompareObjectListsResult(matched_pairs={}, added_items=[], removed_items=[])
 
@@ -561,11 +547,9 @@ class Comparator:
 
         if (
             parent_cls in (Element, Edge)
-            and isinstance(old_list, DiskBackedList)
-            and isinstance(new_list, DiskBackedList)
+            and isinstance(old_list, StoreBackedSequence)
+            and isinstance(new_list, StoreBackedSequence)
         ):
-            self._ensure_disk_backed_sort_for_compare(old_list, parent_cls)
-            self._ensure_disk_backed_sort_for_compare(new_list, parent_cls)
             return self._compare_disk_backed_sorted_merge(
                 old_list,
                 new_list,
@@ -639,40 +623,3 @@ class Comparator:
             removed_items=[old_map[name] for name in removed_names],
         )
 
-    def _ensure_disk_backed_sort_for_compare(self, db: DiskBackedList, parent_cls: type) -> None:
-        if parent_cls is Element:
-            sort_key_id = "element-name-type-v1"
-
-            def _payload_key(payload: dict[str, Any]) -> tuple[str, str]:
-                return (
-                    str(payload.get("Name") or payload.get("name") or ""),
-                    str(payload.get("Type") or payload.get("type") or ""),
-                )
-        elif parent_cls is Edge:
-            sort_key_id = "edge-parent-component-weight-v1"
-
-            def _payload_key(payload: dict[str, Any]) -> tuple[str, str, str]:
-                weight = payload.get("Weight")
-                if weight is None:
-                    weight = payload.get("weight")
-                return (
-                    str(payload.get("ParentName") or payload.get("parentName") or payload.get("parent") or ""),
-                    str(payload.get("ComponentName") or payload.get("componentName") or payload.get("name") or ""),
-                    str(weight if weight is not None else ""),
-                )
-        else:
-            return
-
-        if db.sidecar_is_sorted_for(sort_key_id):
-            logger.debug("Skipping local sort for %s disk list (already sorted sidecar).", parent_cls.__name__)
-            return
-        logger.info(
-            "Running local external sort for %s disk list (chunk_size=%d).",
-            parent_cls.__name__,
-            self.LOCAL_SORT_CHUNK_SIZE,
-        )
-        db.sort_external_in_place(
-            _payload_key,
-            sort_key=sort_key_id,
-            chunk_size=self.LOCAL_SORT_CHUNK_SIZE,
-        )
