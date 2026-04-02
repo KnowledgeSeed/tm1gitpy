@@ -796,6 +796,35 @@ class TestComparator:
         assert (isinstance(added[0], Subset) and added[0].name == "}Temp_Subset_Discount")
         assert not modified
 
+    def test_comparator_adds_dimension_children_when_dimension_missing(self):
+        hierarchy_obj = Hierarchy(
+            name="DimA",
+            elements=[Element(name="Elem1", type="Numeric")],
+            edges=[],
+            subsets=[],
+        )
+        dimension_obj = Dimension(
+            name="DimA",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+        model_old = Model(cubes=[], dimensions=[], processes=[], chores=[])
+        model_new = Model(cubes=[], dimensions=[dimension_obj], processes=[], chores=[])
+
+        changeset = Comparator().compare(model_old, model_new, mode="full")
+        added = self._changes_by_type(changeset, ChangeType.ADD)
+
+        assert any(isinstance(change.body, Dimension) and change.body.name == "DimA" for change in added)
+        assert any(
+            isinstance(change.body, Hierarchy) and change.uri == "Dimensions('DimA')/Hierarchies('DimA')"
+            for change in added
+        )
+        assert any(
+            isinstance(change.body, Element)
+            and change.uri == "Dimensions('DimA')/Hierarchies('DimA')/Elements('Elem1')"
+            for change in added
+        )
+
 
     def test_comparator_cubes_change_propagation(self):
         model1, error1 = deserialize_model(str(test_model_dir_base))

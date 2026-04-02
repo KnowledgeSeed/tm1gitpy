@@ -39,7 +39,6 @@ def _normalize_apply_response(
     normalized.encoding = "utf-8"
     return normalized
 
-
 def apply(
         changeset: Changeset,
         tm1_service: TM1Service,
