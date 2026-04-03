@@ -9,6 +9,7 @@ from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.model import Model
+from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.process import Process
 from tm1_git_py.filter import filter
 
@@ -400,7 +401,12 @@ class Comparator:
         old_signature = old_db.sidecar_content_signature()
         new_signature = new_db.sidecar_content_signature()
 
-        if old_signature and new_signature and old_signature == new_signature:
+        if (
+            old_signature
+            and new_signature
+            and old_signature == new_signature
+            and (old_signature[0] == 0 or old_signature[1] != ModelStore.EMPTY_CONTENT_HASH)
+        ):
             logger.info(
                 "Skipping %s streaming compare: count+hash match count=%d hash_algo=%s",
                 object_type_name,

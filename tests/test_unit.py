@@ -794,9 +794,7 @@ class TestComparator:
                 dimension_name="DimA",
                 hierarchy_name=group_suffix,
             )
-            db.replace_with_payloads(())
-            for e in sorted(elems, key=lambda x: (x.name or "")):
-                db.append(e)
+            db.replace_with_payloads([e.to_dict() for e in sorted(elems, key=lambda x: (x.name or ""))])
             return db
 
         h_old = Hierarchy(

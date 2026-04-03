@@ -1,9 +1,9 @@
-import json
 import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Optional
+import ijson
 import orjson
 
 from tm1_git_py.model import Edge
@@ -25,6 +25,7 @@ from tm1_git_py.model.ti import TI
 
 
 logger = logging.getLogger(__name__)
+DESERIALIZE_PROGRESS_EVERY = 100_000
 
 
 def _json_load_text(raw: str) -> Any:
@@ -40,6 +41,90 @@ def _subset_sort_tuple(payload: dict) -> tuple[str, str]:
     return (
         str(payload.get("name") or payload.get("Name") or ""),
         str(payload.get("expression") or payload.get("Expression") or ""),
+    )
+
+
+def _element_sort_tuple(payload: dict) -> tuple[str, str]:
+    return (
+        str(payload.get("Name") or payload.get("name") or ""),
+        str(payload.get("Type") or payload.get("type") or ""),
+    )
+
+
+def _edge_sort_tuple(payload: dict) -> tuple[str, str, str]:
+    weight = payload.get("Weight")
+    if weight is None:
+        weight = payload.get("weight")
+    return (
+        str(payload.get("ParentName") or payload.get("parentName") or payload.get("parent") or ""),
+        str(payload.get("ComponentName") or payload.get("componentName") or payload.get("name") or ""),
+        str(weight if weight is not None else ""),
+    )
+
+
+def _element_identity_key(payload: dict) -> str:
+    return "|".join(_element_sort_tuple(payload))
+
+
+def _edge_identity_key(payload: dict) -> str:
+    return "|".join(_edge_sort_tuple(payload))
+
+
+def _subset_identity_key(payload: dict) -> str:
+    return "|".join(_subset_sort_tuple(payload))
+
+
+def _recalculate_sequence_signature(sequence: StoreBackedSequence[Any], *, progress_label: str) -> tuple[int, str]:
+    row_count = 0
+    content_hash = ModelStore.EMPTY_CONTENT_HASH
+    for payload_json in sequence.iter_payload_json_strings(
+        ordered_by_identity=True,
+        progress_label=progress_label,
+    ):
+        row_count += 1
+        content_hash = ModelStore._hash_line(content_hash, (payload_json + "\n").encode("utf-8"))
+    sequence.set_content_signature(row_count=row_count, content_hash=content_hash)
+    return row_count, content_hash
+
+
+def _hierarchy_has_top_level_key(hierarchy_json_path: str, key: str) -> bool:
+    with open(hierarchy_json_path, "rb") as src:
+        for prefix, event, value in ijson.parse(src):
+            if prefix == "" and event == "map_key" and value == key:
+                return True
+    return False
+
+
+def _iter_hierarchy_array_payloads(hierarchy_json_path: str, key: str) -> Iterator[dict]:
+    item_prefix = f"{key}.item"
+    emitted = False
+    with open(hierarchy_json_path, "rb") as src:
+        for payload in ijson.items(src, item_prefix):
+            if not isinstance(payload, dict):
+                raise ValueError(f"Malformed hierarchy json: non-object payload in array '{key}'")
+            emitted = True
+            yield payload
+    if not emitted and not _hierarchy_has_top_level_key(hierarchy_json_path, key):
+        raise ValueError(f"Malformed hierarchy json: key '{key}' not found")
+
+
+def _append_payloads_in_batches(
+    *,
+    store: ModelStore,
+    group_id: int,
+    payloads: Iterable[dict],
+    identity_key_fn,
+    batch_size: int = 100_000,
+    progress_label: Optional[str] = None,
+    progress_every: int = DESERIALIZE_PROGRESS_EVERY,
+) -> int:
+    return store.append_payloads(
+        group_id=group_id,
+        payloads=payloads,
+        identity_key_fn=identity_key_fn,
+        batch_size=batch_size,
+        progress_label=progress_label,
+        progress_every=progress_every,
     )
 
 
@@ -94,36 +179,67 @@ def _ensure_hierarchy_store_groups(
     subset_source_mtime_ns = _subset_source_mtime_ns(subset_dir_path)
     needs_subsets_rebuild = subsets.source_json_mtime_ns() != subset_source_mtime_ns
 
-    if needs_elements_rebuild or needs_edges_rebuild:
-        hierarchy_json = _json_load_file(hierarchy_json_path)
-        if needs_elements_rebuild:
-            element_payloads = hierarchy_json.get("Elements") or []
-            elements.replace_with_payloads(element_payloads)
-            if source_mtime_ns is not None:
-                elements.set_source_json_mtime_ns(source_mtime_ns)
-        if needs_edges_rebuild:
-            edge_payloads = hierarchy_json.get("Edges") or []
-            edges.replace_with_payloads(edge_payloads)
-            if source_mtime_ns is not None:
-                edges.set_source_json_mtime_ns(source_mtime_ns)
+    if needs_elements_rebuild:
+        elements.replace_with_payloads(())
+        _append_payloads_in_batches(
+            store=store,
+            group_id=elements.group_id,
+            payloads=_iter_hierarchy_array_payloads(hierarchy_json_path, "Elements"),
+            identity_key_fn=_element_identity_key,
+            progress_label=f"deserialize:{dimension_name}/{hierarchy_name}:elements",
+            progress_every=DESERIALIZE_PROGRESS_EVERY,
+        )
+        if source_mtime_ns is not None:
+            elements.set_source_json_mtime_ns(source_mtime_ns)
+        _recalculate_sequence_signature(
+            elements,
+            progress_label=f"deserialize:{dimension_name}/{hierarchy_name}:elements",
+        )
+
+    if needs_edges_rebuild:
+        edges.replace_with_payloads(())
+        _append_payloads_in_batches(
+            store=store,
+            group_id=edges.group_id,
+            payloads=_iter_hierarchy_array_payloads(hierarchy_json_path, "Edges"),
+            identity_key_fn=_edge_identity_key,
+            progress_label=f"deserialize:{dimension_name}/{hierarchy_name}:edges",
+            progress_every=DESERIALIZE_PROGRESS_EVERY,
+        )
+        if source_mtime_ns is not None:
+            edges.set_source_json_mtime_ns(source_mtime_ns)
+        _recalculate_sequence_signature(
+            edges,
+            progress_label=f"deserialize:{dimension_name}/{hierarchy_name}:edges",
+        )
 
     if needs_subsets_rebuild:
-        subset_payloads = []
+        subsets.replace_with_payloads(())
         if os.path.isdir(subset_dir_path):
-            for subset_file_name in sorted(os.listdir(subset_dir_path)):
-                if not subset_file_name.endswith(".json"):
-                    continue
-                subset_path = os.path.join(subset_dir_path, subset_file_name)
-                subset_json = _json_load_file(subset_path)
-                subset_payloads.append(
-                    {
+            def _subset_payload_iter() -> Iterator[dict]:
+                for subset_file_name in sorted(os.listdir(subset_dir_path)):
+                    if not subset_file_name.endswith(".json"):
+                        continue
+                    subset_path = os.path.join(subset_dir_path, subset_file_name)
+                    subset_json = _json_load_file(subset_path)
+                    yield {
                         "name": subset_json.get("Name") or subset_json.get("name"),
                         "expression": subset_json.get("Expression") or subset_json.get("expression"),
                     }
-                )
-        subset_payloads.sort(key=lambda p: _subset_sort_tuple(p))
-        subsets.replace_with_payloads(subset_payloads)
+
+            _append_payloads_in_batches(
+                store=store,
+                group_id=subsets.group_id,
+                payloads=_subset_payload_iter(),
+                identity_key_fn=_subset_identity_key,
+                progress_label=f"deserialize:{dimension_name}/{hierarchy_name}:subsets",
+                progress_every=DESERIALIZE_PROGRESS_EVERY,
+            )
         subsets.set_source_json_mtime_ns(subset_source_mtime_ns)
+        _recalculate_sequence_signature(
+            subsets,
+            progress_label=f"deserialize:{dimension_name}/{hierarchy_name}:subsets",
+        )
     return elements, edges, subsets
 
 
@@ -320,13 +436,7 @@ def deserialize_dimensions(dimension_dir) -> tuple[Dict[str, Dimension], Dict[st
         hiers = files.get(hier_dir_name)
         for hier_file_name in list(hiers.keys()):
             # Ignore temporary/in-progress hierarchy artifacts.
-            if (
-                ".tmp.json" in hier_file_name
-                or hier_file_name.endswith(".jsonl")
-                or hier_file_name.endswith(".meta.json")
-                or hier_file_name.endswith(".json.inprogress")
-                or hier_file_name.startswith(".")
-            ):
+            if hier_file_name.endswith(".json.inprogress") or hier_file_name.endswith(".tmp.json.meta.json"):
                 continue
             hier_file_name_base, dot, file_name_ext = hier_file_name.rpartition('.')
             hier_link = Hierarchy.uri_for(file_name_base, hier_file_name_base)

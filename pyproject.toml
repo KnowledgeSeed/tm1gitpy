@@ -27,6 +27,7 @@ dependencies = [
     "requests>=2.25",
     "PyYAML>=6.0",
     "orjson",
+    "ijson",
 ]
 
 [project.urls]
@@ -40,6 +41,7 @@ dev = [
     "pytest-mock",
     "testcontainers>=4.0.0",
     "orjson",
+    "ijson",
 ]
 
 [tool.setuptools]

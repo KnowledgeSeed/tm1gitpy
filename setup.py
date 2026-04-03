@@ -49,6 +49,7 @@ setup(
         "requests>=2.25",
         "PyYAML>=6.0",
         "orjson",
+        "ijson",
     ],
     extras_require={
         "dev": [
@@ -56,6 +57,7 @@ setup(
             "pytest-mock",
             "testcontainers>=4.0.0",
             "orjson",
+            "ijson",
         ],
     },
     python_requires=">=3.10",

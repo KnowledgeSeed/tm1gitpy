@@ -9,6 +9,7 @@ from TM1py import TM1Service
 from TM1py.Utils import format_url
 from requests import Response
 
+# Keep CRUD helpers imported in module namespace for compatibility with existing patches/tests.
 from .element import Element, create_element, delete_element, update_element
 from .edge import Edge
 from .subset import Subset
@@ -16,12 +17,20 @@ from .model_store import ModelStore
 from .store_backed_sequence import StoreBackedSequence
 import orjson
 
+
+logger = logging.getLogger(__name__)
+
+
 def _loads_json(payload_json: str) -> dict:
     return dict(orjson.loads(payload_json))
 
 
-def _pretty_json(obj: dict, *, inner_indent: str) -> str:
+def _pretty_json(obj: dict) -> str:
     return orjson.dumps(obj, option=orjson.OPT_INDENT_2).decode("utf-8")
+
+
+def _hash_payload_line(previous_hash: str, payload_json: str) -> str:
+    return ModelStore._hash_line(previous_hash, (payload_json + "\n").encode("utf-8"))
 
 
 def _write_json_object_block(
@@ -29,41 +38,11 @@ def _write_json_object_block(
     obj: dict,
     *,
     item_line_prefix: str,
-    inner_indent: str = "\t",
 ) -> None:
     """Write one JSON object with inner pretty-printing and outer line prefix (for array items)."""
-    pretty = _pretty_json(obj, inner_indent=inner_indent)
+    pretty = _pretty_json(obj)
     fh.write(item_line_prefix)
     fh.write(pretty.replace("\n", "\n" + item_line_prefix))
-
-
-# {
-# 	"@type": "Hierarchy",
-# 	"Name": "Capex Balance Sheet Assignment Measure",
-# 	"Elements": [
-# 		{
-# 			"Name": "Assignment",
-# 			"Type": "Numeric"
-# 		},
-# 		{
-# 			"Name": "Comment",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "CapexName",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "BalanceSheetName",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "Value",
-# 			"Type": "Numeric"
-# 		}
-# 	],
-# 	"Subsets@Code.links": []
-# }
 
 
 class _HierarchyStagedWriter:
@@ -89,62 +68,12 @@ class _HierarchyStagedWriter:
         self.elements_filter_rules = list(elements_filter_rules or [])
         self.edges_filter_rules = list(edges_filter_rules or [])
         self.subsets_filter_rules = list(subsets_filter_rules or [])
-        for path in (self.inprogress_path,):
-            if os.path.exists(path):
-                os.remove(path)
+        if os.path.exists(self.inprogress_path):
+            os.remove(self.inprogress_path)
         self.elements_ref: Optional[StoreBackedSequence[Element]] = None
         self.edges_ref: Optional[StoreBackedSequence[Edge]] = None
         self.subsets_ref: Optional[StoreBackedSequence[Subset]] = None
-        self._elements_monotonic = True
-        self._edges_monotonic = True
-        self._subsets_monotonic = True
-        self._last_element_key: Optional[tuple[str, str]] = None
-        self._last_edge_key: Optional[tuple[str, str, str]] = None
-        self._last_subset_key: Optional[tuple[str, str]] = None
         self._finalized = False
-
-    def _track_elements_append(self, payload_batch: list[dict]) -> None:
-        if not self._elements_monotonic:
-            return
-        for payload in payload_batch:
-            key = (
-                str(payload.get("Name") or payload.get("name") or ""),
-                str(payload.get("Type") or payload.get("type") or ""),
-            )
-            if self._last_element_key is not None and key < self._last_element_key:
-                self._elements_monotonic = False
-                return
-            self._last_element_key = key
-
-    def _track_edges_append(self, payload_batch: list[dict]) -> None:
-        if not self._edges_monotonic:
-            return
-        for payload in payload_batch:
-            weight = payload.get("Weight")
-            if weight is None:
-                weight = payload.get("weight")
-            key = (
-                str(payload.get("ParentName") or payload.get("parentName") or payload.get("parent") or ""),
-                str(payload.get("ComponentName") or payload.get("componentName") or payload.get("name") or ""),
-                str(weight if weight is not None else ""),
-            )
-            if self._last_edge_key is not None and key < self._last_edge_key:
-                self._edges_monotonic = False
-                return
-            self._last_edge_key = key
-
-    def _track_subsets_append(self, payload_batch: list[dict]) -> None:
-        if not self._subsets_monotonic:
-            return
-        for payload in payload_batch:
-            key = (
-                str(payload.get("name") or payload.get("Name") or ""),
-                str(payload.get("expression") or payload.get("Expression") or ""),
-            )
-            if self._last_subset_key is not None and key < self._last_subset_key:
-                self._subsets_monotonic = False
-                return
-            self._last_subset_key = key
 
     def bind_collections(
         self,
@@ -157,91 +86,87 @@ class _HierarchyStagedWriter:
         self.edges_ref = edges
         self.subsets_ref = subsets
 
-    def _write_payload_array(self, fh, key: str, payloads: Iterator[dict]) -> None:
-        fh.write(f'\t"{key}": [')
-        first = True
-        for payload in payloads:
-            if first:
-                fh.write("\n")
-                first = False
-            else:
-                fh.write(",\n")
-            _write_json_object_block(fh, payload, item_line_prefix="\t\t", inner_indent="\t")
-        if first:
-            fh.write("]")
-        else:
-            fh.write("\n\t]")
-
     def _write_payload_array_from_json_strings(
         self,
         fh,
         key: str,
         payload_json_iter: Iterator[str],
-    ) -> None:
+    ) -> tuple[int, str]:
         fh.write(f'\t"{key}": [')
         first = True
+        emitted = 0
+        content_hash = ModelStore.EMPTY_CONTENT_HASH
         for payload_json in payload_json_iter:
             if first:
                 fh.write("\n")
                 first = False
             else:
                 fh.write(",\n")
+            emitted += 1
+            content_hash = _hash_payload_line(content_hash, payload_json)
             payload_obj = _loads_json(payload_json)
-            _write_json_object_block(fh, payload_obj, item_line_prefix="\t\t", inner_indent="\t")
+            _write_json_object_block(fh, payload_obj, item_line_prefix="\t\t")
         if first:
             fh.write("]")
         else:
             fh.write("\n\t]")
+        return emitted, content_hash
 
-    def _build_subset_links(self) -> list[str]:
+    def _build_subset_links(self) -> tuple[list[str], tuple[int, str]]:
         links: list[str] = []
         if self.subsets_ref is None:
-            return links
-        for payload in self.subsets_ref.iter_payloads(ordered_by_identity=True):
+            return links, (0, ModelStore.EMPTY_CONTENT_HASH)
+        emitted = 0
+        content_hash = ModelStore.EMPTY_CONTENT_HASH
+        for payload_json in self.subsets_ref.iter_payload_json_strings(ordered_by_identity=True):
+            emitted += 1
+            content_hash = _hash_payload_line(content_hash, payload_json)
+            payload = _loads_json(payload_json)
             subset_name = payload.get("name") or payload.get("Name")
             if not subset_name:
                 continue
             links.append(format_url("{}.subsets/{}.json", self.hierarchy_name, subset_name))
-        return links
+        return links, (emitted, content_hash)
 
     def _sort_staged_jsonls(self) -> None:
         if self.elements_ref is None or self.edges_ref is None or self.subsets_ref is None:
             return
-        elements_count = len(self.elements_ref)
-        logger.info(
-            "Finalization order check hierarchy='%s' collection=Elements count=%d",
-            self.hierarchy_name,
-            elements_count,
-        )
-        logger.info(
-            "Finalization order done hierarchy='%s' collection=Elements count=%d",
-            self.hierarchy_name,
-            len(self.elements_ref),
-        )
+        for collection_name, collection_ref in (
+            ("Elements", self.elements_ref),
+            ("Edges", self.edges_ref),
+            ("Subsets", self.subsets_ref),
+        ):
+            count = len(collection_ref)
+            logger.info(
+                "Finalization order check hierarchy='%s' collection=%s count=%d",
+                self.hierarchy_name,
+                collection_name,
+                count,
+            )
+            logger.info(
+                "Finalization order done hierarchy='%s' collection=%s count=%d",
+                self.hierarchy_name,
+                collection_name,
+                len(collection_ref),
+            )
 
-        edges_count = len(self.edges_ref)
-        logger.info(
-            "Finalization order check hierarchy='%s' collection=Edges count=%d",
-            self.hierarchy_name,
-            edges_count,
+    @staticmethod
+    def _apply_group_metadata(
+        sequence: StoreBackedSequence[Any],
+        *,
+        final_mtime_ns: int,
+        filter_rules: list[str],
+        signature: tuple[int, str],
+        etag: Optional[str],
+    ) -> None:
+        sequence.set_source_json_mtime_ns(final_mtime_ns)
+        sequence.set_filter_rules(filter_rules)
+        sequence.set_content_signature(
+            row_count=signature[0],
+            content_hash=signature[1],
         )
-        logger.info(
-            "Finalization order done hierarchy='%s' collection=Edges count=%d",
-            self.hierarchy_name,
-            len(self.edges_ref),
-        )
-
-        subsets_count = len(self.subsets_ref)
-        logger.info(
-            "Finalization order check hierarchy='%s' collection=Subsets count=%d",
-            self.hierarchy_name,
-            subsets_count,
-        )
-        logger.info(
-            "Finalization order done hierarchy='%s' collection=Subsets count=%d",
-            self.hierarchy_name,
-            len(self.subsets_ref),
-        )
+        if etag is not None:
+            sequence.set_etag(etag)
 
     def finalize(self) -> str:
         if self._finalized:
@@ -253,11 +178,14 @@ class _HierarchyStagedWriter:
             self.final_path,
         )
         self._sort_staged_jsonls()
+        element_signature = (0, ModelStore.EMPTY_CONTENT_HASH)
+        edge_signature = (0, ModelStore.EMPTY_CONTENT_HASH)
+        subset_signature = (0, ModelStore.EMPTY_CONTENT_HASH)
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")
             fh.write('\t"@type": "Hierarchy",\n')
             fh.write(f'\t"Name": {json.dumps(self.hierarchy_name, ensure_ascii=False)},\n')
-            self._write_payload_array_from_json_strings(
+            element_signature = self._write_payload_array_from_json_strings(
                 fh,
                 "Elements",
                 self.elements_ref.iter_payload_json_strings(
@@ -267,7 +195,7 @@ class _HierarchyStagedWriter:
                 ) if self.elements_ref is not None else iter(()),
             )
             fh.write(",\n")
-            self._write_payload_array_from_json_strings(
+            edge_signature = self._write_payload_array_from_json_strings(
                 fh,
                 "Edges",
                 self.edges_ref.iter_payload_json_strings(
@@ -278,26 +206,35 @@ class _HierarchyStagedWriter:
             )
             fh.write(",\n")
             fh.write('\t"Subsets@Code.links": ')
-            fh.write(json.dumps(self._build_subset_links(), ensure_ascii=False))
+            subset_links, subset_signature = self._build_subset_links()
+            fh.write(json.dumps(subset_links, ensure_ascii=False))
             fh.write("\n}")
         os.replace(self.inprogress_path, self.final_path)
         final_mtime_ns = int(os.stat(self.final_path).st_mtime_ns)
         if self.elements_ref is not None:
-            self.elements_ref.set_source_json_mtime_ns(final_mtime_ns)
-            self.elements_ref.set_filter_rules(self.elements_filter_rules)
+            self._apply_group_metadata(
+                self.elements_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.elements_filter_rules,
+                signature=element_signature,
+                etag=self.hierarchy_etag,
+            )
         if self.edges_ref is not None:
-            self.edges_ref.set_source_json_mtime_ns(final_mtime_ns)
-            self.edges_ref.set_filter_rules(self.edges_filter_rules)
+            self._apply_group_metadata(
+                self.edges_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.edges_filter_rules,
+                signature=edge_signature,
+                etag=self.hierarchy_etag,
+            )
         if self.subsets_ref is not None:
-            self.subsets_ref.set_source_json_mtime_ns(final_mtime_ns)
-            self.subsets_ref.set_filter_rules(self.subsets_filter_rules)
-        if self.hierarchy_etag is not None:
-            if self.elements_ref is not None:
-                self.elements_ref.set_etag(self.hierarchy_etag)
-            if self.edges_ref is not None:
-                self.edges_ref.set_etag(self.hierarchy_etag)
-            if self.subsets_ref is not None:
-                self.subsets_ref.set_etag(self.hierarchy_etag)
+            self._apply_group_metadata(
+                self.subsets_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.subsets_filter_rules,
+                signature=subset_signature,
+                etag=self.hierarchy_etag,
+            )
         logger.info(
             "Completed hierarchy finalization hierarchy='%s' target='%s'",
             self.hierarchy_name,
@@ -350,21 +287,18 @@ class Hierarchy:
                 model_id=resolved_model_id,
                 dimension_name=dimension_name,
                 hierarchy_name=name,
-                on_append=self._staged_writer._track_elements_append,
             )
             edges = StoreBackedSequence.for_edges_sink(
                 store=store,
                 model_id=resolved_model_id,
                 dimension_name=dimension_name,
                 hierarchy_name=name,
-                on_append=self._staged_writer._track_edges_append,
             )
             subsets = StoreBackedSequence.for_subsets_sink(
                 store=store,
                 model_id=resolved_model_id,
                 dimension_name=dimension_name,
                 hierarchy_name=name,
-                on_append=self._staged_writer._track_subsets_append,
             )
             if not reuse_existing_store:
                 elements.replace_with_payloads(())
@@ -401,7 +335,7 @@ class Hierarchy:
                 first = False
             else:
                 fh.write(",\n")
-            _write_json_object_block(fh, item.to_dict(), item_line_prefix=item_prefix, inner_indent=indent)
+            _write_json_object_block(fh, item.to_dict(), item_line_prefix=item_prefix)
         if not first:
             fh.write(f"\n{indent}]")
         else:
@@ -516,8 +450,6 @@ class Hierarchy:
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
-
-logger = logging.getLogger(__name__)
 
 def _hierarchy_context_from_uri(uri: str) -> Tuple[str, str]:
     match = re.search(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)$", uri or "")

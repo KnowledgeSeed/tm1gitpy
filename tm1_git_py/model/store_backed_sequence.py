@@ -215,6 +215,13 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
     def sidecar_content_signature(self) -> Optional[tuple[int, str]]:
         return self._store.content_signature(self.group_id)
 
+    def set_content_signature(self, *, row_count: int, content_hash: str) -> None:
+        self._store.set_content_signature(
+            self.group_id,
+            row_count=row_count,
+            content_hash=content_hash,
+        )
+
     def set_source_json_mtime_ns(self, source_json_mtime_ns: int) -> None:
         self._store.set_source_json_mtime_ns(self.group_id, source_json_mtime_ns)
 

@@ -410,17 +410,25 @@ class ModelStore:
         identity_key_fn: Callable[[dict[str, Any]], str],
         *,
         batch_size: int = DEFAULT_BULK_INSERT_BATCH_SIZE,
+        progress_label: Optional[str] = None,
+        progress_every: int = DEFAULT_ITER_PROGRESS_EVERY,
     ) -> int:
-        row_count, content_hash = self._load_group_state(group_id)
+        row_count, _content_hash = self._load_group_state(group_id)
         next_seq = row_count
         inserted = 0
         batch_size = max(1, int(batch_size))
+        next_log_at = max(1, int(progress_every))
+        if progress_label:
+            logger.info(
+                "Starting DB append '%s' group_id=%d progress_every=%d",
+                progress_label,
+                group_id,
+                next_log_at,
+            )
         with self.tx():
             pending_rows: list[tuple[int, int, str, str]] = []
             for payload in payloads:
                 payload_json = self._payload_to_json(payload)
-                line = payload_json + "\n"
-                content_hash = self._hash_line(content_hash, line.encode("utf-8"))
                 identity_key = identity_key_fn(payload)
                 pending_rows.append((group_id, next_seq, identity_key, payload_json))
                 next_seq += 1
@@ -431,6 +439,15 @@ class ModelStore:
                         pending_rows,
                     )
                     pending_rows.clear()
+                    if progress_label and inserted >= next_log_at:
+                        logger.info(
+                            "DB append progress '%s' group_id=%d inserted=%d",
+                            progress_label,
+                            group_id,
+                            inserted,
+                        )
+                        while inserted >= next_log_at:
+                            next_log_at += max(1, int(progress_every))
             if pending_rows:
                 self._conn.executemany(
                     "INSERT INTO objects(group_id, seq, identity_key, payload_json) VALUES (?, ?, ?, ?)",
@@ -445,8 +462,21 @@ class ModelStore:
                     SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
                     WHERE group_id=?
                     """,
-                    (row_count, content_hash, self.HASH_ALGO, now, group_id),
+                    (
+                        row_count,
+                        self.EMPTY_CONTENT_HASH,
+                        self.HASH_ALGO,
+                        now,
+                        group_id,
+                    ),
                 )
+        if progress_label:
+            logger.info(
+                "Completed DB append '%s' group_id=%d inserted=%d",
+                progress_label,
+                group_id,
+                inserted,
+            )
         return inserted
 
     def replace_group_payloads(
@@ -596,6 +626,17 @@ class ModelStore:
         if row is None:
             return None
         return int(row["row_count"]), str(row["content_hash"])
+
+    def set_content_signature(self, group_id: int, *, row_count: int, content_hash: str) -> None:
+        self._conn.execute(
+            """
+            UPDATE groups
+            SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
+            WHERE group_id=?
+            """,
+            (int(row_count), str(content_hash), self.HASH_ALGO, time.time_ns(), group_id),
+        )
+        self._conn.commit()
 
     def set_source_json_mtime_ns(self, group_id: int, source_json_mtime_ns: int) -> None:
         self._conn.execute(
