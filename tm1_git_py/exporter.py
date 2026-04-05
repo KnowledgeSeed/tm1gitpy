@@ -2,10 +2,17 @@ import json
 import logging
 import os
 import re
-from typing import Dict, List, Optional
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from queue import Empty, Queue
+from typing import Dict, List, Optional, Any
 from warnings import catch_warnings
 from TM1py import TM1Service
 import TM1py
+try:
+    from tqdm import tqdm  # type: ignore[reportMissingModuleSource]
+except Exception:  # pragma: no cover - optional runtime fallback
+    tqdm = None
 
 from functools import reduce
 
@@ -26,8 +33,22 @@ from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
+from tm1_git_py.progress_reporting import (
+    ProgressEvent,
+    ProgressSink,
+)
 
-from tm1_git_py.tm1py_ext import get_cube_names, get_edges, get_elements, get_subsets, get_process_names, get_views
+from tm1_git_py.tm1py_ext import (
+    get_cube_names,
+    get_edges,
+    get_edges_count,
+    get_elements,
+    get_elements_count,
+    get_process_names,
+    get_subsets,
+    get_subsets_count,
+    get_views,
+)
 from tm1_git_py.tm1py_ext.dimension_service_ext import get_names as get_dimension_names
 from tm1_git_py.tm1py_ext.hierarchy_service_ext import get_all_names as get_hierarchy_names
 
@@ -35,12 +56,113 @@ from tm1_git_py.tm1py_ext.hierarchy_service_ext import get_all_names as get_hier
 logger = logging.getLogger(__name__)
 
 
+def _default_max_workers() -> int:
+    return max(1, ((os.cpu_count() or 1) // 2) + 1)
+
+
+class TqdmExportProgress(ProgressSink):
+    def __init__(self):
+        self._overall_bar = None
+        self._current_bar = None
+
+    def on_event(self, event: ProgressEvent) -> None:
+        if tqdm is None or not sys.stderr.isatty():
+            return
+        if self._overall_bar is None:
+            self._overall_bar = tqdm(
+                total=1,
+                desc="Export overall",
+                unit="row",
+                leave=False,
+                dynamic_ncols=True,
+                position=0,
+            )
+        if self._current_bar is None:
+            self._current_bar = tqdm(
+                total=1,
+                desc="Current",
+                unit="row",
+                leave=False,
+                dynamic_ncols=True,
+                position=1,
+            )
+
+        if event.scope == "export:overall_rows":
+            if event.kind == "scope_start":
+                total = max(1, int(event.total or 0))
+                current = min(max(0, int(event.current or 0)), total)
+                self._overall_bar.reset(total=total)
+                self._overall_bar.unit = event.unit or "row"
+                self._overall_bar.set_description_str(event.activity or "Export overall", refresh=True)
+                self._overall_bar.n = current
+                self._overall_bar.refresh()
+                return
+            if event.kind == "scope_update":
+                if event.total is not None:
+                    new_total = max(1, int(event.total))
+                    if int(self._overall_bar.total or 1) != new_total:
+                        self._overall_bar.reset(total=new_total)
+                total = int(self._overall_bar.total or 1)
+                self._overall_bar.n = min(max(0, int(event.current or 0)), total)
+                self._overall_bar.refresh()
+                return
+            if event.kind == "scope_complete":
+                self._overall_bar.n = int(self._overall_bar.total or 1)
+                self._overall_bar.refresh()
+                return
+
+        if event.scope == "export:current":
+            if event.kind == "scope_start":
+                total = max(1, int(event.total or 0))
+                current = min(max(0, int(event.current or 0)), total)
+                self._current_bar.reset(total=total)
+                self._current_bar.unit = event.unit or "row"
+                self._current_bar.set_description_str(event.activity or "Current", refresh=True)
+                self._current_bar.n = current
+                self._current_bar.refresh()
+                return
+            if event.kind == "scope_update":
+                if event.total is not None:
+                    new_total = max(1, int(event.total))
+                    if int(self._current_bar.total or 1) != new_total:
+                        self._current_bar.reset(total=new_total)
+                total = int(self._current_bar.total or 1)
+                self._current_bar.n = min(max(0, int(event.current or 0)), total)
+                self._current_bar.refresh()
+                return
+            if event.kind == "scope_complete":
+                self._current_bar.n = int(self._current_bar.total or 1)
+                self._current_bar.refresh()
+                return
+
+        if event.kind == "activity":
+            self._current_bar.set_description_str(event.activity or "Current", refresh=True)
+            return
+
+    def close(self) -> None:
+        if self._current_bar is not None:
+            self._current_bar.close()
+            self._current_bar = None
+        if self._overall_bar is not None:
+            self._overall_bar.close()
+            self._overall_bar = None
+
+
+def _emit_progress_event(progress_sink: Optional[ProgressSink], event: ProgressEvent) -> None:
+    if progress_sink is not None:
+        progress_sink.on_event(event)
+
+
 def export(
     tm1_conn: TM1Service,
     filter_rules_list: Optional[list[str]] = None,
     internal_model_dir: Optional[str] = None,
     internal_model_id: Optional[int] = None,
+    progress_sink: Optional[ProgressSink] = None,
+    max_workers: Optional[int] = None,
 ) -> tuple[Model, Dict[str, str]]:
+    active_progress_sink: Optional[ProgressSink] = progress_sink
+
     logger.info("TM1 export started")
     effective_rules = list(filter_rules_list or [])
     filter_rules = FilterRules(effective_rules)
@@ -50,25 +172,38 @@ def export(
         len(effective_rules),
     )
 
-    _dimensions, _dim_errors = dimensions_to_model(
-        tm1_conn,
-        filter_rules=filter_rules,
-        internal_model_dir=internal_model_dir,
-        internal_model_id=internal_model_id,
-    )
+    try:
+        _dimensions, _dim_errors = dimensions_to_model(
+            tm1_conn,
+            filter_rules=filter_rules,
+            internal_model_dir=internal_model_dir,
+            internal_model_id=internal_model_id,
+            progress_sink=active_progress_sink,
+            max_workers=max_workers,
+        )
 
-    _cubes, _cube_errors = cubes_to_model(
-        tm1_conn,
-        _dimensions,
-        filter_rules=filter_rules,
-    )
+        _cubes, _cube_errors = cubes_to_model(
+            tm1_conn,
+            _dimensions,
+            filter_rules=filter_rules,
+            progress_sink=active_progress_sink,
+        )
 
-    _processes, _process_errors = procs_to_model(
-        tm1_conn,
-        filter_rules=filter_rules
-    )
+        _processes, _process_errors = procs_to_model(
+            tm1_conn,
+            filter_rules=filter_rules,
+            progress_sink=active_progress_sink,
+        )
 
-    _chores, _chore_errors = chores_to_model(tm1_conn, filter_rules=filter_rules)
+        _chores, _chore_errors = chores_to_model(
+            tm1_conn,
+            filter_rules=filter_rules,
+            progress_sink=active_progress_sink,
+        )
+    finally:
+        close_fn = getattr(active_progress_sink, "close", None)
+        if callable(close_fn):
+            close_fn()
 
     _model = Model(cubes=list(_cubes.values()),
                    dimensions=list(_dimensions.values()),
@@ -105,6 +240,7 @@ def export(
 def chores_to_model(
     tm1_conn,
     filter_rules: FilterRules,
+    progress_sink: Optional[ProgressSink] = None,
 ) -> tuple[Dict[str, Chore], Dict[str, str]]:
     all_chores = tm1_conn.chores.get_all_names()
     _chores: Dict[str, Chore] = {}
@@ -112,46 +248,70 @@ def chores_to_model(
     skipped_chores = 0
     skipped_tasks = 0
     logger.info("Exporting %d chores", len(all_chores))
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_start",
+            scope="export:chores",
+            current=0,
+            total=len(all_chores),
+            unit="item",
+            activity="exporting chores",
+        ),
+    )
 
-    for chore_name in all_chores:
-        chore_url = Chore.uri_for(chore_name)
-        if filter_rules.should_exclude(chore_url):
-            logger.debug("Skipping chore by filter: %s", chore_url)
-            skipped_chores += 1
-            continue
-
-        chore = tm1_conn.chores.get(chore_name=chore_name)
-
-        tasks_for_model = []
-        for tm1py_task in chore.tasks:
-            task_dict = tm1py_task.body_as_dict
-            process_name = ""
-            process_bind = task_dict.get("Process@odata.bind", "")
-            match = re.search(r"Processes\('([^']*)'\)", process_bind)
-            if match:
-                process_name = match.group(1)
-            task_path = f"{chore_url}/Tasks('{process_name}')"
-            if filter_rules.should_exclude(task_path):
-                logger.debug("Skipping chore task by filter: %s", task_path)
-                skipped_tasks += 1
+    for idx, chore_name in enumerate(all_chores, start=1):
+        try:
+            chore_url = Chore.uri_for(chore_name)
+            if filter_rules.should_exclude(chore_url):
+                logger.debug("Skipping chore by filter: %s", chore_url)
+                skipped_chores += 1
                 continue
 
-            task_obj = Task(
-                process_name=process_name,
-                parameters=task_dict.get('Parameters', [])
+            chore = tm1_conn.chores.get(chore_name=chore_name)
+
+            tasks_for_model = []
+            for tm1py_task in chore.tasks:
+                task_dict = tm1py_task.body_as_dict
+                process_name = ""
+                process_bind = task_dict.get("Process@odata.bind", "")
+                match = re.search(r"Processes\('([^']*)'\)", process_bind)
+                if match:
+                    process_name = match.group(1)
+                task_path = f"{chore_url}/Tasks('{process_name}')"
+                if filter_rules.should_exclude(task_path):
+                    logger.debug("Skipping chore task by filter: %s", task_path)
+                    skipped_tasks += 1
+                    continue
+
+                task_obj = Task(
+                    process_name=process_name,
+                    parameters=task_dict.get('Parameters', [])
+                )
+                tasks_for_model.append(task_obj)
+
+            _chore = Chore(
+                name=chore.name,
+                start_time=chore.start_time.start_time_string,
+                dst_sensitive=chore.dst_sensitivity,
+                active=chore.active,
+                execution_mode=chore.execution_mode,
+                frequency=chore.frequency.frequency_string,
+                tasks=tasks_for_model,
             )
-            tasks_for_model.append(task_obj)
- 
-        _chore = Chore(
-            name=chore.name,
-            start_time=chore.start_time.start_time_string,
-            dst_sensitive=chore.dst_sensitivity,
-            active=chore.active,
-            execution_mode=chore.execution_mode,
-            frequency=chore.frequency.frequency_string,
-            tasks=tasks_for_model,
-        )
-        _chores[chore.name] = _chore
+            _chores[chore.name] = _chore
+        finally:
+            _emit_progress_event(
+                progress_sink,
+                ProgressEvent.make(
+                    kind="scope_update",
+                    scope="export:chores",
+                    current=idx,
+                    total=len(all_chores),
+                    unit="item",
+                    activity="exporting chores",
+                ),
+            )
 
     logger.info(
         "Chore export assembly finished total=%d kept=%d skipped_chores=%d skipped_tasks=%d",
@@ -160,12 +320,24 @@ def chores_to_model(
         skipped_chores,
         skipped_tasks,
     )
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_complete",
+            scope="export:chores",
+            current=len(all_chores),
+            total=len(all_chores),
+            unit="item",
+            activity="exporting chores",
+        ),
+    )
     return _chores, _errors
 
 
 def procs_to_model(
     tm1_conn :TM1Service,
     filter_rules: FilterRules,
+    progress_sink: Optional[ProgressSink] = None,
 ) -> tuple[Dict[str, Process], Dict[str, str]]:
     processes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.PROCESS)
     filtered_process_names = [] if processes_tm1_filter.skip_all else get_process_names(
@@ -176,22 +348,57 @@ def procs_to_model(
     _processes: Dict[str, Process] = {}
     _errors: Dict[str, str] = {}
     logger.info("Exporting %d processes", len(filtered_process_names))
-    for process_name in filtered_process_names:
-        process = tm1_conn.processes.get(name_process=process_name)
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_start",
+            scope="export:processes",
+            current=0,
+            total=len(filtered_process_names),
+            unit="item",
+            activity="exporting processes",
+        ),
+    )
+    for idx, process_name in enumerate(filtered_process_names, start=1):
+        try:
+            process = tm1_conn.processes.get(name_process=process_name)
 
-        _ti = TI(prolog_procedure=process.prolog_procedure,
-                 metadata_procedure=process.metadata_procedure,
-                 data_procedure=process.data_procedure,
-                 epilog_procedure=process.epilog_procedure)
-        _process = Process(name=process.name, hasSecurityAccess=process.has_security_access,
-                           code_link=process_name + '.ti',
-                           datasource='',
-                           parameters=process.parameters, variables=process.variables, ti=_ti)
-        _processes[process.name] = _process
+            _ti = TI(prolog_procedure=process.prolog_procedure,
+                     metadata_procedure=process.metadata_procedure,
+                     data_procedure=process.data_procedure,
+                     epilog_procedure=process.epilog_procedure)
+            _process = Process(name=process.name, hasSecurityAccess=process.has_security_access,
+                               code_link=process_name + '.ti',
+                               datasource='',
+                               parameters=process.parameters, variables=process.variables, ti=_ti)
+            _processes[process.name] = _process
+        finally:
+            _emit_progress_event(
+                progress_sink,
+                ProgressEvent.make(
+                    kind="scope_update",
+                    scope="export:processes",
+                    current=idx,
+                    total=len(filtered_process_names),
+                    unit="item",
+                    activity="exporting processes",
+                ),
+            )
     logger.info(
         "Process export assembly finished total=%d kept=%d",
         len(filtered_process_names),
         len(_processes)
+    )
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_complete",
+            scope="export:processes",
+            current=len(filtered_process_names),
+            total=len(filtered_process_names),
+            unit="item",
+            activity="exporting processes",
+        ),
     )
     return _processes, _errors
 
@@ -199,7 +406,8 @@ def procs_to_model(
 def cubes_to_model(
     tm1_conn: TM1Service,
     _dimensions: Dict[str, Dimension],
-    filter_rules: FilterRules
+    filter_rules: FilterRules,
+    progress_sink: Optional[ProgressSink] = None,
 ) -> tuple[Dict[str, Cube], Dict[str, str]]:
     cubes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.CUBE)
     filtered_cube_names = [] if cubes_tm1_filter.skip_all else get_cube_names(
@@ -212,8 +420,19 @@ def cubes_to_model(
     skipped_rules = 0
     skipped_views = 0
     logger.info("Exporting %d cubes", len(filtered_cube_names))
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_start",
+            scope="export:cubes",
+            current=0,
+            total=len(filtered_cube_names),
+            unit="item",
+            activity="exporting cubes",
+        ),
+    )
 
-    for cube_name in filtered_cube_names:
+    for idx, cube_name in enumerate(filtered_cube_names, start=1):
         
         try:
             cube = tm1_conn.cubes.get(cube_name=cube_name)
@@ -306,6 +525,18 @@ def cubes_to_model(
         except Exception as e:
             logger.error("Failed to export cube '%s'", cube_name, exc_info=True)
             _errors[cube_name] = str(e)
+        finally:
+            _emit_progress_event(
+                progress_sink,
+                ProgressEvent.make(
+                    kind="scope_update",
+                    scope="export:cubes",
+                    current=idx,
+                    total=len(filtered_cube_names),
+                    unit="item",
+                    activity="exporting cubes",
+                ),
+            )
 
     logger.info(
         "Cube export assembly finished total=%d kept=%d skipped_rules=%d skipped_views=%d",
@@ -313,6 +544,17 @@ def cubes_to_model(
         len(_cubes),
         skipped_rules,
         skipped_views,
+    )
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_complete",
+            scope="export:cubes",
+            current=len(filtered_cube_names),
+            total=len(filtered_cube_names),
+            unit="item",
+            activity="exporting cubes",
+        ),
     )
     return _cubes, _errors
 
@@ -322,149 +564,551 @@ def dimensions_to_model(
     filter_rules: FilterRules,
     internal_model_dir: Optional[str] = None,
     internal_model_id: Optional[int] = None,
+    progress_sink: Optional[ProgressSink] = None,
+    max_workers: Optional[int] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
-    
     dimensions_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.DIMENSION)
     all_dims = [] if dimensions_tm1_filter.skip_all else get_dimension_names(
-        tm1_conn, 
-        filter=dimensions_tm1_filter.filter_expr
+        tm1_conn,
+        filter=dimensions_tm1_filter.filter_expr,
     )
-
     _errors: Dict[str, str] = {}
     _dimensions: Dict[str, Dimension] = {}
-    model_store = ModelStore.for_main_dir() if internal_model_id is not None else None
+    model_store = (
+        ModelStore.for_main_dir(internal_model_dir)
+        if internal_model_dir is not None
+        else None
+    )
 
-    logger.info("Exporting %d dimensions", len(all_dims))
+    # group key: (dimension, hierarchy, object_group)
+    group_totals: Dict[tuple[str, str, str], Optional[int]] = {}
+    group_processed: Dict[tuple[str, str, str], int] = {}
+    group_complete_waiting_total: set[tuple[str, str, str]] = set()
+    count_queue: Queue[tuple[tuple[str, str, str], Optional[int], Optional[Exception]]] = Queue()
+    overall_total_rows = 0
+    overall_processed_rows = 0
+    next_count_worker_slot = 0
+    count_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
 
-    for dim_name in all_dims:
+    def _emit_overall_update() -> None:
+        _emit_progress_event(
+            progress_sink,
+            ProgressEvent.make(
+                kind="scope_update",
+                scope="export:overall_rows",
+                current=overall_processed_rows,
+                total=overall_total_rows,
+                unit="row",
+                activity="Export overall",
+            ),
+        )
 
-        try:
-            hierarchies_tm1_filter = filter_rules.to_tm1_hierarchy_name_filter(dim_name)
-            hierarchy_identities = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(
-                tm1_conn, dim_name,
-                filter=hierarchies_tm1_filter.filter_expr
+    def _register_group_total(group_key: tuple[str, str, str], total: int) -> None:
+        nonlocal overall_total_rows, overall_processed_rows
+        normalized_total = max(0, int(total))
+        prior_total = group_totals.get(group_key)
+        prior_effective = 0 if prior_total is None else int(prior_total)
+        current_processed = int(group_processed.get(group_key, 0))
+        if normalized_total < current_processed:
+            normalized_total = current_processed
+        delta_total = normalized_total - prior_effective
+        if delta_total != 0:
+            overall_total_rows += delta_total
+        group_totals[group_key] = normalized_total
+        if group_key in group_complete_waiting_total:
+            missing = normalized_total - current_processed
+            if missing > 0:
+                group_processed[group_key] = current_processed + missing
+                overall_processed_rows += missing
+            group_complete_waiting_total.discard(group_key)
+        _emit_overall_update()
+
+    def _advance_group_processed(group_key: tuple[str, str, str], delta_rows: int) -> None:
+        nonlocal overall_processed_rows
+        if delta_rows <= 0:
+            return
+        group_processed[group_key] = int(group_processed.get(group_key, 0)) + int(delta_rows)
+        overall_processed_rows += int(delta_rows)
+        _emit_overall_update()
+
+    def _mark_group_complete(group_key: tuple[str, str, str]) -> None:
+        total = group_totals.get(group_key)
+        processed = int(group_processed.get(group_key, 0))
+        if total is None:
+            group_complete_waiting_total.add(group_key)
+            return
+        missing = int(total) - processed
+        if missing > 0:
+            _advance_group_processed(group_key, missing)
+
+    def _drain_count_queue() -> None:
+        while True:
+            try:
+                group_key, total, error = count_queue.get_nowait()
+            except Empty:
+                break
+            if error is not None:
+                logger.warning("Failed to collect count for %s: %s", group_key, error)
+                _register_group_total(group_key, int(group_processed.get(group_key, 0)))
+            else:
+                _register_group_total(group_key, int(total or 0))
+
+    def _start_current(activity: str, total_rows: int) -> None:
+        _emit_progress_event(
+            progress_sink,
+            ProgressEvent.make(
+                kind="scope_start",
+                scope="export:current",
+                current=0,
+                total=total_rows,
+                unit="row",
+                activity=activity,
+            ),
+        )
+
+    def _update_current(activity: str, current_rows: int, total_rows: int) -> None:
+        _emit_progress_event(
+            progress_sink,
+            ProgressEvent.make(
+                kind="scope_update",
+                scope="export:current",
+                current=current_rows,
+                total=total_rows,
+                unit="row",
+                activity=activity,
+            ),
+        )
+
+    def _complete_current(activity: str, current_rows: int, total_rows: int) -> None:
+        _emit_progress_event(
+            progress_sink,
+            ProgressEvent.make(
+                kind="scope_complete",
+                scope="export:current",
+                current=current_rows,
+                total=total_rows,
+                unit="row",
+                activity=activity,
+            ),
+        )
+
+    def _submit_count_jobs(
+        executor: ThreadPoolExecutor,
+        dim_name: str,
+        hierarchy_name: str,
+        elements_filter_expr: Optional[str],
+        subsets_filter_expr: Optional[str],
+        edges_filter_expr: Optional[str],
+        elements_skip_all: bool,
+        subsets_skip_all: bool,
+        edges_skip_all: bool,
+    ) -> None:
+        def _next_count_worker_slot() -> int:
+            nonlocal next_count_worker_slot
+            slot = next_count_worker_slot % count_workers
+            next_count_worker_slot += 1
+            return slot
+
+        def _submit(group_name: str, fn, *args, **kwargs) -> None:
+            key = (dim_name, hierarchy_name, group_name)
+            group_totals[key] = None
+            group_processed[key] = 0
+            worker_slot = _next_count_worker_slot()
+            activity = f"collecting count {group_name} {dim_name}/{hierarchy_name}"
+            logger.info("%s", activity)
+            _emit_progress_event(
+                progress_sink,
+                ProgressEvent.make(
+                    kind="activity",
+                    scope="export:count_worker",
+                    activity=activity,
+                    worker_slot=worker_slot,
+                ),
             )
 
-            hierarchy_list: List[Hierarchy] = []
-            for idx, hierarchy_identity in enumerate(hierarchy_identities):
-                hierarchy_name = hierarchy_identity.name
-                incoming_hierarchy_etag = hierarchy_identity.etag
-                elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
-                subsets_tm1_filter = filter_rules.to_tm1_subset_name_filter(dim_name, hierarchy_name)
-                edges_tm1_filter = filter_rules.to_tm1_edge_name_filter(dim_name, hierarchy_name)
+            def _runner() -> int:
+                return int(fn(*args, **kwargs))
 
-                can_reuse_elements = False
-                can_reuse_subsets = False
-                can_reuse_edges = False
-                if model_store is not None and incoming_hierarchy_etag is not None:
-                    existing_elements_etag, existing_elements_rules = model_store.get_group_reuse_metadata(
-                        model_id=internal_model_id,
-                        dimension_name=dim_name,
-                        hierarchy_name=hierarchy_name,
-                        object_type="elements",
-                    )
-                    existing_subsets_etag, existing_subsets_rules = model_store.get_group_reuse_metadata(
-                        model_id=internal_model_id,
-                        dimension_name=dim_name,
-                        hierarchy_name=hierarchy_name,
-                        object_type="subsets",
-                    )
-                    existing_edges_etag, existing_edges_rules = model_store.get_group_reuse_metadata(
-                        model_id=internal_model_id,
-                        dimension_name=dim_name,
-                        hierarchy_name=hierarchy_name,
-                        object_type="edges",
-                    )
-                    can_reuse_elements = (
-                        existing_elements_etag == incoming_hierarchy_etag
-                        and existing_elements_rules == elements_tm1_filter.applicable_rules
-                    )
-                    can_reuse_subsets = (
-                        existing_subsets_etag == incoming_hierarchy_etag
-                        and existing_subsets_rules == subsets_tm1_filter.applicable_rules
-                    )
-                    can_reuse_edges = (
-                        existing_edges_etag == incoming_hierarchy_etag
-                        and existing_edges_rules == edges_tm1_filter.applicable_rules
-                    )
-                hierarchy = (
-                    Hierarchy(
-                        name=hierarchy_name,
-                        dimension_name=dim_name,
-                        internal_model_dir=internal_model_dir,
-                        internal_model_id=internal_model_id,
-                        hierarchy_etag=incoming_hierarchy_etag,
-                        reuse_existing_store=bool(internal_model_dir),
-                        elements_filter_rules=elements_tm1_filter.applicable_rules,
-                        edges_filter_rules=edges_tm1_filter.applicable_rules,
-                        subsets_filter_rules=subsets_tm1_filter.applicable_rules,
-                    )
-                    if internal_model_dir
-                    else Hierarchy(name=hierarchy_name, elements=[], edges=[], subsets=[])
+            future = executor.submit(_runner)
+
+            def _done_callback(done_future):
+                try:
+                    value = int(done_future.result())
+                    count_queue.put((key, value, None))
+                except Exception as ex:
+                    count_queue.put((key, None, ex))
+
+            future.add_done_callback(_done_callback)
+
+        if elements_skip_all:
+            _register_group_total((dim_name, hierarchy_name, "elements"), 0)
+        else:
+            _submit(
+                "elements",
+                get_elements_count,
+                tm1_conn,
+                dim_name,
+                hierarchy_name,
+                filter=elements_filter_expr,
+            )
+        if subsets_skip_all:
+            _register_group_total((dim_name, hierarchy_name, "subsets"), 0)
+        else:
+            _submit(
+                "subsets",
+                get_subsets_count,
+                tm1_conn,
+                dimension_name=dim_name,
+                hierarchy_name=hierarchy_name,
+                filter=subsets_filter_expr,
+            )
+        if edges_skip_all:
+            _register_group_total((dim_name, hierarchy_name, "edges"), 0)
+        else:
+            _submit(
+                "edges",
+                get_edges_count,
+                tm1_conn,
+                dim_name,
+                hierarchy_name,
+                filter=edges_filter_expr,
+            )
+
+    logger.info("Exporting %d dimensions", len(all_dims))
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_start",
+            scope="export:overall_rows",
+            current=0,
+            total=0,
+            unit="row",
+            activity="Export overall",
+        ),
+    )
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_start",
+            scope="export:dimensions",
+            current=0,
+            total=len(all_dims),
+            unit="item",
+            activity="exporting dimensions",
+        ),
+    )
+
+    with ThreadPoolExecutor(max_workers=count_workers) as count_executor:
+        for dim_index, dim_name in enumerate(all_dims, start=1):
+            _drain_count_queue()
+            try:
+                hierarchies_tm1_filter = filter_rules.to_tm1_hierarchy_name_filter(dim_name)
+                hierarchy_identities = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(
+                    tm1_conn,
+                    dim_name,
+                    filter=hierarchies_tm1_filter.filter_expr,
                 )
 
-                if can_reuse_elements and can_reuse_subsets and can_reuse_edges:
-                    logger.info(
-                        "Reusing hierarchy from model store dimension='%s' hierarchy='%s' etag='%s' (elements/subsets/edges unchanged)",
+                hierarchy_list: List[Hierarchy] = []
+                _emit_progress_event(
+                    progress_sink,
+                    ProgressEvent.make(
+                        kind="scope_start",
+                        scope="export:hierarchies",
+                        current=0,
+                        total=len(hierarchy_identities),
+                        unit="item",
+                        activity=f"exporting hierarchies ({dim_name})",
+                    ),
+                )
+
+                for idx, hierarchy_identity in enumerate(hierarchy_identities):
+                    _drain_count_queue()
+                    hierarchy_name = hierarchy_identity.name
+                    incoming_hierarchy_etag = hierarchy_identity.etag
+                    elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
+                    subsets_tm1_filter = filter_rules.to_tm1_subset_name_filter(dim_name, hierarchy_name)
+                    edges_tm1_filter = filter_rules.to_tm1_edge_name_filter(dim_name, hierarchy_name)
+
+                    _submit_count_jobs(
+                        count_executor,
                         dim_name,
                         hierarchy_name,
-                        incoming_hierarchy_etag,
+                        elements_tm1_filter.filter_expr,
+                        subsets_tm1_filter.filter_expr,
+                        edges_tm1_filter.filter_expr,
+                        elements_tm1_filter.skip_all,
+                        subsets_tm1_filter.skip_all,
+                        edges_tm1_filter.skip_all,
                     )
-                else:
+
+                    can_reuse_elements = False
+                    can_reuse_subsets = False
+                    can_reuse_edges = False
+                    if model_store is not None and incoming_hierarchy_etag is not None:
+                        existing_elements_etag, existing_elements_rules = model_store.get_group_reuse_metadata(
+                            model_id=internal_model_id,
+                            dimension_name=dim_name,
+                            hierarchy_name=hierarchy_name,
+                            object_type="elements",
+                        )
+                        existing_subsets_etag, existing_subsets_rules = model_store.get_group_reuse_metadata(
+                            model_id=internal_model_id,
+                            dimension_name=dim_name,
+                            hierarchy_name=hierarchy_name,
+                            object_type="subsets",
+                        )
+                        existing_edges_etag, existing_edges_rules = model_store.get_group_reuse_metadata(
+                            model_id=internal_model_id,
+                            dimension_name=dim_name,
+                            hierarchy_name=hierarchy_name,
+                            object_type="edges",
+                        )
+                        can_reuse_elements = (
+                            existing_elements_etag == incoming_hierarchy_etag
+                            and existing_elements_rules == elements_tm1_filter.applicable_rules
+                        )
+                        can_reuse_subsets = (
+                            existing_subsets_etag == incoming_hierarchy_etag
+                            and existing_subsets_rules == subsets_tm1_filter.applicable_rules
+                        )
+                        can_reuse_edges = (
+                            existing_edges_etag == incoming_hierarchy_etag
+                            and existing_edges_rules == edges_tm1_filter.applicable_rules
+                        )
+
+                    hierarchy = (
+                        Hierarchy(
+                            name=hierarchy_name,
+                            dimension_name=dim_name,
+                            internal_model_dir=internal_model_dir,
+                            internal_model_id=internal_model_id,
+                            hierarchy_etag=incoming_hierarchy_etag,
+                            reuse_existing_store=bool(internal_model_dir),
+                            elements_filter_rules=elements_tm1_filter.applicable_rules,
+                            edges_filter_rules=edges_tm1_filter.applicable_rules,
+                            subsets_filter_rules=subsets_tm1_filter.applicable_rules,
+                        )
+                        if internal_model_dir
+                        else Hierarchy(name=hierarchy_name, elements=[], edges=[], subsets=[])
+                    )
+
+                    if can_reuse_elements and can_reuse_subsets and can_reuse_edges:
+                        logger.info(
+                            "Reusing hierarchy from model store dimension='%s' hierarchy='%s' etag='%s' (elements/subsets/edges unchanged)",
+                            dim_name,
+                            hierarchy_name,
+                            incoming_hierarchy_etag,
+                        )
+
                     if not can_reuse_elements and hasattr(hierarchy.elements, "replace_with_payloads"):
                         hierarchy.elements.replace_with_payloads(())
-                    if not can_reuse_elements and not elements_tm1_filter.skip_all:
+                    if not can_reuse_subsets and hasattr(hierarchy.subsets, "replace_with_payloads"):
+                        hierarchy.subsets.replace_with_payloads(())
+                    if not can_reuse_edges and hasattr(hierarchy.edges, "replace_with_payloads"):
+                        hierarchy.edges.replace_with_payloads(())
+
+                    element_key = (dim_name, hierarchy_name, "elements")
+                    subset_key = (dim_name, hierarchy_name, "subsets")
+                    edge_key = (dim_name, hierarchy_name, "edges")
+
+                    if can_reuse_elements:
+                        total = int(group_totals.get(element_key) or 0)
+                        _start_current(f"cached elements {dim_name}/{hierarchy_name}", total)
+                        _complete_current(f"cached elements {dim_name}/{hierarchy_name}", total, total)
+                        _mark_group_complete(element_key)
+                    elif not elements_tm1_filter.skip_all:
+                        processed_elements = 0
+                        total = int(group_totals.get(element_key) or 0)
+                        _start_current(f"elements {dim_name}/{hierarchy_name}", total)
+
+                        def _on_elements_page_loaded(page_rows: int, page_total: Optional[int]) -> None:
+                            nonlocal processed_elements
+                            _drain_count_queue()
+                            if page_total is not None and group_totals.get(element_key) is None:
+                                _register_group_total(element_key, int(page_total))
+                            processed_elements += int(page_rows)
+                            _advance_group_processed(element_key, int(page_rows))
+                            _update_current(
+                                f"elements {dim_name}/{hierarchy_name}",
+                                processed_elements,
+                                int(group_totals.get(element_key) or processed_elements),
+                            )
+
                         get_elements(
                             tm1_conn,
                             dim_name,
                             hierarchy_name,
                             filter=elements_tm1_filter.filter_expr,
                             collector=hierarchy.elements,
+                            on_page_loaded=_on_elements_page_loaded,
+                        )
+                        _mark_group_complete(element_key)
+                        _complete_current(
+                            f"elements {dim_name}/{hierarchy_name}",
+                            processed_elements,
+                            int(group_totals.get(element_key) or processed_elements),
                         )
 
-                    if not can_reuse_subsets and hasattr(hierarchy.subsets, "replace_with_payloads"):
-                        hierarchy.subsets.replace_with_payloads(())
-                    if not can_reuse_subsets and not subsets_tm1_filter.skip_all:
+                    if can_reuse_subsets:
+                        total = int(group_totals.get(subset_key) or 0)
+                        _start_current(f"cached subsets {dim_name}/{hierarchy_name}", total)
+                        _complete_current(f"cached subsets {dim_name}/{hierarchy_name}", total, total)
+                        _mark_group_complete(subset_key)
+                    elif not subsets_tm1_filter.skip_all:
+                        processed_subsets = 0
+                        total = int(group_totals.get(subset_key) or 0)
+                        _start_current(f"subsets {dim_name}/{hierarchy_name}", total)
+
+                        def _on_subsets_page_loaded(page_rows: int, page_total: Optional[int]) -> None:
+                            nonlocal processed_subsets
+                            _drain_count_queue()
+                            if page_total is not None and group_totals.get(subset_key) is None:
+                                _register_group_total(subset_key, int(page_total))
+                            processed_subsets += int(page_rows)
+                            _advance_group_processed(subset_key, int(page_rows))
+                            _update_current(
+                                f"subsets {dim_name}/{hierarchy_name}",
+                                processed_subsets,
+                                int(group_totals.get(subset_key) or processed_subsets),
+                            )
+
                         get_subsets(
                             tm1_conn,
                             dimension_name=dim_name,
                             hierarchy_name=hierarchy_name,
                             filter=subsets_tm1_filter.filter_expr,
                             collector=hierarchy.subsets,
+                            on_page_loaded=_on_subsets_page_loaded,
+                        )
+                        _mark_group_complete(subset_key)
+                        _complete_current(
+                            f"subsets {dim_name}/{hierarchy_name}",
+                            processed_subsets,
+                            int(group_totals.get(subset_key) or processed_subsets),
                         )
 
-                    if not can_reuse_edges and hasattr(hierarchy.edges, "replace_with_payloads"):
-                        hierarchy.edges.replace_with_payloads(())
-                    if not can_reuse_edges and not edges_tm1_filter.skip_all:
+                    if can_reuse_edges:
+                        total = int(group_totals.get(edge_key) or 0)
+                        _start_current(f"cached edges {dim_name}/{hierarchy_name}", total)
+                        _complete_current(f"cached edges {dim_name}/{hierarchy_name}", total, total)
+                        _mark_group_complete(edge_key)
+                    elif not edges_tm1_filter.skip_all:
+                        processed_edges = 0
+                        total = int(group_totals.get(edge_key) or 0)
+                        _start_current(f"edges {dim_name}/{hierarchy_name}", total)
+
+                        def _on_edges_page_loaded(page_rows: int, page_total: Optional[int]) -> None:
+                            nonlocal processed_edges
+                            _drain_count_queue()
+                            if page_total is not None and group_totals.get(edge_key) is None:
+                                _register_group_total(edge_key, int(page_total))
+                            processed_edges += int(page_rows)
+                            _advance_group_processed(edge_key, int(page_rows))
+                            _update_current(
+                                f"edges {dim_name}/{hierarchy_name}",
+                                processed_edges,
+                                int(group_totals.get(edge_key) or processed_edges),
+                            )
+
                         get_edges(
                             tm1_conn,
                             dim_name,
                             hierarchy_name,
                             filter=edges_tm1_filter.filter_expr,
                             collector=hierarchy.edges,
+                            on_page_loaded=_on_edges_page_loaded,
+                        )
+                        _mark_group_complete(edge_key)
+                        _complete_current(
+                            f"edges {dim_name}/{hierarchy_name}",
+                            processed_edges,
+                            int(group_totals.get(edge_key) or processed_edges),
                         )
 
-                hierarchy.finalize()
-                hierarchy_list.append(hierarchy)
+                    hierarchy.finalize()
+                    hierarchy_list.append(hierarchy)
+                    _emit_progress_event(
+                        progress_sink,
+                        ProgressEvent.make(
+                            kind="scope_update",
+                            scope="export:hierarchies",
+                            current=idx + 1,
+                            total=len(hierarchy_identities),
+                            unit="item",
+                            activity=f"exporting hierarchies ({dim_name})",
+                        ),
+                    )
 
-            if len(hierarchy_list) > 0:
-                _dimension = Dimension(
-                    name=dim_name,
-                    hierarchies=hierarchy_list,
-                    defaultHierarchy=hierarchy_list[0],
+                _emit_progress_event(
+                    progress_sink,
+                    ProgressEvent.make(
+                        kind="scope_complete",
+                        scope="export:hierarchies",
+                        current=len(hierarchy_identities),
+                        total=len(hierarchy_identities),
+                        unit="item",
+                        activity=f"exporting hierarchies ({dim_name})",
+                    ),
                 )
-            else:
-                empty_hierarchy = Hierarchy(name=dim_name, elements=[], edges=[], subsets=[])
-                _dimension = Dimension(
-                    name=dim_name,
-                    hierarchies=[empty_hierarchy],
-                    defaultHierarchy=empty_hierarchy,
+
+                if len(hierarchy_list) > 0:
+                    _dimension = Dimension(
+                        name=dim_name,
+                        hierarchies=hierarchy_list,
+                        defaultHierarchy=hierarchy_list[0],
+                    )
+                else:
+                    empty_hierarchy = Hierarchy(name=dim_name, elements=[], edges=[], subsets=[])
+                    _dimension = Dimension(
+                        name=dim_name,
+                        hierarchies=[empty_hierarchy],
+                        defaultHierarchy=empty_hierarchy,
+                    )
+                _dimensions[dim_name] = _dimension
+            except Exception as e:
+                logger.error("Failed to export dimension '%s'", dim_name, exc_info=True)
+                _errors[dim_name] = str(e)
+            finally:
+                _drain_count_queue()
+                _emit_progress_event(
+                    progress_sink,
+                    ProgressEvent.make(
+                        kind="scope_update",
+                        scope="export:dimensions",
+                        current=dim_index,
+                        total=len(all_dims),
+                        unit="item",
+                        activity="exporting dimensions",
+                    ),
                 )
-            _dimensions[dim_name] = _dimension
-        except Exception as e:
-            logger.error("Failed to export dimension '%s'", dim_name, exc_info=True)
-            _errors[dim_name] = str(e)
-        
+
+        # Drain any remaining count completions after export work finishes.
+        while not count_queue.empty():
+            _drain_count_queue()
+
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_complete",
+            scope="export:overall_rows",
+            current=overall_processed_rows,
+            total=overall_total_rows,
+            unit="row",
+            activity="Export overall",
+        ),
+    )
+    _emit_progress_event(
+        progress_sink,
+        ProgressEvent.make(
+            kind="scope_complete",
+            scope="export:dimensions",
+            current=len(all_dims),
+            total=len(all_dims),
+            unit="item",
+            activity="exporting dimensions",
+        ),
+    )
     return _dimensions, _errors
 
 

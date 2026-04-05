@@ -1,7 +1,7 @@
 """Element-related utilities using TM1py, including paginated element retrieval."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, MutableSequence
+from typing import TYPE_CHECKING, List, Optional, MutableSequence, Callable
 
 from TM1py.Utils import format_url
 
@@ -101,6 +101,7 @@ def get_elements(
     filter: Optional[str] = None,
     page_size: int = 100000,
     collector: Optional[MutableSequence[Element]] = None,
+    on_page_loaded: Optional[Callable[[int, Optional[int]], None]] = None,
     **kwargs,
 ) -> MutableSequence[Element]:
     """Fetch all elements page-by-page.
@@ -135,6 +136,8 @@ def get_elements(
             **kw,
         )
         all_elements.extend(result.elements)
+        if on_page_loaded is not None:
+            on_page_loaded(len(result.elements), result.count)
         return (result.elements, result.count)
 
     paginate_by_pages(
@@ -148,3 +151,23 @@ def get_elements(
         **kwargs,
     )
     return all_elements
+
+
+def get_elements_count(
+    tm1_conn: "TM1Service",
+    dimension_name: str,
+    hierarchy_name: str,
+    *,
+    filter: Optional[str] = None,
+    **kwargs,
+) -> int:
+    """Return element count for a hierarchy, with optional filter."""
+    url = format_url(
+        "/Dimensions('{}')/Hierarchies('{}')/Elements/$count",
+        dimension_name,
+        hierarchy_name,
+    )
+    if filter:
+        url = f"{url}?$filter={filter}"
+    response = tm1_conn.connection.GET(url, **kwargs)
+    return int(response.text.strip())

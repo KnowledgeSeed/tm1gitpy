@@ -1,16 +1,35 @@
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Iterable, Optional
 from itertools import chain
 
 from .cube import Cube
 from .dimension import Dimension
 from .chore import Chore
 from .process import Process
+from .hierarchy import Hierarchy
+from .subset import Subset
+from .element import Element
+from .edge import Edge
+from .mdxview import MDXView
+from .nativeview import NativeView
+from .rule import Rule
+from .store_backed_sequence import StoreBackedSequence
+
+
 class Model:
-    def __init__(self, cubes: List[Cube], dimensions: List[Dimension], processes: List[Process], chores: List[Chore]):
+    def __init__(
+        self,
+        cubes: List[Cube],
+        dimensions: List[Dimension],
+        processes: List[Process],
+        chores: List[Chore],
+        *,
+        total_object_count: Optional[int] = None,
+    ):
         self.cubes = cubes
         self.dimensions = dimensions
         self.processes = processes
         self.chores = chores
+        self.total_object_count = int(total_object_count) if total_object_count is not None else None
 
     def to_dict(self):
         return {
@@ -76,3 +95,40 @@ class Model:
                 all_objects[chore_uri] = chore
 
         return all_objects
+
+    @staticmethod
+    def _is_leaf_hierarchy(hierarchy_obj: Any) -> bool:
+        return getattr(hierarchy_obj, "name", "").strip().lower() == "leaves"
+
+    @classmethod
+    def _count_collection_objects(cls, items: Iterable[Any], object_cls: type) -> int:
+        child_relations: dict[type, list[tuple[str, type]]] = {
+            Dimension: [("hierarchies", Hierarchy)],
+            Hierarchy: [("subsets", Subset), ("elements", Element), ("edges", Edge)],
+            Cube: [("views", MDXView), ("views", NativeView), ("rules", Rule)],
+        }
+        total = 0
+        for obj in items:
+            if not isinstance(obj, object_cls):
+                continue
+            total += 1
+            for child_attr, child_cls in child_relations.get(object_cls, []):
+                if isinstance(obj, Hierarchy) and child_attr == "elements" and cls._is_leaf_hierarchy(obj):
+                    continue
+                slot_items = getattr(obj, child_attr, None) or []
+                if isinstance(slot_items, StoreBackedSequence):
+                    total += len(slot_items)
+                    continue
+                total += cls._count_collection_objects(slot_items, child_cls)
+        return total
+
+    @classmethod
+    def recalculate_total_object_count(cls, model: "Model") -> int:
+        total = (
+            cls._count_collection_objects(model.cubes, Cube)
+            + cls._count_collection_objects(model.dimensions, Dimension)
+            + cls._count_collection_objects(model.processes, Process)
+            + cls._count_collection_objects(model.chores, Chore)
+        )
+        model.total_object_count = int(total)
+        return int(total)

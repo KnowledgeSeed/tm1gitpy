@@ -1,7 +1,7 @@
 """Subset-related utilities using TM1py, including paginated subset retrieval."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, MutableSequence
+from typing import TYPE_CHECKING, List, Optional, MutableSequence, Callable
 
 from TM1py.Utils import format_url
 
@@ -114,6 +114,7 @@ def get_subsets(
     page_size: int = 100000,
     private: bool = False,
     collector: Optional[MutableSequence[Subset]] = None,
+    on_page_loaded: Optional[Callable[[int, Optional[int]], None]] = None,
     **kwargs,
 ) -> MutableSequence[Subset]:
     """Fetch all subsets page-by-page.
@@ -152,6 +153,8 @@ def get_subsets(
             **kw,
         )
         all_subsets.extend(result.subsets)
+        if on_page_loaded is not None:
+            on_page_loaded(len(result.subsets), result.count)
         return (result.subsets, result.count)
 
     paginate_by_pages(
@@ -166,3 +169,27 @@ def get_subsets(
         **kwargs,
     )
     return all_subsets
+
+
+def get_subsets_count(
+    tm1_conn: "TM1Service",
+    dimension_name: str,
+    hierarchy_name: Optional[str] = None,
+    *,
+    filter: Optional[str] = None,
+    private: bool = False,
+    **kwargs,
+) -> int:
+    """Return subset count for a hierarchy, with optional filter."""
+    hierarchy_name = hierarchy_name if hierarchy_name else dimension_name
+    subsets_resource = "PrivateSubsets" if private else "Subsets"
+    url = format_url(
+        "/Dimensions('{}')/Hierarchies('{}')/{}/$count",
+        dimension_name,
+        hierarchy_name,
+        subsets_resource,
+    )
+    if filter:
+        url = f"{url}?$filter={filter}"
+    response = tm1_conn.connection.GET(url, **kwargs)
+    return int(response.text.strip())

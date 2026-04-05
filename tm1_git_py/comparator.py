@@ -1,6 +1,10 @@
 import logging
+import shutil
+import sys
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
+from tqdm import tqdm
 
 from tm1_git_py.changeset import Changeset, Change, ChangeType, ObjectType
 from tm1_git_py.model import Hierarchy, MDXView, NativeView, Subset, Element, Edge, Rule
@@ -12,6 +16,7 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.process import Process
 from tm1_git_py.filter import filter
+from tm1_git_py.progress_reporting import ProgressEvent, ProgressSink
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +26,112 @@ class _CompareObjectListsResult:
     matched_pairs: dict[str, tuple[Any, Any]]
     added_items: list[Any]
     removed_items: list[Any]
+
+
+class TqdmComparatorProgressSink:
+    _SLOT_HEIGHT = 5
+    _slot_lock = threading.Lock()
+    _active_slots: set[int] = set()
+
+    def __init__(
+        self,
+        *,
+        enable_fallback_logs: bool = True,
+        preferred_slot_index: Optional[int] = None,
+    ):
+        self._enable_fallback_logs = enable_fallback_logs
+        self._slot_index = self._acquire_slot(preferred_slot_index)
+        self._base_position = self._slot_index * self._SLOT_HEIGHT
+        self._lock = threading.Lock()
+        self._overall_bar = None
+        self._collection_bar = None
+        self._last_overall_desc = ""
+        self._last_collection_desc = ""
+        if sys.stderr.isatty() and tqdm is not None:
+            terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
+            self._overall_bar = tqdm(
+                total=1,
+                unit="object",
+                unit_scale=False,
+                desc="Comparing..",
+                leave=True,
+                dynamic_ncols=True,
+                ncols=terminal_width,
+                position=self._base_position,
+            )
+            self._collection_bar = tqdm(
+                total=1,
+                unit="object",
+                unit_scale=False,
+                desc="Collection",
+                leave=True,
+                dynamic_ncols=True,
+                ncols=terminal_width,
+                position=self._base_position + 1,
+            )
+
+    @classmethod
+    def _acquire_slot(cls, preferred_slot: Optional[int] = None) -> int:
+        with cls._slot_lock:
+            if preferred_slot is not None:
+                preferred = max(0, int(preferred_slot))
+                if preferred not in cls._active_slots:
+                    cls._active_slots.add(preferred)
+                    return preferred
+            slot = 0
+            while slot in cls._active_slots:
+                slot += 1
+            cls._active_slots.add(slot)
+            return slot
+
+    @classmethod
+    def _release_slot(cls, slot_index: int) -> None:
+        with cls._slot_lock:
+            cls._active_slots.discard(slot_index)
+
+    def on_event(self, event: ProgressEvent) -> None:
+        with self._lock:
+            if self._overall_bar is None or self._collection_bar is None:
+                return
+            if event.scope == "compare_overall":
+                bar = self._overall_bar
+                fallback_desc = "Comparing.."
+            elif event.scope == "compare_collection":
+                bar = self._collection_bar
+                fallback_desc = "Collection"
+            else:
+                return
+            if event.unit:
+                bar.unit = event.unit
+                bar.unit_scale = event.unit == "B"
+            target_total = int(event.total) if event.total is not None else int(bar.total or 1)
+            target_total = max(1, target_total)
+            if int(bar.total or 0) != target_total:
+                bar.reset(total=target_total)
+            if event.current is not None:
+                bar.n = min(max(0, int(event.current)), target_total)
+            desc = event.activity or fallback_desc
+            if event.path:
+                desc = f"{desc}: {event.path}"
+            if bar is self._overall_bar:
+                if desc != self._last_overall_desc:
+                    bar.set_description_str(desc, refresh=False)
+                    self._last_overall_desc = desc
+            else:
+                if desc != self._last_collection_desc:
+                    bar.set_description_str(desc, refresh=False)
+                    self._last_collection_desc = desc
+            bar.refresh()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._collection_bar is not None:
+                self._collection_bar.close()
+                self._collection_bar = None
+            if self._overall_bar is not None:
+                self._overall_bar.close()
+                self._overall_bar = None
+        self._release_slot(self._slot_index)
 
 
 def _dimensions_equal_shallow(old_dimension: Dimension, new_dimension: Dimension) -> bool:
@@ -173,12 +284,112 @@ class Comparator:
         Cube: _cubes_equal_shallow
     }
 
+    def __init__(self) -> None:
+        self._progress_sink: Optional[ProgressSink] = None
+        self._compare_progress_total = 0
+        self._compare_progress_current = 0
+        self._collection_progress_total = 0
+        self._collection_progress_current = 0
+        self._collection_progress_label = ""
+
+    def _emit_progress_event(
+        self,
+        *,
+        kind: str,
+        scope: str,
+        current: Optional[int] = None,
+        total: Optional[int] = None,
+        unit: Optional[str] = None,
+        activity: Optional[str] = None,
+        path: Optional[str] = None,
+    ) -> None:
+        if self._progress_sink is None:
+            return
+        self._progress_sink.on_event(
+            ProgressEvent.make(
+                kind=kind,
+                scope=scope,
+                current=current,
+                total=total,
+                unit=unit,
+                activity=activity,
+                path=path,
+            )
+        )
+
+    def _begin_compare_progress(self, total_units: int) -> None:
+        self._compare_progress_total = max(1, int(total_units))
+        self._compare_progress_current = 0
+        self._emit_progress_event(
+            kind="scope_start",
+            scope="compare_overall",
+            current=0,
+            total=self._compare_progress_total,
+            unit="object",
+            activity="comparing models",
+        )
+
+    def _advance_compare_progress(self, delta: int, *, activity: Optional[str] = None) -> None:
+        if delta <= 0:
+            return
+        self._compare_progress_current = min(
+            self._compare_progress_total,
+            self._compare_progress_current + int(delta),
+        )
+        self._emit_progress_event(
+            kind="scope_update",
+            scope="compare_overall",
+            current=self._compare_progress_current,
+            total=self._compare_progress_total,
+            unit="object",
+            activity=activity or "comparing models",
+        )
+
+    def _begin_collection_progress(self, *, label: str, total_units: int) -> None:
+        self._collection_progress_label = str(label)
+        self._collection_progress_total = max(1, int(total_units))
+        self._collection_progress_current = 0
+        self._emit_progress_event(
+            kind="scope_start",
+            scope="compare_collection",
+            current=0,
+            total=self._collection_progress_total,
+            unit="object",
+            activity="comparing collection",
+            path=self._collection_progress_label,
+        )
+
+    def _advance_collection_progress(self, delta: int, *, activity: Optional[str] = None) -> None:
+        if delta <= 0:
+            return
+        self._collection_progress_current = min(
+            self._collection_progress_total,
+            self._collection_progress_current + int(delta),
+        )
+        self._emit_progress_event(
+            kind="scope_update",
+            scope="compare_collection",
+            current=self._collection_progress_current,
+            total=self._collection_progress_total,
+            unit="object",
+            activity=activity or "comparing collection",
+            path=self._collection_progress_label,
+        )
+
+    @staticmethod
+    def _resolved_model_object_count(model: Model) -> int:
+        cached = getattr(model, "total_object_count", None)
+        if cached is not None:
+            return max(0, int(cached))
+        return Model.recalculate_total_object_count(model)
+
     def compare(
             self,
             model1: Model,
             model2: Model,
             mode: Literal['full', 'add_only'] = 'full',
-            filter_rules: Optional[Union[list[str], list[dict]]] = None
+            filter_rules: Optional[Union[list[str], list[dict]]] = None,
+            progress_sink: Optional[ProgressSink] = None,
     ) -> Changeset:
         """
         Compare two models and build a Changeset of Change entries.
@@ -186,61 +397,82 @@ class Comparator:
         mode='add_only' emits add/modify changes.
         """
 
-        logger.info("Starting model compare mode=%s", mode)
-        logger.debug(
-            "Input object counts old(cubes=%d dimensions=%d processes=%d chores=%d) "
-            "new(cubes=%d dimensions=%d processes=%d chores=%d)",
-            len(model1.cubes),
-            len(model1.dimensions),
-            len(model1.processes),
-            len(model1.chores),
-            len(model2.cubes),
-            len(model2.dimensions),
-            len(model2.processes),
-            len(model2.chores),
-        )
+        self._progress_sink = progress_sink
+        self._compare_progress_total = 0
+        self._compare_progress_current = 0
+        try:
+            logger.info("Starting model compare mode=%s", mode)
+            logger.debug(
+                "Input object counts old(cubes=%d dimensions=%d processes=%d chores=%d) "
+                "new(cubes=%d dimensions=%d processes=%d chores=%d)",
+                len(model1.cubes),
+                len(model1.dimensions),
+                len(model1.processes),
+                len(model1.chores),
+                len(model2.cubes),
+                len(model2.dimensions),
+                len(model2.processes),
+                len(model2.chores),
+            )
 
-        if filter_rules:
-            if isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules):
-                filter_rule = _normalize_filter(filter_rules)
-                logger.debug("Applying comparator filter rules: %s", filter_rule)
-                model1 = filter(model1, filter_rule)
-                model2 = filter(model2, filter_rule)
-            else:
-                for filter_rule in filter_rules:
-                    filter_rule = _normalize_filter(filter_rule)
+            if filter_rules:
+                if isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules):
+                    filter_rule = _normalize_filter(filter_rules)
                     logger.debug("Applying comparator filter rules: %s", filter_rule)
                     model1 = filter(model1, filter_rule)
                     model2 = filter(model2, filter_rule)
+                else:
+                    for filter_rule in filter_rules:
+                        filter_rule = _normalize_filter(filter_rule)
+                        logger.debug("Applying comparator filter rules: %s", filter_rule)
+                        model1 = filter(model1, filter_rule)
+                        model2 = filter(model2, filter_rule)
 
-        changeset = Changeset()
+            phase_rows = [
+                ("Cube", model1.cubes, model2.cubes, Cube),
+                ("Dimension", model1.dimensions, model2.dimensions, Dimension),
+                ("Process", model1.processes, model2.processes, Process),
+                ("Chore", model1.chores, model2.chores, Chore),
+            ]
+            overall_object_total = self._resolved_model_object_count(model1) + self._resolved_model_object_count(model2)
+            self._begin_compare_progress(overall_object_total)
 
-        logger.debug("Comparing object type: Cube")
-        self._compare_with_children(model1.cubes, model2.cubes, Cube, changeset, mode)
-        logger.debug("Comparing object type: Dimension")
-        self._compare_with_children(model1.dimensions, model2.dimensions, Dimension, changeset, mode)
-        logger.debug("Comparing object type: Process")
-        self._compare_with_children(model1.processes, model2.processes, Process, changeset, mode)
-        logger.debug("Comparing object type: Chore")
-        self._compare_with_children(model1.chores, model2.chores, Chore, changeset, mode)
+            changeset = Changeset()
+            for object_type_name, old_rows, new_rows, parent_cls in phase_rows:
+                logger.debug("Comparing object type: %s", object_type_name)
+                self._compare_with_children(old_rows, new_rows, parent_cls, changeset, mode)
 
-        cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
-        changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
-        changeset.sort()
-        summary = {"add": 0, "remove": 0, "modify": 0}
-        for change in changeset.changes:
-            key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)
-            summary[key] = summary.get(key, 0) + 1
-        logger.info(
-            "Completed model compare mode=%s total=%d add=%d remove=%d modify=%d",
-            mode,
-            len(changeset.changes),
-            summary.get("add", 0),
-            summary.get("remove", 0),
-            summary.get("modify", 0),
-        )
-
-        return changeset
+            cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
+            changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
+            changeset.sort()
+            summary = {"add": 0, "remove": 0, "modify": 0}
+            for change in changeset.changes:
+                key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)
+                summary[key] = summary.get(key, 0) + 1
+            logger.info(
+                "Completed model compare mode=%s total=%d add=%d remove=%d modify=%d",
+                mode,
+                len(changeset.changes),
+                summary.get("add", 0),
+                summary.get("remove", 0),
+                summary.get("modify", 0),
+            )
+            self._emit_progress_event(
+                kind="scope_complete",
+                scope="compare_overall",
+                current=self._compare_progress_total,
+                total=self._compare_progress_total,
+                unit="object",
+                activity="compare complete",
+            )
+            return changeset
+        finally:
+            self._progress_sink = None
+            self._compare_progress_total = 0
+            self._compare_progress_current = 0
+            self._collection_progress_total = 0
+            self._collection_progress_current = 0
+            self._collection_progress_label = ""
 
     @staticmethod
     def _append_change(
@@ -398,6 +630,7 @@ class Comparator:
         new_seen = 0
         progress_every = max(1, self.DISK_BACKED_PROGRESS_EVERY)
         next_log_at = progress_every
+        reported_processed = 0
         old_signature = old_db.sidecar_content_signature()
         new_signature = new_db.sidecar_content_signature()
 
@@ -407,11 +640,15 @@ class Comparator:
             and old_signature == new_signature
             and (old_signature[0] == 0 or old_signature[1] != ModelStore.EMPTY_CONTENT_HASH)
         ):
+            skipped_total = max(1, old_total + new_total)
+            self._begin_collection_progress(label=object_type_name, total_units=skipped_total)
+            self._advance_collection_progress(skipped_total, activity=f"skipping {object_type_name}")
+            self._advance_compare_progress(skipped_total, activity=f"skipping {object_type_name}")
             logger.info(
                 "Skipping %s streaming compare: count+hash match count=%d hash_algo=%s",
                 object_type_name,
                 old_signature[0],
-                getattr(old_db, "HASH_ALGO", "sha256-chain-v1"),
+                getattr(old_db, "HASH_ALGO", "sha256-tree-v1"),
             )
             return _CompareObjectListsResult(matched_pairs={}, added_items=[], removed_items=[])
 
@@ -422,13 +659,20 @@ class Comparator:
             new_total,
             progress_every,
         )
+        stream_total = max(1, old_total + new_total)
+        self._begin_collection_progress(label=object_type_name, total_units=stream_total)
 
         def _log_progress(force: bool = False) -> None:
-            nonlocal next_log_at
-            current = max(old_seen, new_seen)
+            nonlocal next_log_at, reported_processed
+            current = old_seen + new_seen
             should_log = force or current >= next_log_at
             if not should_log:
                 return
+            delta = max(0, current - reported_processed)
+            if delta > 0:
+                self._advance_collection_progress(delta, activity=f"streaming {object_type_name}")
+                self._advance_compare_progress(delta, activity=f"streaming {object_type_name}")
+                reported_processed = current
             logger.info(
                 "Streaming compare progress for %s old=%d/%d new=%d/%d added=%d removed=%d common=%d",
                 object_type_name,
@@ -569,6 +813,8 @@ class Comparator:
         try:
             old_list_m = list(old_list)
             new_list_m = list(new_list)
+            local_total_units = max(1, len(old_list_m) + len(new_list_m))
+            self._begin_collection_progress(label=object_type_name, total_units=local_total_units)
             old_map = {_object_identity(obj, context=context): obj for obj in old_list_m}
             new_map = {_object_identity(obj, context=context): obj for obj in new_list_m}
         except AttributeError as exc:
@@ -622,6 +868,10 @@ class Comparator:
             except Exception as exc:
                 logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc, exc_info=True)
                 raise
+
+        processed_units = len(old_list_m) + len(new_list_m)
+        self._advance_collection_progress(processed_units, activity=f"comparing {object_type_name}")
+        self._advance_compare_progress(processed_units, activity=f"comparing {object_type_name}")
 
         return _CompareObjectListsResult(
             matched_pairs=matched_pairs,

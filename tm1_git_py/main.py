@@ -1,26 +1,108 @@
 import argparse
 import json
 import logging
+import os
+import queue
 import shutil
 import sys
+import threading
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import Manager
 from pathlib import Path
 import tracemalloc
+from typing import Any
 
 from TM1py import TM1Service
 
 from tm1_git_py.changeset import import_changeset
-from tm1_git_py.comparator import Comparator
+from tm1_git_py.comparator import Comparator, TqdmComparatorProgressSink
 from tm1_git_py.config import TM1ServersConfig
-from tm1_git_py.deserializer import deserialize_model
-from tm1_git_py.exporter import export
+from tm1_git_py.deserializer import TqdmDeserializerProgressSink, deserialize_model
+from tm1_git_py.exporter import TqdmExportProgress, export
 from tm1_git_py.filter import filter, import_filter
 from tm1_git_py.logging_config import setup_logging
 from tm1_git_py.model import Model
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.hierarchy import Hierarchy
+from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.model_store import ModelStore
+from tm1_git_py.model.nativeview import NativeView
+from tm1_git_py.model.process import Process
+from tm1_git_py.model.rule import Rule
+from tm1_git_py.progress_reporting import (
+    CallbackProgressSink,
+    CompositeProgressSink,
+    LoggingProgressSink,
+    ProgressEvent,
+    ProgressSink,
+)
 from tm1_git_py.serializer import serialize_model
 
-
 logger = logging.getLogger(__name__)
+
+
+def _default_max_workers() -> int:
+    return max(1, ((os.cpu_count() or 1) // 2) + 1)
+
+
+def _normalize_max_workers(value: Any) -> int:
+    try:
+        workers = int(value)
+    except (TypeError, ValueError):
+        return _default_max_workers()
+    return max(1, workers)
+
+
+def _split_compare_workers(max_workers: int) -> tuple[int, int]:
+    total = max(1, int(max_workers))
+    source_workers = max(1, total // 2)
+    target_workers = max(1, total - source_workers)
+    return source_workers, target_workers
+
+
+def _rebind_model_store_handles(model: Model, model_root: Path) -> Model:
+    """Rebind hierarchy store-backed sequences to a connection in the current thread."""
+    model_root_str = str(model_root)
+    store = ModelStore.for_main_dir(model_root_str)
+    model_id = store.resolve_model_for_deserialize(model_root_str)
+    rebuilt_dimensions: list[Dimension] = []
+    dimensions_by_name: dict[str, Dimension] = {}
+
+    for dim in model.dimensions:
+        rebuilt_hierarchies: list[Hierarchy] = []
+        for hierarchy in dim.hierarchies:
+            rebuilt_hierarchies.append(
+                Hierarchy(
+                    name=hierarchy.name,
+                    dimension_name=dim.name,
+                    internal_model_dir=model_root_str,
+                    internal_model_id=model_id,
+                    reuse_existing_store=True,
+                )
+            )
+        default_hierarchy = None
+        existing_default = getattr(dim, "defaultHierarchy", None)
+        if existing_default is not None:
+            default_hierarchy = next(
+                (h for h in rebuilt_hierarchies if h.name == existing_default.name),
+                None,
+            )
+        if default_hierarchy is None and rebuilt_hierarchies:
+            default_hierarchy = rebuilt_hierarchies[0]
+        rebuilt_dimension = Dimension(
+            name=dim.name,
+            hierarchies=rebuilt_hierarchies,
+            defaultHierarchy=default_hierarchy,
+        )
+        rebuilt_dimensions.append(rebuilt_dimension)
+        dimensions_by_name[rebuilt_dimension.name] = rebuilt_dimension
+
+    model.dimensions = rebuilt_dimensions
+    for cube in model.cubes:
+        cube.dimensions = [dimensions_by_name.get(dim.name, dim) for dim in cube.dimensions]
+    return model
 
 
 def _tm1_connection(server_name: str) -> TM1Service:
@@ -44,6 +126,164 @@ def _tm1_connection_from_config(config: TM1ServersConfig, server_name: str) -> T
         password=server_config.password or ""
     )
     return tm1
+
+
+def _model_to_compare_snapshot(model: Model) -> dict:
+    dimensions_payload = []
+    for dim in model.dimensions:
+        default_name = getattr(getattr(dim, "defaultHierarchy", None), "name", None)
+        dimensions_payload.append(
+            {
+                "name": dim.name,
+                "default_hierarchy_name": default_name,
+                "hierarchy_names": [hier.name for hier in dim.hierarchies],
+            }
+        )
+
+    cubes_payload = []
+    for cube in model.cubes:
+        rules_payload = [
+            rule.to_dict()
+            for rule in cube.rules
+        ]
+        views_payload = []
+        for view in cube.views:
+            view_payload = dict(view.to_dict())
+            view_payload["_view_type"] = view.__class__.__name__
+            views_payload.append(view_payload)
+        cubes_payload.append(
+            {
+                "name": cube.name,
+                "dimension_names": [dim.name for dim in cube.dimensions],
+                "rules": rules_payload,
+                "views": views_payload,
+            }
+        )
+
+    return {
+        "dimensions": dimensions_payload,
+        "cubes": cubes_payload,
+        "processes": [process.to_dict() for process in model.processes],
+        "chores": [chore.to_dict() for chore in model.chores],
+        "total_object_count": getattr(model, "total_object_count", None),
+    }
+
+
+def _model_from_compare_snapshot(snapshot: dict) -> Model:
+    dimensions: list[Dimension] = []
+    dimensions_by_name: dict[str, Dimension] = {}
+    for dim_payload in snapshot.get("dimensions", []):
+        dimension_name = str(dim_payload.get("name", ""))
+        hierarchy_names = [str(item) for item in dim_payload.get("hierarchy_names", [])]
+        hierarchies = [
+            Hierarchy(
+                name=hierarchy_name,
+                elements=[],
+                edges=[],
+                subsets=[],
+            )
+            for hierarchy_name in hierarchy_names
+        ]
+        default_name = dim_payload.get("default_hierarchy_name")
+        default_hierarchy = next((hier for hier in hierarchies if hier.name == default_name), None)
+        if default_hierarchy is None and hierarchies:
+            default_hierarchy = hierarchies[0]
+        if default_hierarchy is None:
+            default_hierarchy = Hierarchy(name=dimension_name, elements=[], edges=[], subsets=[])
+            hierarchies = [default_hierarchy]
+        dimension_obj = Dimension(
+            name=dimension_name,
+            hierarchies=hierarchies,
+            defaultHierarchy=default_hierarchy,
+        )
+        dimensions.append(dimension_obj)
+        dimensions_by_name[dimension_name] = dimension_obj
+
+    cubes: list[Cube] = []
+    for cube_payload in snapshot.get("cubes", []):
+        cube_name = str(cube_payload.get("name", ""))
+        cube_dimension_names = [str(item) for item in cube_payload.get("dimension_names", [])]
+        cube_dimensions = []
+        for dim_name in cube_dimension_names:
+            dim_obj = dimensions_by_name.get(dim_name)
+            if dim_obj is None:
+                fallback_hier = Hierarchy(name=dim_name, elements=[], edges=[], subsets=[])
+                dim_obj = Dimension(name=dim_name, hierarchies=[fallback_hier], defaultHierarchy=fallback_hier)
+                dimensions_by_name[dim_name] = dim_obj
+                dimensions.append(dim_obj)
+            cube_dimensions.append(dim_obj)
+        cube_rules = [
+            Rule.from_dict(payload, source_path=f"cubes/{cube_name}.rules", cube_name=cube_name)
+            for payload in cube_payload.get("rules", [])
+        ]
+        cube_views = []
+        for payload in cube_payload.get("views", []):
+            view_payload = dict(payload)
+            view_type = str(view_payload.pop("_view_type", "MDXView"))
+            if view_type == "NativeView":
+                cube_views.append(NativeView.from_dict(view_payload))
+            else:
+                cube_views.append(MDXView.from_dict(view_payload))
+        cubes.append(Cube(name=cube_name, dimensions=cube_dimensions, rules=cube_rules, views=cube_views))
+
+    processes = [Process.from_dict(payload) for payload in snapshot.get("processes", [])]
+    chores = [Chore.from_dict(payload) for payload in snapshot.get("chores", [])]
+    return Model(
+        cubes=cubes,
+        dimensions=dimensions,
+        processes=processes,
+        chores=chores,
+        total_object_count=snapshot.get("total_object_count"),
+    )
+
+
+def _deserialize_model_worker(
+    model_dir: str,
+    slot_index: int,
+    progress_queue: Any,
+    max_workers: int,
+) -> tuple[dict, dict[str, str]]:
+    def _emit_progress(event: ProgressEvent) -> None:
+        progress_queue.put((slot_index, event))
+
+    model, errors = deserialize_model(
+        model_dir,
+        progress_sink=CallbackProgressSink(_emit_progress),
+        max_workers=max(1, int(max_workers)),
+    )
+    return _model_to_compare_snapshot(model), errors
+
+
+def _consume_compare_progress_events(
+    progress_queue: Any,
+    source_sink: ProgressSink,
+    target_sink: ProgressSink,
+    stop_event: threading.Event,
+) -> None:
+    while True:
+        try:
+            if stop_event.is_set():
+                try:
+                    item = progress_queue.get_nowait()
+                except queue.Empty:
+                    break
+            else:
+                try:
+                    item = progress_queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+        except (BrokenPipeError, EOFError, OSError):
+            # Manager queue can disappear during shutdown; exit silently.
+            break
+        if item is None:
+            if stop_event.is_set():
+                break
+            continue
+        slot_index, event = item
+        if int(slot_index) == 0:
+            source_sink.on_event(event)
+        else:
+            target_sink.on_event(event)
 
 
 def _prepare_model_folder(model_folder: str, overwrite: bool = False):
@@ -97,6 +337,17 @@ def _add_log_level(p: argparse.ArgumentParser) -> None:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Set log level (overrides TM1GITPY_LOG_LEVEL)",
     )
+    p.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Optional log file path or directory for timestamped execution logs",
+    )
+    p.add_argument(
+        "--console-logs",
+        action="store_true",
+        help="Enable console log output in addition to progress UI",
+    )
 
 
 def _cmd_export(args: argparse.Namespace) -> None:
@@ -109,13 +360,21 @@ def _cmd_export(args: argparse.Namespace) -> None:
 
     logger.info("Exporting model to folder: %s", model_output_folder)
     internal_model_dir = str(Path(model_output_folder))
-    model_store = ModelStore.for_main_dir()
+    model_store = ModelStore.for_main_dir(internal_model_dir)
     internal_model_id = model_store.resolve_model_for_export(args.server, internal_model_dir)
+    export_sinks: list[ProgressSink] = [TqdmExportProgress()]
+    if bool(args.log_file):
+        export_sinks.append(LoggingProgressSink(logger))
+    export_progress_sink: ProgressSink = (
+        export_sinks[0] if len(export_sinks) == 1 else CompositeProgressSink(export_sinks)
+    )
     exported_model, export_errors = export(
         tm1_service,
         filter_rules,
         internal_model_dir=internal_model_dir,
         internal_model_id=internal_model_id,
+        progress_sink=export_progress_sink,
+        max_workers=_normalize_max_workers(args.max_workers),
     )
 
     if export_errors and any(export_errors.values()):
@@ -136,7 +395,24 @@ def _cmd_filter(args: argparse.Namespace) -> None:
     logger.info("Loading model from folder: %s", model_folder)
 
     _prepare_model_folder(model_output_folder, args.overwrite)
-    model, errors = deserialize_model(model_folder)
+    filter_sinks: list[ProgressSink] = [
+        TqdmDeserializerProgressSink(
+            str(Path(model_folder).expanduser().resolve()),
+            preferred_slot_index=0,
+            enable_fallback_logs=bool(args.log_file),
+            worker_count=_default_max_workers(),
+        )
+    ]
+    if bool(args.log_file):
+        filter_sinks.append(LoggingProgressSink(logger))
+    filter_progress_sink: ProgressSink = (
+        filter_sinks[0] if len(filter_sinks) == 1 else CompositeProgressSink(filter_sinks)
+    )
+    model, errors = deserialize_model(
+        model_folder,
+        progress_sink=filter_progress_sink,
+        max_workers=_default_max_workers(),
+    )
     if errors:
         logger.warning("Deserialization completed with %d error(s)", len(errors))
 
@@ -157,25 +433,91 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         logger.error("Target model path is not a directory: %s", target)
         sys.exit(1)
 
+    ModelStore.for_main_dir(str(source))
+    ModelStore.for_main_dir(str(target))
+
+    requested_workers = _normalize_max_workers(args.max_workers)
+    source_workers, target_workers = _split_compare_workers(requested_workers)
+
+    source_tqdm = TqdmDeserializerProgressSink(
+        str(source),
+        enable_fallback_logs=bool(args.log_file),
+        preferred_slot_index=0,
+        worker_count=source_workers,
+    )
+    target_tqdm = TqdmDeserializerProgressSink(
+        str(target),
+        enable_fallback_logs=bool(args.log_file),
+        preferred_slot_index=1,
+        worker_count=target_workers,
+    )
+    source_progress_sinks: list[ProgressSink] = [source_tqdm]
+    target_progress_sinks: list[ProgressSink] = [target_tqdm]
+    if bool(args.log_file):
+        source_progress_sinks.append(LoggingProgressSink(logger))
+        target_progress_sinks.append(LoggingProgressSink(logger))
+    source_progress_sink: ProgressSink = (
+        source_progress_sinks[0] if len(source_progress_sinks) == 1 else CompositeProgressSink(source_progress_sinks)
+    )
+    target_progress_sink: ProgressSink = (
+        target_progress_sinks[0] if len(target_progress_sinks) == 1 else CompositeProgressSink(target_progress_sinks)
+    )
+    manager = Manager()
+    progress_queue = manager.Queue()
+    stop_event = threading.Event()
+    progress_thread = threading.Thread(
+        target=_consume_compare_progress_events,
+        args=(progress_queue, source_progress_sink, target_progress_sink, stop_event),
+        daemon=True,
+    )
+    progress_thread.start()
     logger.info("Loading source model from %s", source)
-    model_source, err_source = deserialize_model(str(source))
+    try:
+        with ProcessPoolExecutor(max_workers=2) as pool:
+            source_future = pool.submit(_deserialize_model_worker, str(source), 0, progress_queue, source_workers-  1)
+            target_future = pool.submit(_deserialize_model_worker, str(target), 1, progress_queue, target_workers - 1)
+            source_snapshot, err_source = source_future.result()
+            target_snapshot, err_target = target_future.result()
+    finally:
+        stop_event.set()
+        progress_thread.join()
+        source_progress_sink.close()
+        target_progress_sink.close()
+        manager.shutdown()
+    model_source = _model_from_compare_snapshot(source_snapshot)
+    model_target = _model_from_compare_snapshot(target_snapshot)
+    model_source = _rebind_model_store_handles(model_source, source)
+    model_target = _rebind_model_store_handles(model_target, target)
+
     if err_source:
         logger.warning("Source deserialization reported %d error(s)", len(err_source))
-
     logger.info("Loading target model from %s", target)
-    model_target, err_target = deserialize_model(str(target))
     if err_target:
         logger.warning("Target deserialization reported %d error(s)", len(err_target))
 
     extra_filter = _load_filter_rules(args.filter) if args.filter else None
 
     comparator = Comparator()
-    changeset = comparator.compare(
-        model_source,
-        model_target,
-        mode=args.mode,
-        filter_rules=extra_filter,
+    compare_tqdm = TqdmComparatorProgressSink(
+        enable_fallback_logs=bool(args.log_file),
+        preferred_slot_index=0,
     )
+    compare_sinks: list[ProgressSink] = [compare_tqdm]
+    if bool(args.log_file):
+        compare_sinks.append(LoggingProgressSink(logger))
+    compare_progress_sink: ProgressSink = (
+        compare_sinks[0] if len(compare_sinks) == 1 else CompositeProgressSink(compare_sinks)
+    )
+    try:
+        changeset = comparator.compare(
+            model_source,
+            model_target,
+            mode=args.mode,
+            filter_rules=extra_filter,
+            progress_sink=compare_progress_sink,
+        )
+    finally:
+        compare_progress_sink.close()
 
     out = args.output
     if not out:
@@ -234,6 +576,12 @@ def main():
     )
     p_export.add_argument("-o", "--overwrite", action="store_true", help="Clear output folder if it already exists")
     p_export.add_argument("-f", "--filter", type=str, help="Path to filter rules file for export")
+    p_export.add_argument(
+        "--max-workers",
+        type=int,
+        default=_default_max_workers(),
+        help="Maximum worker count for export internals (default: cpu_count/2 + 1).",
+    )
     p_export.set_defaults(handler=_cmd_export)
 
     p_filter = sub.add_parser("filter", help="Load a model folder, apply filter rules, write output folder")
@@ -288,6 +636,15 @@ def main():
         default="yaml",
         help="Changeset output format",
     )
+    p_compare.add_argument(
+        "--max-workers",
+        type=int,
+        default=_default_max_workers(),
+        help=(
+            "Maximum combined worker count for compare deserialization (default: cpu_count/2 + 1). "
+            "Workers are split between source and target; odd values assign one extra to target."
+        ),
+    )
     p_compare.set_defaults(handler=_cmd_compare)
 
     p_apply = sub.add_parser("apply", help="Apply a changeset file to a TM1 server")
@@ -314,7 +671,12 @@ def main():
     p_apply.set_defaults(handler=_cmd_apply)
 
     args = parser.parse_args()
-    setup_logging(args.log_level)
+    setup_logging(
+        args.log_level or "DEBUG",
+        enable_console=bool(getattr(args, "console_logs", False)),
+        log_file=getattr(args, "log_file", None),
+        command_name=getattr(args, "command", None),
+    )
     logger.info("Command started: %s", args.command)
     args.handler(args)
     logger.info("Command finished: %s", args.command)

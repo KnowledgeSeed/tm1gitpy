@@ -1,7 +1,7 @@
 """Edge-related utilities using TM1py, including paginated edge retrieval."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, MutableSequence
+from typing import TYPE_CHECKING, List, Optional, MutableSequence, Callable
 
 from TM1py.Utils import format_url
 
@@ -104,6 +104,7 @@ def get_edges(
     filter: Optional[str] = None,
     page_size: int = 100000,
     collector: Optional[MutableSequence[Edge]] = None,
+    on_page_loaded: Optional[Callable[[int, Optional[int]], None]] = None,
     **kwargs,
 ) -> MutableSequence[Edge]:
     """Fetch all edges page-by-page.
@@ -138,6 +139,8 @@ def get_edges(
             **kw,
         )
         all_edges.extend(result.edges)
+        if on_page_loaded is not None:
+            on_page_loaded(len(result.edges), result.count)
         return (result.edges, result.count)
 
     paginate_by_pages(
@@ -151,3 +154,23 @@ def get_edges(
         **kwargs,
     )
     return all_edges
+
+
+def get_edges_count(
+    tm1_conn: "TM1Service",
+    dimension_name: str,
+    hierarchy_name: str,
+    *,
+    filter: Optional[str] = None,
+    **kwargs,
+) -> int:
+    """Return edge count for a hierarchy, with optional filter."""
+    url = format_url(
+        "/Dimensions('{}')/Hierarchies('{}')/Edges/$count",
+        dimension_name,
+        hierarchy_name,
+    )
+    if filter:
+        url = f"{url}?$filter={filter}"
+    response = tm1_conn.connection.GET(url, **kwargs)
+    return int(response.text.strip())

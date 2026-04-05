@@ -10,6 +10,9 @@ import pytest
 import yaml
 
 import tm1_git_py.comparator
+import tm1_git_py.deserializer as deserializer_module
+import tm1_git_py.exporter as exporter_module
+import tm1_git_py.main as main_module
 from tests.utility import (
     _build_mock_changeset_data,
     _objects_equal_case_builders,
@@ -61,6 +64,32 @@ class TestDeserializer:
         dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
         for dimension in dimensions.values():
             assert isinstance(dimension, Dimension)
+
+    def test_deserialize_model_forwards_max_workers(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(deserializer_module, "deserialize_processes", lambda *_a, **_k: ({}, {}))
+        monkeypatch.setattr(deserializer_module, "deserialize_chores", lambda *_a, **_k: ({}, {}))
+        monkeypatch.setattr(deserializer_module, "deserialize_cubes", lambda *_a, **_k: ({}, {}))
+        observed: dict[str, int] = {}
+
+        def _fake_dimensions(*_args, **kwargs):
+            observed["max_workers"] = int(kwargs.get("max_workers"))
+            return {}, {}
+
+        monkeypatch.setattr(deserializer_module, "deserialize_dimensions", _fake_dimensions)
+
+        model, errors = deserializer_module.deserialize_model(str(tmp_path), max_workers=7)
+        assert observed["max_workers"] == 7
+        assert model.total_object_count == 0
+        assert errors == {}
+
+    def test_tqdm_deserializer_sink_uses_dynamic_worker_slots(self, tmp_path):
+        sink = deserializer_module.TqdmDeserializerProgressSink(str(tmp_path), worker_count=6)
+        try:
+            assert sink._worker_count == 6
+            assert len(sink._worker_file) == 6
+            assert len(sink._worker_activity) == 6
+        finally:
+            sink.close()
 
 
     def test_deserialize_dimension_with_children(self, dimensions_dir=test_model_dir_base / 'dimensions'):
@@ -346,6 +375,48 @@ class TestDeserializer:
         deserialize_dimensions(dimension_dir=dimensions_dir)
         assert calls["group_builder"] >= 1
 
+    def test_deserialize_dimensions_uses_single_thread_for_hierarchy_builds(self, tmp_path, monkeypatch):
+        import threading
+        import tm1_git_py.deserializer as deserializer_module
+
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        thread_ids = set()
+        original = deserializer_module._ensure_hierarchy_store_groups
+
+        def _builder_spy(*args, **kwargs):
+            thread_ids.add(threading.get_ident())
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(deserializer_module, "_ensure_hierarchy_store_groups", _builder_spy)
+
+        deserialize_dimensions(dimension_dir=dimensions_dir)
+        assert len(thread_ids) == 1
+
+    def test_deserialize_progress_counts_model_bytes(self, tmp_path):
+        import tm1_git_py.deserializer as deserializer_module
+
+        model_dir = tmp_path / "model"
+        dimensions_dir = model_dir / "dimensions"
+        cubes_dir = model_dir / "cubes"
+        dimensions_dir.mkdir(parents=True)
+        cubes_dir.mkdir(parents=True)
+        f1 = dimensions_dir / "a.json"
+        f2 = cubes_dir / "b.json"
+        f1.write_text("{}", encoding="utf-8")
+        f2.write_text('{"k":1}', encoding="utf-8")
+
+        progress = deserializer_module._DeserializeProgress(str(model_dir))
+        progress.mark_file_processed(str(f1))
+        progress.mark_file_processed(str(f2))
+        progress.close()
+
+        expected = int(f1.stat().st_size) + int(f2.stat().st_size)
+        assert progress._total_bytes >= expected
+        assert progress._processed_bytes == expected
+
     def test_deserialize_subsets_rebuilds_store_only_when_subset_source_changes(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
         dimensions_dir = tmp_path / "dimensions"
@@ -417,6 +488,90 @@ class TestDeserializer:
             for payload in seq.iter_payloads(ordered_by_identity=True)
         ]
         assert sorted_names == ["A", "B", "C"]
+
+    def test_parallel_signature_elements_order_invariant(self, tmp_path):
+        store_a = ModelStore.for_model_dir(str(tmp_path / "a"))
+        seq_a = StoreBackedSequence.for_elements_sink(
+            store=store_a,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
+        )
+        seq_a.replace_with_payloads(
+            [
+                {"Name": "C", "Type": "Numeric"},
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "String"},
+            ]
+        )
+        sig_a = store_a.recalculate_group_content_signature_parallel(
+            seq_a.group_id,
+            ordered_by_identity=True,
+            chunk_size=1,
+            max_workers=2,
+        )
+
+        store_b = ModelStore.for_model_dir(str(tmp_path / "b"))
+        seq_b = StoreBackedSequence.for_elements_sink(
+            store=store_b,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
+        )
+        seq_b.replace_with_payloads(
+            [
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "String"},
+                {"Name": "C", "Type": "Numeric"},
+            ]
+        )
+        sig_b = store_b.recalculate_group_content_signature_parallel(
+            seq_b.group_id,
+            ordered_by_identity=True,
+            chunk_size=2,
+            max_workers=2,
+        )
+        assert sig_a == sig_b
+
+    def test_parallel_signature_edges_order_invariant(self, tmp_path):
+        store_a = ModelStore.for_model_dir(str(tmp_path / "a"))
+        seq_a = StoreBackedSequence.for_edges_sink(
+            store=store_a,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
+        )
+        seq_a.replace_with_payloads(
+            [
+                {"ParentName": "P2", "ComponentName": "C2", "Weight": 1},
+                {"ParentName": "P1", "ComponentName": "C1", "Weight": 2},
+                {"ParentName": "P1", "ComponentName": "C3", "Weight": 3},
+            ]
+        )
+        sig_a = store_a.recalculate_group_content_signature_parallel(
+            seq_a.group_id,
+            ordered_by_identity=True,
+            chunk_size=1,
+            max_workers=2,
+        )
+
+        store_b = ModelStore.for_model_dir(str(tmp_path / "b"))
+        seq_b = StoreBackedSequence.for_edges_sink(
+            store=store_b,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
+        )
+        seq_b.replace_with_payloads(
+            [
+                {"ParentName": "P1", "ComponentName": "C1", "Weight": 99},
+                {"ParentName": "P1", "ComponentName": "C3", "Weight": 77},
+                {"ParentName": "P2", "ComponentName": "C2", "Weight": 55},
+            ]
+        )
+        sig_b = store_b.recalculate_group_content_signature_parallel(
+            seq_b.group_id,
+            ordered_by_identity=True,
+            chunk_size=2,
+            max_workers=2,
+        )
+        assert sig_a == sig_b
 
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):
@@ -1111,9 +1266,97 @@ class TestComparator:
             assert (isinstance(chore_new, Chore) and chore_new.name in expected_chores )
         assert any(isinstance(chore_old, Chore) and chore_old.name == "Mock Weekly Export" for chore_old in removed)
 
+    def test_comparator_emits_progress_events_with_sink(self):
+        class _CaptureSink:
+            def __init__(self):
+                self.events = []
+
+            def on_event(self, event):
+                self.events.append(event)
+
+            def close(self):
+                return
+
+        model1 = build_mock_model()
+        model2 = build_mock_model()
+        sink = _CaptureSink()
+
+        changeset = Comparator().compare(
+            model1,
+            model2,
+            mode="full",
+            progress_sink=sink,
+        )
+
+        assert isinstance(changeset, Changeset)
+        assert any(event.scope == "compare_overall" and event.kind == "scope_start" for event in sink.events)
+        assert any(event.scope == "compare_overall" and event.kind == "scope_update" for event in sink.events)
+        assert any(event.scope == "compare_overall" and event.kind == "scope_complete" for event in sink.events)
+
+    def test_comparator_result_unchanged_with_progress_sink(self):
+        class _NoopSink:
+            def on_event(self, event):
+                _ = event
+
+            def close(self):
+                return
+
+        model_old = build_mock_model()
+        model_new = build_mock_model()
+        model_new.cubes[0].views.append(
+            NativeView(
+                name="ExtraNative",
+                columns=[],
+                rows=[],
+                titles=[],
+                suppress_empty_columns=True,
+                suppress_empty_rows=True,
+                format_string="0.#########",
+            )
+        )
+
+        cs_plain = Comparator().compare(model_old, model_new, mode="full")
+        cs_with_progress = Comparator().compare(
+            model_old,
+            model_new,
+            mode="full",
+            progress_sink=_NoopSink(),
+        )
+
+        def _change_key(change: Change) -> tuple:
+            return (
+                change.change_type,
+                change.object_type,
+                change.uri,
+                type(change.body).__name__,
+                getattr(change.body, "name", None),
+                getattr(change.body, "parent", None),
+                getattr(change.body, "component_name", None),
+                getattr(change.body, "type", None),
+                getattr(change.body, "weight", None),
+            )
+
+        assert sorted(_change_key(item) for item in cs_plain.changes) == sorted(
+            _change_key(item) for item in cs_with_progress.changes
+        )
+
 
 
 class TestExporter:
+
+    def test_export_forwards_max_workers_to_dimensions(self):
+        tm1_conn = mock.Mock()
+        with mock.patch.object(exporter_module, "dimensions_to_model", return_value=({}, {})) as mock_dims, \
+             mock.patch.object(exporter_module, "cubes_to_model", return_value=({}, {})), \
+             mock.patch.object(exporter_module, "procs_to_model", return_value=({}, {})), \
+             mock.patch.object(exporter_module, "chores_to_model", return_value=({}, {})):
+            exporter_module.export(tm1_conn, max_workers=9)
+        assert mock_dims.call_args.kwargs.get("max_workers") == 9
+
+    def test_compare_worker_split_helper(self):
+        assert main_module._split_compare_workers(8) == (4, 4)
+        assert main_module._split_compare_workers(7) == (3, 4)
+        assert main_module._split_compare_workers(1) == (1, 1)
 
     def test_process_service_get_all_names_page_builds_query(self, mocker):
         tm1_conn = mocker.Mock()
