@@ -206,13 +206,13 @@ def _update_process_variables(process_new: Process, process_object: TM1py.Proces
         vars_to_add, vars_to_remove = _diff_lists(variables_old, variables_new)
         for var in vars_to_add:
             process_object.add_variable(
-                name=var.get('name'),
-                variable_type=var.get('type')
+                name=var.get('Name'),
+                variable_type=var.get('Type')
             )
         logger.info(f"Added Variables: {vars_to_add} to Process: {process_new.name}.")
 
         for var in vars_to_remove:
-            process_object.remove_variable(name=var.get('name'))
+            process_object.remove_variable(name=var.get('Name'))
         logger.info(f"Removed Variables: {vars_to_remove} from Process: {process_new.name}.")
 
 
@@ -231,15 +231,15 @@ def _update_process_parameters(process_new: Process, process_object: TM1py.Proce
         params_to_add, params_to_remove = _diff_lists(parameters_old, parameters_new)
         for param in params_to_add:
             process_object.add_parameter(
-                name=param.get('name'),
-                prompt=param.get('prompt'),
-                value=param.get('value'),
-                parameter_type=param.get('type')
+                name=param.get('Name'),
+                prompt=param.get('Prompt'),
+                value=param.get('Value'),
+                parameter_type=param.get('Type')
             )
         logger.debug(f"Added Parameters: {params_to_add} to Process: {process_new.name}.")
 
         for param in params_to_remove:
-            process_object.remove_parameter(name=param.get('name'))
+            process_object.remove_parameter(name=param.get('Name'))
         logger.debug(f"Removed Parameters: {params_to_remove} from Process: {process_new.name}.")
 
 

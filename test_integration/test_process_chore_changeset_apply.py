@@ -1,27 +1,24 @@
-import re
-import tempfile
 import copy
-from pathlib import Path
+import re
 
-import pytest
 import TM1py
+import pytest
 from TM1py import TM1Service
 
 from test_integration.test_base import (
-    assert_export_matches_expected_subdirs,
+    check_no_diff,
     export_check_no_errors,
     load_fixture_model_tm1gitpy,
     tm1_service,
 )
-from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
 from tests.utility import tm1_uri_from_path
+from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.comparator import Comparator
-from tm1_git_py.model.chore import Chore as GitChore
 from tm1_git_py.model import process as process_model
+from tm1_git_py.model.chore import Chore as GitChore
 from tm1_git_py.model.process import Process as GitProcess
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
-from tm1_git_py.serializer import serialize_model
 
 
 @pytest.mark.usefixtures("tm1_service")
@@ -40,13 +37,13 @@ class TestProcessChoreChangesetApply:
             if change.change_type == change_type and change.body.__class__.__name__ == class_name
         ]
 
-    def _restore_fixture_no_meta(self, fixture_dir: str, fixture_model):
+    def _restore_fixture_no_meta(self, fixture_model):
         current_model = export_check_no_errors(self, self._f_no_meta_obj)
         restore_changeset = self.compare(current_model, fixture_model)
         if restore_changeset.has_changes():
             self.apply(restore_changeset)
         restored_model = export_check_no_errors(self, self._f_no_meta_obj)
-        # self.check_no_diff(fixture_dir, restored_model)
+        check_no_diff(fixture_model, restored_model)
 
     def _chore_exists(self, chore_name: str) -> bool:
         return chore_name in self.tm1_service.chores.get_all_names()
@@ -154,17 +151,17 @@ class TestProcessChoreChangesetApply:
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
 
         self.tm1_service.processes.delete("myprocess2")
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
-        changeset = self.compare(model, fixture_model)
+        changeset = self.compare(test_model, fixture_model)
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
         added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
         assert len(added_processes) == 1
         assert added_processes[0].name == "myprocess2"
         assert self.tm1_service.processes.exists("myprocess2")
-        # self.check_no_diff(fixture_dir, model)
+        check_no_diff(fixture_model, test_model)
 
     def test_delete_process_no_meta_objects(self):
         """Changeset should remove a process that does not exist in the fixture."""
@@ -172,34 +169,34 @@ class TestProcessChoreChangesetApply:
 
         extra_process = TM1py.Process(name="TestExtraProcess", datasource_type="None")
         self.tm1_service.processes.create(extra_process)
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
-        changeset = self.compare(model, fixture_model)
+        changeset = self.compare(test_model, fixture_model)
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
         removed_processes = self._changes_by(changeset, ChangeType.REMOVE, "Process")
         assert len(removed_processes) == 1
         assert removed_processes[0].name == "TestExtraProcess"
         assert not self.tm1_service.processes.exists("TestExtraProcess")
-        # self.check_no_diff(fixture_dir, model)
+        check_no_diff(fixture_model, test_model)
 
     def test_create_process_add_only_no_meta_objects(self):
         """In add_only mode, missing processes should be created."""
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
 
         self.tm1_service.processes.delete("myprocess2")
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
-        changeset = self.compare(model, fixture_model, mode='add_only')
+        changeset = self.compare(test_model, fixture_model, mode='add_only')
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
         added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
         assert len(added_processes) >= 1
         assert any(o.name == "myprocess2" for o in added_processes)
         assert self.tm1_service.processes.exists("myprocess2")
-        # self.check_no_diff(fixture_dir, model)
+        check_no_diff(fixture_model, test_model)
 
     def test_delete_process_add_only_no_meta_objects(self):
         """In add_only mode, extra processes should NOT be removed."""
@@ -226,16 +223,16 @@ class TestProcessChoreChangesetApply:
         live_process.add_parameter(name="pTmpProcParam", prompt="", value="", parameter_type="String")
         live_process.add_variable(name="vTmpProcVar", variable_type="String")
         self.tm1_service.processes.update(live_process)
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
-        changeset = self.compare(model, fixture_model)
+        changeset = self.compare(test_model, fixture_model)
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
         modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
         assert any(p.name == process_name for p in modified_processes)
         assert self.tm1_service.processes.exists(process_name)
-        # self.check_no_diff(fixture_dir, model)
+        self._restore_fixture_no_meta(fixture_model)
 
     def test_modify_process_add_only_no_meta_objects(self):
         """In add_only mode, process modify changes should still be applied."""
@@ -245,16 +242,16 @@ class TestProcessChoreChangesetApply:
         live_process = self.tm1_service.processes.get(process_name)
         live_process.has_security_access = not live_process.has_security_access
         self.tm1_service.processes.update(live_process)
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
-        changeset = self.compare(model, fixture_model, mode='add_only')
+        changeset = self.compare(test_model, fixture_model, mode='add_only')
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
         modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
         assert any(p.name == process_name for p in modified_processes)
         assert self.tm1_service.processes.exists(process_name)
-        # self.check_no_diff(fixture_dir, model)
+        check_no_diff(fixture_model, test_model)
 
     def test_apply_modify_process_with_datasource_dict_payload(self):
         """Direct process MODIFY apply should accept datasource payloads shaped as dict."""
@@ -284,7 +281,7 @@ class TestProcessChoreChangesetApply:
             live_process = self.tm1_service.processes.get(process_name)
             assert str(getattr(live_process, "datasource_type", "")).lower() == "none"
         finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+            self._restore_fixture_no_meta(fixture_model)
 
     def test_modify_process_ti_code_no_meta_objects(self):
         """Changeset apply should restore modified TI procedures."""
@@ -690,9 +687,3 @@ class TestProcessChoreChangesetApply:
             execution_id=exec_id
         )
         assert success, f"Changeset application failed with errors: {_errors}"
-
-    def check_no_diff(self, expected_dir, model):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            export_dir = str(Path(temp_dir) / "exported_model")
-            serialize_model(model, export_dir)
-            assert_export_matches_expected_subdirs(export_dir, expected_dir)

@@ -185,3 +185,23 @@ def export_check_no_errors(
     for category, category_errors in errors.items():
         assert not category_errors, f"Found errors in {category}: {category_errors}"
     return filter(model, filter_rules) if filter_rules else model
+
+
+def check_no_diff(expected: Model, model: Model):
+    def _sorted_by_name(items):
+        return sorted(items, key=lambda item: getattr(item, "name", ""))
+
+    assert _sorted_by_name(model.processes) == _sorted_by_name(expected.processes)
+    assert _sorted_by_name(model.chores) == _sorted_by_name(expected.chores)
+
+    for dim, expected_dim in zip(_sorted_by_name(model.dimensions), _sorted_by_name(expected.dimensions)):
+        assert dim.name == expected_dim.name
+        for hier, expected_hier in zip(_sorted_by_name(dim.hierarchies), _sorted_by_name(expected_dim.hierarchies)):
+            assert hier.name == expected_hier.name
+            assert _sorted_by_name(hier.elements) == _sorted_by_name(expected_hier.elements)
+            assert _sorted_by_name(hier.edges) == _sorted_by_name(expected_hier.edges)
+            assert _sorted_by_name(hier.subsets) == _sorted_by_name(expected_hier.subsets)
+
+    for cube, expected_cube in zip(_sorted_by_name(model.cubes), _sorted_by_name(expected.cubes)):
+        assert cube.name == expected_cube.name
+        assert _sorted_by_name(cube.views) == _sorted_by_name(expected_cube.views)

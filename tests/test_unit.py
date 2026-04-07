@@ -3284,12 +3284,12 @@ class TestProcessCRUD:
         tm1_service = mocker.Mock()
 
         params_new = [
-            {"name": "p1", "prompt": "P1", "value": "1", "type": "Numeric"},
-            {"name": "p3", "prompt": "P3", "value": "3", "type": "String"},
+            {"Name": "p1", "Prompt": "P1", "Value": "1", "Type": "Numeric"},
+            {"Name": "p3", "Prompt": "P3", "Value": "3", "Type": "String"},
         ]
         vars_new = [
-            {"name": "v1", "type": "String"},
-            {"name": "v3", "type": "String"},
+            {"Name": "v1", "Type": "String"},
+            {"Name": "v3", "Type": "String"},
         ]
 
         process_new = make_process(
@@ -3301,12 +3301,12 @@ class TestProcessCRUD:
         )
 
         params_old = [
-            {"name": "p1", "prompt": "P1", "value": "1", "type": "Numeric"},
-            {"name": "p2", "prompt": "P2", "value": "2", "type": "String"},
+            {"Name": "p1", "Prompt": "P1", "Value": "1", "Type": "Numeric"},
+            {"Name": "p2", "Prompt": "P2", "Value": "2", "Type": "String"},
         ]
         vars_old = [
-            {"name": "v1", "type": "String"},
-            {"name": "v2", "type": "String"},
+            {"Name": "v1", "Type": "String"},
+            {"Name": "v2", "Type": "String"},
         ]
 
         tm1_process_obj = mocker.Mock()
