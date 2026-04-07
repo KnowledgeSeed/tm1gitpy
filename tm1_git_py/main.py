@@ -17,7 +17,7 @@ from TM1py import TM1Service
 from tm1_git_py.changeset import import_changeset
 from tm1_git_py.comparator import Comparator, TqdmComparatorProgressSink
 from tm1_git_py.config import TM1ServersConfig
-from tm1_git_py.deserializer import TqdmDeserializerProgressSink, deserialize_model
+from tm1_git_py.deserializer import deserialize_model
 from tm1_git_py.exporter import TqdmExportProgress, export
 from tm1_git_py.filter import filter, import_filter
 from tm1_git_py.logging_config import setup_logging
@@ -37,6 +37,7 @@ from tm1_git_py.progress_reporting import (
     LoggingProgressSink,
     ProgressEvent,
     ProgressSink,
+    TqdmProgressSink,
 )
 from tm1_git_py.serializer import serialize_model
 
@@ -239,12 +240,12 @@ def _model_from_compare_snapshot(snapshot: dict) -> Model:
 
 def _deserialize_model_worker(
     model_dir: str,
-    slot_index: int,
+    tqdm_group_index: int,
     progress_queue: Any,
     max_workers: int,
 ) -> tuple[dict, dict[str, str]]:
     def _emit_progress(event: ProgressEvent) -> None:
-        progress_queue.put((slot_index, event))
+        progress_queue.put((tqdm_group_index, event))
 
     model, errors = deserialize_model(
         model_dir,
@@ -279,8 +280,8 @@ def _consume_compare_progress_events(
             if stop_event.is_set():
                 break
             continue
-        slot_index, event = item
-        if int(slot_index) == 0:
+        tqdm_group_index, event = item
+        if int(tqdm_group_index) == 0:
             source_sink.on_event(event)
         else:
             target_sink.on_event(event)
@@ -396,11 +397,10 @@ def _cmd_filter(args: argparse.Namespace) -> None:
 
     _prepare_model_folder(model_output_folder, args.overwrite)
     filter_sinks: list[ProgressSink] = [
-        TqdmDeserializerProgressSink(
-            str(Path(model_folder).expanduser().resolve()),
-            preferred_slot_index=0,
-            enable_fallback_logs=bool(args.log_file),
+        TqdmProgressSink(
+            base_position=0,
             worker_count=_default_max_workers(),
+            leave=False,
         )
     ]
     if bool(args.log_file):
@@ -439,17 +439,19 @@ def _cmd_compare(args: argparse.Namespace) -> None:
     requested_workers = _normalize_max_workers(args.max_workers)
     source_workers, target_workers = _split_compare_workers(requested_workers)
 
-    source_tqdm = TqdmDeserializerProgressSink(
-        str(source),
-        enable_fallback_logs=bool(args.log_file),
-        preferred_slot_index=0,
+
+
+    source_tqdm = TqdmProgressSink(
+        # str(source),
         worker_count=source_workers,
+        base_position=0,
+        leave=False,
     )
-    target_tqdm = TqdmDeserializerProgressSink(
-        str(target),
-        enable_fallback_logs=bool(args.log_file),
-        preferred_slot_index=1,
+    target_tqdm = TqdmProgressSink(
+        # str(target),
         worker_count=target_workers,
+        base_position=source_workers+1,
+        leave=False,
     )
     source_progress_sinks: list[ProgressSink] = [source_tqdm]
     target_progress_sinks: list[ProgressSink] = [target_tqdm]
@@ -474,8 +476,8 @@ def _cmd_compare(args: argparse.Namespace) -> None:
     logger.info("Loading source model from %s", source)
     try:
         with ProcessPoolExecutor(max_workers=2) as pool:
-            source_future = pool.submit(_deserialize_model_worker, str(source), 0, progress_queue, source_workers-  1)
-            target_future = pool.submit(_deserialize_model_worker, str(target), 1, progress_queue, target_workers - 1)
+            source_future = pool.submit(_deserialize_model_worker, str(source), 0, progress_queue, source_workers)
+            target_future = pool.submit(_deserialize_model_worker, str(target), 1, progress_queue, target_workers)
             source_snapshot, err_source = source_future.result()
             target_snapshot, err_target = target_future.result()
     finally:
@@ -485,7 +487,7 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         target_progress_sink.close()
         manager.shutdown()
     model_source = _model_from_compare_snapshot(source_snapshot)
-    model_target = _model_from_compare_snapshot(target_snapshot)
+    # model_target = _model_from_compare_snapshot(target_snapshot)
     model_source = _rebind_model_store_handles(model_source, source)
     model_target = _rebind_model_store_handles(model_target, target)
 

@@ -141,7 +141,8 @@ python tm1_git_py/main.py <command> [options]
 Commands:
   export    Export TM1 model from server
   filter    Filter an existing model export
-  compare   Compare two model versions (Python API only; not yet implemented in CLI)
+  compare   Compare two model versions and write a changeset file
+  apply     Apply a changeset file to a TM1 server
 
 Options:
   -s, --server SERVER           TM1 server name from tm1servers.yaml
@@ -149,10 +150,16 @@ Options:
   -mo, --model_output_folder    Output model folder (default: export)
   -o, --overwrite              Overwrite existing folder
   -f, --filter FILE            Filter file path
+  --max-workers N              Worker budget for export/compare (default: cpu_count/2 + 1)
   --log-level LEVEL            Log level: DEBUG, INFO, WARNING, ERROR
 ```
 
 Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment; `--log-level` takes precedence.
+
+For `compare`, `--max-workers` is split between source and target model deserialization:
+- source workers = `max(1, max_workers // 2)`
+- target workers = `max(1, max_workers - source_workers)`
+- odd values give one extra worker to target
 
 ## Examples
 

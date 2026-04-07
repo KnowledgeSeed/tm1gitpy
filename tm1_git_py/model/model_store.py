@@ -4,13 +4,12 @@ import time
 import hashlib
 import threading
 import re
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Any, Callable, Iterable, Iterator, Optional
 import orjson
 import sqlite3
-from tm1_git_py.progress_reporting import ProgressEvent, ProgressSink
+
 
 DEFAULT_BULK_INSERT_BATCH_SIZE = 10_000
 DEFAULT_ITER_PROGRESS_EVERY = 100_000
@@ -28,10 +27,6 @@ def _json_dumps(value: Any, *, sort_keys: bool = False) -> str:
 
 def _json_loads(raw: str) -> Any:
     return orjson.loads(raw)
-
-
-def _supports_parallel_identity_hash(normalized: str) -> bool:
-    return normalized in ("element", "elements", "edge", "edges", "subset", "subsets")
 
 
 def _identity_key_query_for_type(payload_table: str, normalized: str) -> str:
@@ -91,7 +86,12 @@ def _identity_line_for_type(normalized: str, row: tuple[Any, ...]) -> str:
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
 
 
-def _parallel_identity_chunk_hash_worker(job: dict[str, Any]) -> tuple[int, int, str]:
+
+def _parallel_identity_chunk_hash_worker(
+    job: dict[str, Any],
+    on_chunk_start: Optional[Callable[[int], None]] = None,
+    on_chunk_end: Optional[Callable[[int], None]] = None,
+) -> tuple[int, int, str]:
     db_path = str(job["db_path"])
     payload_table = str(job["payload_table"])
     normalized = str(job["normalized"])
@@ -101,6 +101,9 @@ def _parallel_identity_chunk_hash_worker(job: dict[str, Any]) -> tuple[int, int,
     end_key_raw = job.get("end_key")
     end_key = tuple(end_key_raw) if end_key_raw is not None else None
     fetch_batch_size = max(1, int(job.get("fetch_batch_size", DEFAULT_HASH_FETCH_BATCH_SIZE)))
+
+    if on_chunk_start is not None:
+        on_chunk_start(fetch_batch_size)
 
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30.0)
     try:
@@ -119,6 +122,8 @@ def _parallel_identity_chunk_hash_worker(job: dict[str, Any]) -> tuple[int, int,
             for row in rows:
                 hasher.update((_identity_line_for_type(normalized, tuple(row)) + "\n").encode("utf-8"))
                 row_count += 1
+        if on_chunk_end is not None:
+            on_chunk_end(row_count)
         return chunk_idx, row_count, hasher.hexdigest()
     finally:
         conn.close()
@@ -790,12 +795,7 @@ class ModelStore:
                     group_id,
                 ),
             )
-        recomputed_count, _ = self.recalculate_group_content_signature_parallel(
-            group_id,
-            ordered_by_identity=True,
-            fetch_batch_size=DEFAULT_HASH_FETCH_BATCH_SIZE,
-        )
-        return recomputed_count
+        return row_count
 
     def iter_payloads(
         self,
@@ -914,132 +914,28 @@ class ModelStore:
             )
         return tuple(row)
 
-    def _combine_parallel_chunk_hashes(
-        self,
-        *,
-        normalized: str,
-        total_rows: int,
-        chunk_results: list[tuple[int, int, str]],
-    ) -> str:
-        if total_rows == 0:
-            return self.EMPTY_CONTENT_HASH
-        hasher = hashlib.sha256()
-        hasher.update((self.PARALLEL_HASH_ALGO + "\n").encode("utf-8"))
-        hasher.update((normalized + "\n").encode("utf-8"))
-        hasher.update((str(total_rows) + "\n").encode("utf-8"))
-        for chunk_idx, chunk_rows, chunk_hash in sorted(chunk_results, key=lambda item: item[0]):
-            hasher.update(f"{chunk_idx}:{chunk_rows}:{chunk_hash}\n".encode("utf-8"))
-        return hasher.hexdigest()
+    def resolve_parallel_hash_inputs(self, group_id: int) -> tuple[str, str, int]:
+        normalized = self._object_type_normalized_for_group(group_id)
+        payload_table = self._object_table_for_group(group_id)
+        total_rows = self.row_count(group_id)
+        return normalized, payload_table, total_rows
 
-    def recalculate_group_content_signature_parallel(
+    def resolve_identity_key_at_offset(
+        self,
+        payload_table: str,
+        normalized: str,
+        group_id: int,
+        offset: int,
+    ) -> tuple[Any, ...]:
+        return self._identity_key_at_offset(payload_table, normalized, group_id, offset)
+
+    def commit_group_content_signature(
         self,
         group_id: int,
         *,
-        ordered_by_identity: bool = True,
-        chunk_size: int = DEFAULT_PARALLEL_HASH_CHUNK_SIZE,
-        fetch_batch_size: int = DEFAULT_HASH_FETCH_BATCH_SIZE,
-        max_workers: Optional[int] = None,
-        progress_callback: Optional[Callable[[int], None]] = None,
-        progress_sink: Optional[ProgressSink] = None,
-    ) -> tuple[int, str]:
-        normalized = self._object_type_normalized_for_group(group_id)
-        if not ordered_by_identity:
-            raise ValueError("Parallel content signature requires ordered_by_identity=True.")
-        if not _supports_parallel_identity_hash(normalized):
-            raise ValueError(
-                f"Unsupported group object type for parallel identity hashing: '{normalized}'"
-            )
-        chunk_size = max(1, int(chunk_size))
-        fetch_batch_size = max(1, int(fetch_batch_size))
-        total_rows = self.row_count(group_id)
-        payload_table = self._object_table_for_group(group_id)
-        if total_rows == 0:
-            now = time.time_ns()
-            self._conn.execute(
-                """
-                UPDATE groups
-                SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
-                WHERE group_id=?
-                """,
-                (0, self.EMPTY_CONTENT_HASH, self.PARALLEL_HASH_ALGO, now, group_id),
-            )
-            self._conn.commit()
-            return 0, self.EMPTY_CONTENT_HASH
-
-        chunk_offsets = list(range(0, total_rows, chunk_size))
-        start_keys = [
-            self._identity_key_at_offset(payload_table, normalized, group_id, offset)
-            for offset in chunk_offsets
-        ]
-        jobs: list[dict[str, Any]] = []
-        for idx, start_key in enumerate(start_keys):
-            jobs.append(
-                {
-                    "db_path": self.db_path,
-                    "payload_table": payload_table,
-                    "normalized": normalized,
-                    "group_id": group_id,
-                    "chunk_idx": idx,
-                    "start_key": start_key,
-                    "end_key": start_keys[idx + 1] if idx + 1 < len(start_keys) else None,
-                    "fetch_batch_size": fetch_batch_size,
-                }
-            )
-        worker_limit = max_workers if max_workers is not None else (os.cpu_count() or 1)
-        workers = max(1, min(int(worker_limit), len(jobs)))
-        chunk_results: list[tuple[int, int, str]] = []
-        processed_rows = 0
-
-        try:
-            if workers == 1:
-                for job in jobs:
-                    result = _parallel_identity_chunk_hash_worker(job)
-                    chunk_results.append(result)
-                    processed_rows += result[1]
-                    if progress_callback is not None:
-                        progress_callback(processed_rows)
-                    if progress_sink is not None:
-                        progress_sink.on_event(
-                            ProgressEvent.make(
-                                kind="scope_update",
-                                scope="hash_recalculate",
-                                current=processed_rows,
-                                unit="line",
-                                worker_slot=0,
-                            )
-                        )
-            else:
-                with ProcessPoolExecutor(max_workers=workers) as executor:
-                    futures = [executor.submit(_parallel_identity_chunk_hash_worker, job) for job in jobs]
-                    for future in as_completed(futures):
-                        result = future.result()
-                        chunk_results.append(result)
-                        processed_rows += result[1]
-                        if progress_callback is not None:
-                            progress_callback(processed_rows)
-                        if progress_sink is not None:
-                            progress_sink.on_event(
-                                ProgressEvent.make(
-                                    kind="scope_update",
-                                    scope="hash_recalculate",
-                                    current=processed_rows,
-                                    unit="line",
-                                    worker_slot=0,
-                                )
-                            )
-        except Exception:
-            logger.exception(
-                "Parallel hash recompute failed for group_id=%d",
-                group_id,
-            )
-            raise
-
-        recomputed_rows = sum(chunk_row_count for _, chunk_row_count, _ in chunk_results)
-        content_hash = self._combine_parallel_chunk_hashes(
-            normalized=normalized,
-            total_rows=recomputed_rows,
-            chunk_results=chunk_results,
-        )
+        row_count: int,
+        content_hash: str,
+    ) -> None:
         now = time.time_ns()
         self._conn.execute(
             """
@@ -1047,10 +943,9 @@ class ModelStore:
             SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
             WHERE group_id=?
             """,
-            (recomputed_rows, content_hash, self.PARALLEL_HASH_ALGO, now, group_id),
+            (int(row_count), str(content_hash), self.PARALLEL_HASH_ALGO, now, group_id),
         )
         self._conn.commit()
-        return recomputed_rows, content_hash
 
     def row_count(self, group_id: int) -> int:
         return self._actual_row_count(group_id)

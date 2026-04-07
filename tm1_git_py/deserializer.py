@@ -1,15 +1,16 @@
 import logging
+import hashlib
 import os
 import re
-import shutil
-import sys
-import threading
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from functools import partial
 from itertools import count
 from pathlib import Path
+from queue import Empty
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
+from multiprocessing import Manager
 import ijson
 import orjson
-from tqdm import tqdm
 from tm1_git_py.model import Edge
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
@@ -19,7 +20,12 @@ from tm1_git_py.model.hierarchy import Hierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.model import Model
-from tm1_git_py.model.model_store import ModelStore
+from tm1_git_py.model.model_store import (
+    DEFAULT_HASH_FETCH_BATCH_SIZE,
+    DEFAULT_PARALLEL_HASH_CHUNK_SIZE,
+    ModelStore,
+    _parallel_identity_chunk_hash_worker,
+)
 from tm1_git_py.model.store_backed_sequence import StoreBackedSequence
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
@@ -27,8 +33,11 @@ from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 from tm1_git_py.progress_reporting import (
+    ProgressKind,
     ProgressEvent,
+    ProgressScope,
     ProgressSink,
+    ProgressUnit,
 )
 
 
@@ -40,336 +49,6 @@ def _default_max_workers() -> int:
     return max(1, ((os.cpu_count() or 1) // 2) + 1)
 
 
-class TqdmDeserializerProgressSink:
-    _SLOT_HEIGHT = 5
-    _slot_height = 5
-    _slot_lock = threading.Lock()
-    _active_slots: set[int] = set()
-
-    def __init__(
-        self,
-        root_dir: str,
-        *,
-        enable_fallback_logs: bool = True,
-        preferred_slot_index: Optional[int] = None,
-        worker_count: int = 4,
-    ):
-        self._root_dir = str(root_dir)
-        self._enable_fallback_logs = enable_fallback_logs
-        self._tracked_dirs = ("dimensions", "cubes", "processes", "chores")
-        self._lock = threading.Lock()
-        self._processed_paths: set[str] = set()
-        self._file_sizes: dict[str, int] = {}
-        self._file_reported_bytes: dict[str, int] = {}
-        self._total_bytes = self._compute_total_bytes()
-        self._processed_bytes = 0
-        self._last_logged_pct = -1
-        self._worker_count = max(1, int(worker_count))
-        self._slot_index = self._acquire_slot(
-            preferred_slot_index,
-            required_height=self._worker_count + 1,
-        )
-        self._base_position = self._slot_index * self._slot_height
-        self._worker_file_abs: list[str] = [""] * self._worker_count
-        self._worker_file: list[str] = [""] * self._worker_count
-        self._worker_activity: list[str] = ["idle"] * self._worker_count
-        self._last_status_line: list[str] = [""] * self._worker_count
-        self._overall_bar = None
-        self._worker_bars = []
-        if sys.stderr.isatty() and tqdm is not None:
-            terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
-            if self._total_bytes > 0:
-                self._overall_bar = tqdm(
-                    total=self._total_bytes,
-                    unit="B",
-                    unit_scale=True,
-                    desc="Deserializing",
-                    leave=False,
-                    dynamic_ncols=True,
-                    ncols=terminal_width,
-                    position=self._base_position,
-                )
-            for idx in range(self._worker_count):
-                worker_bar = tqdm(
-                    total=1,
-                    unit="B",
-                    unit_scale=True,
-                    desc="",
-                    leave=False,
-                    dynamic_ncols=True,
-                    ncols=terminal_width,
-                    position=self._base_position + 1 + idx,
-                )
-                self._worker_bars.append(worker_bar)
-                worker_bar.set_description_str("", refresh=True)
-
-    @classmethod
-    def _acquire_slot(cls, preferred_slot: Optional[int] = None, *, required_height: Optional[int] = None) -> int:
-        with cls._slot_lock:
-            if required_height is not None:
-                cls._slot_height = max(cls._slot_height, max(cls._SLOT_HEIGHT, int(required_height)))
-            if preferred_slot is not None:
-                preferred = max(0, int(preferred_slot))
-                if preferred not in cls._active_slots:
-                    cls._active_slots.add(preferred)
-                    return preferred
-            slot = 0
-            while slot in cls._active_slots:
-                slot += 1
-            cls._active_slots.add(slot)
-            return slot
-
-    @classmethod
-    def _release_slot(cls, slot_index: int) -> None:
-        with cls._slot_lock:
-            cls._active_slots.discard(slot_index)
-
-    def _relpath_for_display(self, file_path: str) -> str:
-        normalized = os.path.abspath(file_path)
-        try:
-            return os.path.relpath(normalized, self._root_dir)
-        except Exception:
-            return normalized
-
-    def _fit_status_line_for_bar(self, status_line: str, worker_slot: int) -> str:
-        if worker_slot >= len(self._worker_bars):
-            return status_line
-        ncols = int(getattr(self._worker_bars[worker_slot], "ncols", 0) or 0)
-        max_len = max(30, int(ncols * 0.42)) if ncols > 0 else 80
-        if len(status_line) <= max_len:
-            return status_line
-        if ": " in status_line:
-            activity, file_part = status_line.split(": ", 1)
-            reserved = len(activity) + 5
-            file_max = max(8, max_len - reserved)
-            if len(file_part) > file_max:
-                file_part = "..." + file_part[-(file_max - 3):]
-            return f"{activity}: {file_part}"
-        return status_line[: max_len - 3] + "..."
-
-    def _render_status_locked(self, worker_slot: int) -> None:
-        if self._worker_file[worker_slot]:
-            status_line = f"{self._worker_activity[worker_slot]}: {self._worker_file[worker_slot]}"
-        else:
-            status_line = self._worker_activity[worker_slot]
-        worker_bar = self._worker_bars[worker_slot] if worker_slot < len(self._worker_bars) else None
-        if worker_bar is not None:
-            status_line = self._fit_status_line_for_bar(status_line, worker_slot)
-        if status_line == self._last_status_line[worker_slot]:
-            return
-        self._last_status_line[worker_slot] = status_line
-        if worker_bar is not None:
-            worker_bar.set_description_str(status_line, refresh=True)
-        elif self._enable_fallback_logs:
-            logging.getLogger(__name__).debug("Progress activity %s", status_line)
-
-    def _compute_total_bytes(self) -> int:
-        total = 0
-        for dirname in self._tracked_dirs:
-            base = os.path.join(self._root_dir, dirname)
-            if not os.path.isdir(base):
-                continue
-            for root, _, files in os.walk(base):
-                for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    try:
-                        normalized = os.path.abspath(file_path)
-                        file_size = int(os.path.getsize(file_path))
-                        self._file_sizes[normalized] = file_size
-                        total += file_size
-                    except OSError:
-                        continue
-        return total
-
-    def _apply_progress_delta_locked(self, delta: int) -> None:
-        if delta <= 0:
-            return
-        self._processed_bytes += delta
-        if self._overall_bar is not None:
-            self._overall_bar.update(delta)
-            return
-        if self._total_bytes <= 0:
-            return
-        pct = int((self._processed_bytes * 100) / self._total_bytes)
-        if pct >= self._last_logged_pct + 2 or pct == 100:
-            self._last_logged_pct = pct
-            if self._enable_fallback_logs:
-                logging.getLogger(__name__).debug(
-                    "Progress %d%% (%d/%d bytes)",
-                    pct,
-                    self._processed_bytes,
-                    self._total_bytes,
-                )
-
-    def on_event(self, event: ProgressEvent) -> None:
-        worker_slot = int(event.worker_slot or 0)
-        worker_slot = max(0, min(self._worker_count - 1, worker_slot))
-        with self._lock:
-            if event.scope == "file" and event.path:
-                normalized = os.path.abspath(str(event.path))
-                self._worker_file_abs[worker_slot] = normalized
-                self._worker_file[worker_slot] = self._relpath_for_display(str(event.path))
-                if event.total is not None:
-                    self._file_sizes[normalized] = max(0, int(event.total))
-            elif event.path:
-                self._worker_file[worker_slot] = str(event.path)
-            if event.activity:
-                self._worker_activity[worker_slot] = event.activity
-
-            if event.scope == "overall" and event.kind in ("scope_start", "scope_update"):
-                if self._overall_bar is not None:
-                    target_total = int(event.total) if event.total is not None else int(self._overall_bar.total or 1)
-                    target_total = max(1, target_total)
-                    if int(self._overall_bar.total or 0) != target_total:
-                        self._overall_bar.reset(total=target_total)
-                    if event.current is not None:
-                        target_n = min(max(0, int(event.current)), target_total)
-                        delta = target_n - int(self._overall_bar.n)
-                        if delta > 0:
-                            self._overall_bar.update(delta)
-                        else:
-                            self._overall_bar.n = target_n
-                            self._overall_bar.refresh()
-            elif event.kind in ("scope_start", "scope_update") and event.current is not None:
-                if event.scope == "file":
-                    normalized = self._worker_file_abs[worker_slot]
-                    if normalized:
-                        bounded = max(0, int(event.current))
-                        previous = self._file_reported_bytes.get(normalized, 0)
-                        if bounded > previous:
-                            self._file_reported_bytes[normalized] = bounded
-                            self._apply_progress_delta_locked(bounded - previous)
-                        if event.total is not None and bounded >= int(event.total):
-                            self._processed_paths.add(normalized)
-                if worker_slot < len(self._worker_bars):
-                    worker_bar = self._worker_bars[worker_slot]
-                    if event.unit:
-                        worker_bar.unit = event.unit
-                        worker_bar.unit_scale = event.unit == "B"
-                    target_total = int(event.total) if event.total is not None else int(worker_bar.total or 1)
-                    target_total = max(1, target_total)
-                    if int(worker_bar.total or 0) != target_total:
-                        worker_bar.reset(total=target_total)
-                    worker_bar.n = min(max(0, int(event.current)), target_total)
-                    worker_bar.refresh()
-                self._render_status_locked(worker_slot)
-            elif event.scope == "worker":
-                self._render_status_locked(worker_slot)
-
-    def apply_external_event(self, event: ProgressEvent) -> None:
-        self.on_event(event)
-
-    def start_file(self, file_path: str, *, activity: str = "processing", worker_slot: int = 0) -> None:
-        total = 0
-        try:
-            total = int(os.path.getsize(file_path))
-        except OSError:
-            total = 0
-        self.on_event(
-            ProgressEvent.make(
-                kind="scope_start",
-                scope="file",
-                current=0,
-                total=max(1, total),
-                unit="B",
-                activity=activity,
-                path=file_path,
-                worker_slot=worker_slot,
-            )
-        )
-
-    def report_file_progress(self, file_path: str, processed_bytes: int, *, worker_slot: int = 0) -> None:
-        total = 0
-        try:
-            total = int(os.path.getsize(file_path))
-        except OSError:
-            total = max(0, int(processed_bytes))
-        self.on_event(
-            ProgressEvent.make(
-                kind="scope_update",
-                scope="file",
-                current=max(0, int(processed_bytes)),
-                total=max(1, total),
-                unit="B",
-                activity=self._worker_activity[max(0, min(self._worker_count - 1, int(worker_slot)))],
-                path=file_path,
-                worker_slot=worker_slot,
-            )
-        )
-
-    def mark_file_processed(self, file_path: str, *, worker_slot: int = 0) -> None:
-        total = 0
-        try:
-            total = int(os.path.getsize(file_path))
-        except OSError:
-            total = 0
-        self.on_event(
-            ProgressEvent.make(
-                kind="scope_update",
-                scope="file",
-                current=max(1, total),
-                total=max(1, total),
-                unit="B",
-                activity="completed",
-                path=file_path,
-                worker_slot=worker_slot,
-            )
-        )
-
-    def start_line_activity(
-        self,
-        label: str,
-        *,
-        total_lines: int,
-        activity: str,
-        worker_slot: int = 0,
-    ) -> None:
-        self.on_event(
-            ProgressEvent.make(
-                kind="scope_start",
-                scope="line",
-                current=0,
-                total=max(1, int(total_lines)),
-                unit="line",
-                activity=activity,
-                path=label,
-                worker_slot=worker_slot,
-            )
-        )
-
-    def report_line_progress(
-        self,
-        processed_lines: int,
-        *,
-        total_lines: Optional[int] = None,
-        worker_slot: int = 0,
-    ) -> None:
-        self.on_event(
-            ProgressEvent.make(
-                kind="scope_update",
-                scope="line",
-                current=max(0, int(processed_lines)),
-                total=max(1, int(total_lines if total_lines is not None else processed_lines or 1)),
-                unit="line",
-                activity="processing",
-                worker_slot=worker_slot,
-            )
-        )
-
-    def close(self) -> None:
-        with self._lock:
-            for worker_bar in self._worker_bars:
-                worker_bar.close()
-            self._worker_bars = []
-            if self._overall_bar is not None:
-                self._overall_bar.close()
-                self._overall_bar = None
-        self._release_slot(self._slot_index)
-
-
-_DeserializeProgress = TqdmDeserializerProgressSink
-
-
 def _json_load_text(raw: str) -> Any:
     return orjson.loads(raw)
 
@@ -379,118 +58,376 @@ def _json_load_file(path: str) -> Any:
         return _json_load_text(src.read())
 
 
-def _progress_start(
-    progress: Optional[ProgressSink],
-    file_path: str,
-    activity: str,
+def _supports_parallel_identity_hash(normalized: str) -> bool:
+    return normalized in ("element", "elements", "edge", "edges", "subset", "subsets")
+
+
+def _prepare_parallel_hash_jobs(
     *,
-    worker_slot: int = 0,
-) -> None:
-    if progress is not None:
-        total = 0
-        try:
-            total = int(os.path.getsize(file_path))
-        except OSError:
-            total = 0
-        progress.on_event(
-            ProgressEvent.make(
-                kind="scope_start",
-                scope="file",
-                current=0,
-                total=max(1, total),
-                unit="B",
-                activity=activity,
-                path=file_path,
-                worker_slot=worker_slot,
-            )
+    store: ModelStore,
+    group_id: int,
+    ordered_by_identity: bool = True,
+    chunk_size: int = DEFAULT_PARALLEL_HASH_CHUNK_SIZE,
+    fetch_batch_size: int = DEFAULT_HASH_FETCH_BATCH_SIZE,
+) -> tuple[str, int, list[dict[str, Any]]]:
+    if not ordered_by_identity:
+        raise ValueError("Parallel content signature requires ordered_by_identity=True.")
+    normalized, payload_table, total_rows = store.resolve_parallel_hash_inputs(group_id)
+    if not _supports_parallel_identity_hash(normalized):
+        raise ValueError(
+            f"Unsupported group object type for parallel identity hashing: '{normalized}'"
         )
+    chunk_size = max(1, int(chunk_size))
+    fetch_batch_size = max(1, int(fetch_batch_size))
+    if total_rows == 0:
+        return normalized, 0, []
+    chunk_offsets = list(range(0, total_rows, chunk_size))
+    start_keys = [
+        store.resolve_identity_key_at_offset(payload_table, normalized, group_id, offset)
+        for offset in chunk_offsets
+    ]
+    jobs: list[dict[str, Any]] = []
+    for idx, start_key in enumerate(start_keys):
+        jobs.append(
+            {
+                "db_path": store.db_path,
+                "payload_table": payload_table,
+                "normalized": normalized,
+                "group_id": group_id,
+                "chunk_idx": idx,
+                "start_key": start_key,
+                "end_key": start_keys[idx + 1] if idx + 1 < len(start_keys) else None,
+                "fetch_batch_size": fetch_batch_size,
+            }
+        )
+    return normalized, total_rows, jobs
+
+
+def _combine_parallel_chunk_hashes(
+    *,
+    algo: str,
+    empty_hash: str,
+    normalized: str,
+    total_rows: int,
+    chunk_results: list[tuple[int, int, str]],
+) -> str:
+    if total_rows == 0:
+        return empty_hash
+    hasher = hashlib.sha256()
+    hasher.update((algo + "\n").encode("utf-8"))
+    hasher.update((normalized + "\n").encode("utf-8"))
+    hasher.update((str(total_rows) + "\n").encode("utf-8"))
+    for chunk_idx, chunk_rows, chunk_hash in sorted(chunk_results, key=lambda item: item[0]):
+        hasher.update(f"{chunk_idx}:{chunk_rows}:{chunk_hash}\n".encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def _progress_start(
+    progress: ProgressSink,
+    file_path: str,
+    activity: str
+) -> None:
+    total = 0
+    try:
+        total = int(os.path.getsize(file_path))
+    except OSError:
+        total = 0
+    progress.on_event(
+        ProgressEvent.make(
+            kind=ProgressKind.START,
+            scope=ProgressScope.WORKER,
+            current=0,
+            total=max(1, total),
+            unit=ProgressUnit.BYTE,
+            message=activity,
+            path=file_path
+        )
+    )
 
 
 def _progress_mark(
-    progress: Optional[ProgressSink],
+    progress: ProgressSink,
     file_path: str,
     *,
-    worker_slot: int = 0,
+    include_total: bool = True,
 ) -> None:
-    if progress is not None:
+    total = 0
+    try:
+        total = int(os.path.getsize(file_path))
+    except OSError:
         total = 0
-        try:
-            total = int(os.path.getsize(file_path))
-        except OSError:
-            total = 0
+    progress.on_event(
+        ProgressEvent.make(
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
+            current=max(1, total),
+            total=max(1, total),
+            unit=ProgressUnit.BYTE,
+            message="completed",
+            path=file_path,
+            update_total=True,
+        )
+    )
+    if include_total:
         progress.on_event(
             ProgressEvent.make(
-                kind="scope_update",
-                scope="file",
-                current=max(1, total),
-                total=max(1, total),
-                unit="B",
-                activity="completed",
-                path=file_path,
-                worker_slot=worker_slot,
+                kind=ProgressKind.UPDATE,
+                scope=ProgressScope.TOTAL,
+                current_delta=max(0, total),
+                total=None,
+                unit=ProgressUnit.BYTE,
+                message="Building internal model",
             )
         )
+
+
+def _directory_total_bytes(model_dir: str) -> int:
+    total_bytes = 0
+    for folder_name in ("cubes", "chores", "dimensions", "processes"):
+        folder_path = os.path.join(model_dir, folder_name)
+        if not os.path.isdir(folder_path):
+            continue
+        for root, _, files in os.walk(folder_path):
+            for file_name in files:
+                file_path = os.path.join(root, file_name)
+                try:
+                    total_bytes += int(os.path.getsize(file_path))
+                except OSError:
+                    continue
+    return total_bytes
+
+def _on_chunk_start(progress_queue: Any, fetch_batch_size: int) -> None:
+    progress_queue.put(
+        ProgressEvent.make(
+            kind=ProgressKind.START,
+            scope=ProgressScope.WORKER,
+            current=0,
+            total=max(1, int(fetch_batch_size)),
+            unit=ProgressUnit.LINE,
+            message="hash calculation started"
+        )
+    )
+
+def _on_chunk_end(progress_queue: Any, row_count: int) -> None:
+    progress_queue.put(
+        ProgressEvent.make(
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
+            current=max(0, int(row_count)),
+            total=max(1, int(row_count)),
+            unit=ProgressUnit.LINE,
+            message="hash calculation part done"
+        )
+    )
+
+
+def _drain_chunk_progress_events(progress: ProgressSink, progress_queue: Any) -> None:
+    while True:
+        try:
+            event = progress_queue.get_nowait()
+        except Empty:
+            break
+        progress.on_event(event)
+
+def recalculate_group_content_signature_parallel(
+    *,
+    progress: Optional[ProgressSink] = None,
+    store: ModelStore,
+    group_id: int,
+    ordered_by_identity: bool = True,
+    chunk_size: int = DEFAULT_PARALLEL_HASH_CHUNK_SIZE,
+    fetch_batch_size: int = DEFAULT_HASH_FETCH_BATCH_SIZE,
+    progress_callback: Optional[Callable[[int], None]] = None,
+    progress_event_callback: Optional[Callable[[ProgressEvent], None]] = None,
+    process_pool: Optional[ProcessPoolExecutor] = None,
+) -> tuple[int, str]:
+    normalized, total_rows, jobs = _prepare_parallel_hash_jobs(
+        store=store,
+        group_id=group_id,
+        ordered_by_identity=ordered_by_identity,
+        chunk_size=chunk_size,
+        fetch_batch_size=fetch_batch_size,
+    )
+    if total_rows == 0:
+        store.commit_group_content_signature(
+            group_id,
+            row_count=0,
+            content_hash=store.EMPTY_CONTENT_HASH,
+        )
+        return 0, store.EMPTY_CONTENT_HASH
+
+    chunk_results: list[tuple[int, int, str]] = []
+    use_parallel = process_pool is not None and len(jobs) > 1
+    if not use_parallel and jobs:
+        # Keep serial mode deterministic and chunk-size agnostic.
+        first_job = dict(jobs[0])
+        first_job["chunk_idx"] = 0
+        first_job["end_key"] = None
+        jobs = [first_job]
+    if use_parallel:
+        progress_manager = None
+        progress_queue = None
+        pool_on_chunk_start = None
+        pool_on_chunk_end = None
+        if progress is not None:
+            progress_manager = Manager()
+            progress_queue = progress_manager.Queue()
+            pool_on_chunk_start = partial(_on_chunk_start, progress_queue)
+            pool_on_chunk_end = partial(_on_chunk_end, progress_queue)
+        futures = []
+        for job in jobs:
+            futures.append(
+                process_pool.submit(
+                    _parallel_identity_chunk_hash_worker,
+                    job,
+                    on_chunk_start=pool_on_chunk_start,
+                    on_chunk_end=pool_on_chunk_end,
+                )
+            )
+        processed_rows = 0
+        for future in as_completed(futures):
+            chunk_idx, chunk_rows, chunk_hash = future.result()
+            chunk_results.append((chunk_idx, chunk_rows, chunk_hash))
+            processed_rows += int(chunk_rows)
+            if progress is not None and progress_queue is not None:
+                _drain_chunk_progress_events(progress, progress_queue)
+            if progress_callback is not None:
+                progress_callback(processed_rows)
+            if progress_event_callback is not None:
+                progress_event_callback(
+                    ProgressEvent.make(
+                        kind=ProgressKind.UPDATE,
+                        scope=ProgressScope.WORKER,
+                        current=max(0, int(processed_rows)),
+                        unit=ProgressUnit.LINE,
+                    )
+                )
+        if progress is not None and progress_queue is not None:
+            _drain_chunk_progress_events(progress, progress_queue)
+        if progress_manager is not None:
+            progress_manager.shutdown()
+    else:
+        processed_rows = 0
+        serial_on_chunk_start = None
+        serial_on_chunk_end = None
+        if progress is not None:
+            def _serial_on_chunk_start(fetch_batch_size_value: int) -> None:
+                progress.on_event(
+                    ProgressEvent.make(
+                        kind=ProgressKind.START,
+                        scope=ProgressScope.WORKER,
+                        current=0,
+                        total=max(1, int(fetch_batch_size_value)),
+                        unit=ProgressUnit.LINE,
+                        message="hash calculation started",
+                    )
+                )
+
+            def _serial_on_chunk_end(row_count_value: int) -> None:
+                progress.on_event(
+                    ProgressEvent.make(
+                        kind=ProgressKind.UPDATE,
+                        scope=ProgressScope.WORKER,
+                        current=max(0, int(row_count_value)),
+                        total=max(1, int(row_count_value)),
+                        unit=ProgressUnit.LINE,
+                        message="hash calculation part done",
+                    )
+                )
+
+            serial_on_chunk_start = _serial_on_chunk_start
+            serial_on_chunk_end = _serial_on_chunk_end
+        for job in jobs:
+            chunk_idx, chunk_rows, chunk_hash = _parallel_identity_chunk_hash_worker(
+                job,
+                on_chunk_start=serial_on_chunk_start,
+                on_chunk_end=serial_on_chunk_end,
+            )
+            chunk_results.append((chunk_idx, chunk_rows, chunk_hash))
+            processed_rows += int(chunk_rows)
+            if progress_callback is not None:
+                progress_callback(processed_rows)
+            if progress_event_callback is not None:
+                progress_event_callback(
+                    ProgressEvent.make(
+                        kind=ProgressKind.UPDATE,
+                        scope=ProgressScope.WORKER,
+                        current=max(0, int(processed_rows)),
+                        unit=ProgressUnit.LINE,
+                    )
+                )
+
+    row_count = sum(chunk_row_count for _, chunk_row_count, _ in chunk_results)
+    content_hash = _combine_parallel_chunk_hashes(
+        algo=store.PARALLEL_HASH_ALGO,
+        empty_hash=store.EMPTY_CONTENT_HASH,
+        normalized=normalized,
+        total_rows=row_count,
+        chunk_results=chunk_results,
+    )
+    store.commit_group_content_signature(
+        group_id,
+        row_count=row_count,
+        content_hash=content_hash,
+    )
+    return row_count, content_hash
 
 
 def _recalculate_group_signature_task(
     *,
     model_root: str,
     group_id: int,
-    progress: Optional[ProgressSink],
+    progress: ProgressSink,
     progress_scope: str,
-    progress_worker_slot: int,
-    max_workers: int,
+    process_pool: Optional[ProcessPoolExecutor] = None,
 ) -> tuple[int, str]:
     store = ModelStore.for_main_dir(model_root)
     total_lines = store.row_count(group_id)
-    if progress is not None:
+    progress.on_event(
+        ProgressEvent.make(
+            kind=ProgressKind.START,
+            scope=ProgressScope.WORKER,
+            current=0,
+            total=max(1, total_lines),
+            unit=ProgressUnit.LINE,
+            message="recalculating hash",
+            path=progress_scope,
+        )
+    )
+    def _on_progress(processed_rows: int) -> None:
         progress.on_event(
             ProgressEvent.make(
-                kind="scope_start",
-                scope="line",
-                current=0,
+                kind=ProgressKind.UPDATE,
+                scope=ProgressScope.WORKER,
+                current=max(0, int(processed_rows)),
                 total=max(1, total_lines),
-                unit="line",
-                activity="recalculating hash",
+                unit=ProgressUnit.LINE,
+                message="recalculating hash",
                 path=progress_scope,
-                worker_slot=progress_worker_slot,
             )
         )
-    def _on_progress(processed: int) -> None:
-        if progress is not None:
-            progress.on_event(
-                ProgressEvent.make(
-                    kind="scope_update",
-                    scope="line",
-                    current=max(0, int(processed)),
-                    total=max(1, total_lines),
-                    unit="line",
-                    activity="recalculating hash",
-                    path=progress_scope,
-                    worker_slot=progress_worker_slot,
-                )
-            )
 
-    row_count, content_hash = store.recalculate_group_content_signature_parallel(
-        group_id,
+    row_count, content_hash = recalculate_group_content_signature_parallel(
+        progress=progress,
+        store=store,
+        group_id=group_id,
         ordered_by_identity=True,
         fetch_batch_size=5_000,
-        max_workers=max(1, int(max_workers)),
         progress_callback=_on_progress,
+        process_pool=process_pool,
+
     )
-    if progress is not None:
-        progress.on_event(
-            ProgressEvent.make(
-                kind="scope_update",
-                scope="line",
-                current=max(0, int(row_count)),
-                total=max(1, total_lines),
-                unit="line",
-                activity="recalculating hash",
-                path=progress_scope,
-                worker_slot=progress_worker_slot,
-            )
+    progress.on_event(
+        ProgressEvent.make(
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
+            current=max(0, int(row_count)),
+            total=max(1, total_lines),
+            unit=ProgressUnit.LINE,
+            message="recalculating hash",
+            path=progress_scope,
         )
+    )
     return row_count, content_hash
 
 
@@ -506,7 +443,7 @@ def _iter_hierarchy_array_payloads(
     hierarchy_json_path: str,
     key: str,
     *,
-    progress: Optional[ProgressSink] = None,
+    progress: ProgressSink,
     progress_range: tuple[float, float] = (0.0, 1.0),
 ) -> Iterator[dict]:
     item_prefix = f"{key}.item"
@@ -528,39 +465,65 @@ def _iter_hierarchy_array_payloads(
         scaled_ratio = start_fraction + ((end_fraction - start_fraction) * ratio)
         return int(scaled_ratio * file_size)
 
+    last_total_position = int(start_fraction * file_size) if file_size > 0 else 0
+
     with open(hierarchy_json_path, "rb") as src:
         for index, payload in enumerate(ijson.items(src, item_prefix), start=1):
             if not isinstance(payload, dict):
                 raise ValueError(f"Malformed hierarchy json: non-object payload in array '{key}'")
             emitted = True
-            if progress is not None and index % 1_000 == 0:
+            if index % 1_000 == 0:
                 position = int(src.tell())
                 if position > reported_at:
+                    scaled_position = max(0, int(_scaled_position(position)))
                     progress.on_event(
                         ProgressEvent.make(
-                            kind="scope_update",
-                            scope="file",
-                            current=max(0, int(_scaled_position(position))),
+                            kind=ProgressKind.UPDATE,
+                            scope=ProgressScope.WORKER,
+                            current=scaled_position,
                             total=max(1, file_size),
-                            unit="B",
-                            activity="reading hierarchy",
+                            unit=ProgressUnit.BYTE,
+                            message="reading hierarchy",
                             path=hierarchy_json_path,
-                            worker_slot=0,
                         )
                     )
+                    delta = max(0, scaled_position - last_total_position)
+                    if delta > 0:
+                        progress.on_event(
+                            ProgressEvent.make(
+                                kind=ProgressKind.UPDATE,
+                                scope=ProgressScope.TOTAL,
+                                current_delta=delta,
+                                total=None,
+                                unit=ProgressUnit.BYTE,
+                                message="Building internal model",
+                            )
+                        )
+                        last_total_position = scaled_position
                     reported_at = position
             yield payload
-        if progress is not None:
+        final_position = max(0, int(_scaled_position(int(src.tell()))))
+        progress.on_event(
+            ProgressEvent.make(
+                kind=ProgressKind.UPDATE,
+                scope=ProgressScope.WORKER,
+                current=final_position,
+                total=max(1, file_size),
+                unit=ProgressUnit.BYTE,
+                message="reading hierarchy",
+                path=hierarchy_json_path,
+            )
+        )
+        final_delta = max(0, final_position - last_total_position)
+        if final_delta > 0:
             progress.on_event(
                 ProgressEvent.make(
-                    kind="scope_update",
-                    scope="file",
-                    current=max(0, int(_scaled_position(int(src.tell())))),
-                    total=max(1, file_size),
-                    unit="B",
-                    activity="reading hierarchy",
-                    path=hierarchy_json_path,
-                    worker_slot=0,
+                    kind=ProgressKind.UPDATE,
+                    scope=ProgressScope.TOTAL,
+                    current_delta=final_delta,
+                    total=None,
+                    unit=ProgressUnit.BYTE,
+                    message="Building internal model",
                 )
             )
     if not emitted and not _hierarchy_has_top_level_key(hierarchy_json_path, key):
@@ -609,8 +572,9 @@ def _ensure_hierarchy_store_groups(
     dimension_name: str,
     hierarchy_name: str,
     subset_dir_path: str,
-    progress: Optional[ProgressSink] = None,
+    progress: ProgressSink,
     max_workers: int = 1,
+    process_pool: Optional[ProcessPoolExecutor] = None,
     hash_slot_counter: Optional[count] = None,
 ) -> tuple[StoreBackedSequence[Element], StoreBackedSequence[Edge], StoreBackedSequence[Subset]]:
     store = ModelStore.for_main_dir(model_root)
@@ -652,16 +616,12 @@ def _ensure_hierarchy_store_groups(
         edges_progress_range = (0.0, 1.0)
 
     def _enqueue_hash_recalc(group_id: int, scope: str) -> None:
-        worker_slot = 0
-        if hash_slot_counter is not None:
-            worker_slot = next(hash_slot_counter) % max(1, int(max_workers))
         _recalculate_group_signature_task(
             model_root=model_root,
             group_id=group_id,
             progress=progress,
             progress_scope=scope,
-            progress_worker_slot=worker_slot,
-            max_workers=max_workers,
+            process_pool=process_pool,
         )
 
     if needs_elements_rebuild:
@@ -723,12 +683,12 @@ def _ensure_hierarchy_store_groups(
             )
         subsets.set_source_json_mtime_ns(subset_source_mtime_ns)
         _enqueue_hash_recalc(subsets.group_id, f"{dimension_name}/{hierarchy_name} subsets")
-    elif progress is not None and os.path.isdir(subset_dir_path):
+    elif os.path.isdir(subset_dir_path):
         for subset_file_name in sorted(os.listdir(subset_dir_path)):
             _progress_mark(progress, os.path.join(subset_dir_path, subset_file_name))
-    if progress is not None and (needs_elements_rebuild or needs_edges_rebuild):
-        _progress_mark(progress, hierarchy_json_path)
-    elif progress is not None:
+    if needs_elements_rebuild or needs_edges_rebuild:
+        _progress_mark(progress, hierarchy_json_path, include_total=False)
+    else:
         _progress_mark(progress, hierarchy_json_path)
     return elements, edges, subsets
 
@@ -751,7 +711,7 @@ def _handle_long_path(file_path) -> str:
 def deserialize_model(
     dir: str,
     *,
-    progress_sink: Optional[ProgressSink] = None,
+    progress_sink: ProgressSink,
     max_workers: Optional[int] = None,
 ) -> tuple[Model, dict[str, str]]:
     logger.debug("Deserializing model from '%s'", dir)
@@ -763,8 +723,27 @@ def deserialize_model(
     chores_dir = dir + '/chores'
 
     progress = progress_sink
+    progress.on_event(
+        ProgressEvent.make(
+            kind=ProgressKind.START,
+            scope=ProgressScope.TOTAL,
+            current=0,
+            total=max(1, _directory_total_bytes(dir)),
+            unit=ProgressUnit.BYTE,
+            message="Building internal model",
+        )
+    )
     total_object_count = 0
     effective_max_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
+    hash_pool: Optional[ProcessPoolExecutor] = None
+    if effective_max_workers > 1:
+        try:
+            hash_pool = ProcessPoolExecutor(max_workers=effective_max_workers - 1)
+        except (OSError, PermissionError, NotImplementedError):
+            logger.warning(
+                "Falling back to single-process hashing; failed to initialize ProcessPoolExecutor",
+                exc_info=True,
+            )
 
     def _add_object_count(delta: int) -> None:
         nonlocal total_object_count
@@ -788,6 +767,7 @@ def deserialize_model(
             progress=progress,
             count_callback=_add_object_count,
             max_workers=effective_max_workers,
+            process_pool=hash_pool,
         )
 
         _cubes, _cube_errors = deserialize_cubes(
@@ -797,9 +777,9 @@ def deserialize_model(
             count_callback=_add_object_count,
         )
     finally:
-        close_fn = getattr(progress, "close", None)
-        if callable(close_fn):
-            close_fn()
+        if hash_pool is not None:
+            hash_pool.shutdown(wait=True)
+        progress.close()
 
     _model = Model(cubes=list(_cubes.values()),
                    dimensions=list(_dimensions.values()),
@@ -822,7 +802,7 @@ def deserialize_model(
 def deserialize_chores(
     chore_dir,
     *,
-    progress: Optional[ProgressSink] = None,
+    progress: ProgressSink,
     count_callback: Optional[Callable[[int], None]] = None,
 ) -> tuple[Dict[str, Chore], Dict[str, str]]:
     chores: Dict[str, Chore] = {}
@@ -866,7 +846,7 @@ def deserialize_chores(
 def deserialize_processes(
     process_dir,
     *,
-    progress: Optional[ProgressSink] = None,
+    progress: ProgressSink,
     count_callback: Optional[Callable[[int], None]] = None,
 ) -> tuple[Dict[str, Process], Dict[str, str]]:
     processes: Dict[str, Process] = {}
@@ -951,8 +931,9 @@ def _deserialize_single_hierarchy(
     dimension_name: str,
     hierarchy_name: str,
     subset_dir_path: str,
-    progress: Optional[ProgressSink],
+    progress: ProgressSink,
     max_workers: int,
+    process_pool: Optional[ProcessPoolExecutor],
     hash_slot_counter: Optional[count],
 ) -> Hierarchy:
     elements, edges, subsets = _ensure_hierarchy_store_groups(
@@ -963,6 +944,7 @@ def _deserialize_single_hierarchy(
         subset_dir_path=subset_dir_path,
         progress=progress,
         max_workers=max_workers,
+        process_pool=process_pool,
         hash_slot_counter=hash_slot_counter,
     )
     return Hierarchy(
@@ -976,9 +958,10 @@ def _deserialize_single_hierarchy(
 def deserialize_dimensions(
     dimension_dir,
     *,
-    progress: Optional[ProgressSink] = None,
+    progress: ProgressSink,
     count_callback: Optional[Callable[[int], None]] = None,
     max_workers: Optional[int] = None,
+    process_pool: Optional[ProcessPoolExecutor] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
     dimensions: Dict[str, Dimension] = {}
     dimension_errors: Dict[str, str] = {}
@@ -990,116 +973,117 @@ def deserialize_dimensions(
     hash_slot_counter = count(start=0)
 
     for file_name in sorted(list(files.keys())):
-            file_name_base, dot, file_name_ext = file_name.rpartition('.')
-            dim_link = Dimension.uri_for(file_name_base)
+        file_name_base, dot, file_name_ext = file_name.rpartition('.')
+        dim_link = Dimension.uri_for(file_name_base)
 
-            if file_name_ext not in ['json', 'hierarchies']:
-                dimension_errors[dim_link] = 'not a dimension json or .hierarchies folder'
-                logger.warning("Skipping non-dimension artifact: '%s'", file_name)
-                _progress_mark(progress, os.path.join(dimension_dir, file_name))
+        if file_name_ext not in ['json', 'hierarchies']:
+            dimension_errors[dim_link] = 'not a dimension json or .hierarchies folder'
+            logger.warning("Skipping non-dimension artifact: '%s'", file_name)
+            _progress_mark(progress, os.path.join(dimension_dir, file_name))
+            continue
+        if file_name_ext != 'json':
+            continue
+
+        files.pop(file_name, None)
+        dim_json = None
+
+        try:
+            dim_file_path = os.path.join(dimension_dir, file_name)
+            _progress_start(progress, dim_file_path, "reading dimension")
+            with open(dim_file_path, 'r', encoding='utf-8') as file:
+                data = file.read()
+                dim_json = _json_load_text(data)
+                _progress_mark(progress, dim_file_path)
+        except Exception as e:
+            dimension_errors[dim_link] = e.__repr__()
+            logger.warning("Failed to parse dimension json '%s': %s", file_name, e, exc_info=True)
+            _progress_mark(progress, dim_file_path)
+            continue
+
+        try:
+            dim_name = dim_json['Name']
+            _dimension = Dimension(name=dim_name, hierarchies=[], defaultHierarchy=None)
+            dimension_object_count = 1
+        except Exception as e:
+            dimension_errors[dim_link] = e.__repr__()
+            logger.warning("Failed to build dimension object for '%s': %s", file_name, e, exc_info=True)
+            continue
+
+        hier_dir_name = file_name_base + '.hierarchies'
+        hier_dir_path = os.path.join(dimension_dir, hier_dir_name)
+
+        if hier_dir_name not in files and not os.path.isdir(hier_dir_path):
+            dimension_errors[dim_link] = 'no hierarchies found'
+            logger.warning("No hierarchy directory found for dimension '%s'", file_name)
+            continue
+
+        hiers = files.get(hier_dir_name)
+        parsed_hierarchies: dict[str, Hierarchy] = {}
+        for hier_file_name in sorted(list(hiers.keys())):
+            hierarchy_file_path = os.path.join(hier_dir_path, hier_file_name)
+            _progress_start(progress, hierarchy_file_path, "reading hierarchy")
+            # Ignore temporary/in-progress hierarchy artifacts.
+            if hier_file_name.endswith(".json.inprogress") or hier_file_name.endswith(".tmp.json.meta.json"):
+                _progress_mark(progress, hierarchy_file_path)
+                continue
+            hier_file_name_base, dot, file_name_ext = hier_file_name.rpartition('.')
+            hier_link = Hierarchy.uri_for(file_name_base, hier_file_name_base)
+
+            if file_name_ext not in ['json', 'subsets']:
+                dimension_errors[hier_link] = 'not a hierarchy json or .subset folder'
+                logger.warning("Skipping non-hierarchy artifact: '%s'", hier_file_name)
+                _progress_mark(progress, hierarchy_file_path)
                 continue
             if file_name_ext != 'json':
                 continue
 
-            files.pop(file_name, None)
-            dim_json = None
-
+            hiers.pop(hier_file_name, None)
+            subset_dir_name = hier_file_name_base + '.subsets'
+            subset_dir_path = os.path.join(hier_dir_path, subset_dir_name)
             try:
-                dim_file_path = os.path.join(dimension_dir, file_name)
-                _progress_start(progress, dim_file_path, "reading dimension")
-                with open(dim_file_path, 'r', encoding='utf-8') as file:
-                    data = file.read()
-                    dim_json = _json_load_text(data)
-                    _progress_mark(progress, dim_file_path)
+                _hierarchy = _deserialize_single_hierarchy(
+                    hierarchy_json_path=hierarchy_file_path,
+                    model_root=model_root,
+                    dimension_name=file_name_base,
+                    hierarchy_name=hier_file_name_base,
+                    subset_dir_path=subset_dir_path,
+                    progress=progress,
+                    max_workers=effective_max_workers,
+                    process_pool=process_pool,
+                    hash_slot_counter=hash_slot_counter,
+                )
+                parsed_hierarchies[hier_file_name_base] = _hierarchy
+                hierarchy_object_count = 1 + len(_hierarchy.subsets) + len(_hierarchy.edges)
+                if _hierarchy.name.strip().lower() != "leaves":
+                    hierarchy_object_count += len(_hierarchy.elements)
+                dimension_object_count += hierarchy_object_count
             except Exception as e:
-                dimension_errors[dim_link] = e.__repr__()
-                logger.warning("Failed to parse dimension json '%s': %s", file_name, e, exc_info=True)
-                _progress_mark(progress, dim_file_path)
-                continue
-
-            try:
-                dim_name = dim_json['Name']
-                _dimension = Dimension(name=dim_name, hierarchies=[], defaultHierarchy=None)
-                dimension_object_count = 1
-            except Exception as e:
-                dimension_errors[dim_link] = e.__repr__()
-                logger.warning("Failed to build dimension object for '%s': %s", file_name, e, exc_info=True)
-                continue
-
-            hier_dir_name = file_name_base + '.hierarchies'
-            hier_dir_path = os.path.join(dimension_dir, hier_dir_name)
-
-            if hier_dir_name not in files and not os.path.isdir(hier_dir_path):
-                dimension_errors[dim_link] = 'no hierarchies found'
-                logger.warning("No hierarchy directory found for dimension '%s'", file_name)
-                continue
-
-            hiers = files.get(hier_dir_name)
-            parsed_hierarchies: dict[str, Hierarchy] = {}
-            for hier_file_name in sorted(list(hiers.keys())):
-                hierarchy_file_path = os.path.join(hier_dir_path, hier_file_name)
-                _progress_start(progress, hierarchy_file_path, "reading hierarchy")
-                # Ignore temporary/in-progress hierarchy artifacts.
-                if hier_file_name.endswith(".json.inprogress") or hier_file_name.endswith(".tmp.json.meta.json"):
-                    _progress_mark(progress, hierarchy_file_path)
-                    continue
-                hier_file_name_base, dot, file_name_ext = hier_file_name.rpartition('.')
                 hier_link = Hierarchy.uri_for(file_name_base, hier_file_name_base)
+                dimension_errors[hier_link] = str(e)
+                logger.warning(
+                    "Failed to parse/build hierarchy '%s' for dimension '%s': %s",
+                    hier_file_name,
+                    file_name,
+                    e,
+                    exc_info=True,
+                )
 
-                if file_name_ext not in ['json', 'subsets']:
-                    dimension_errors[hier_link] = 'not a hierarchy json or .subset folder'
-                    logger.warning("Skipping non-hierarchy artifact: '%s'", hier_file_name)
-                    _progress_mark(progress, hierarchy_file_path)
-                    continue
-                if file_name_ext != 'json':
-                    continue
+        for hierarchy_name in sorted(parsed_hierarchies.keys()):
+            _dimension.hierarchies.append(parsed_hierarchies[hierarchy_name])
 
-                hiers.pop(hier_file_name, None)
-                subset_dir_name = hier_file_name_base + '.subsets'
-                subset_dir_path = os.path.join(hier_dir_path, subset_dir_name)
-                try:
-                    _hierarchy = _deserialize_single_hierarchy(
-                        hierarchy_json_path=hierarchy_file_path,
-                        model_root=model_root,
-                        dimension_name=file_name_base,
-                        hierarchy_name=hier_file_name_base,
-                        subset_dir_path=subset_dir_path,
-                        progress=progress,
-                        max_workers=effective_max_workers,
-                        hash_slot_counter=hash_slot_counter,
-                    )
-                    parsed_hierarchies[hier_file_name_base] = _hierarchy
-                    hierarchy_object_count = 1 + len(_hierarchy.subsets) + len(_hierarchy.edges)
-                    if _hierarchy.name.strip().lower() != "leaves":
-                        hierarchy_object_count += len(_hierarchy.elements)
-                    dimension_object_count += hierarchy_object_count
-                except Exception as e:
-                    hier_link = Hierarchy.uri_for(file_name_base, hier_file_name_base)
-                    dimension_errors[hier_link] = str(e)
-                    logger.warning(
-                        "Failed to parse/build hierarchy '%s' for dimension '%s': %s",
-                        hier_file_name,
-                        file_name,
-                        e,
-                        exc_info=True,
-                    )
+        pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
+        match = re.search(pattern, dim_json['DefaultHierarchy'])
+        if match:
+            _, default_hierarchy_name = match.groups()
+            _dimension.defaultHierarchy = parsed_hierarchies.get(default_hierarchy_name)
 
-            for hierarchy_name in sorted(parsed_hierarchies.keys()):
-                _dimension.hierarchies.append(parsed_hierarchies[hierarchy_name])
-
-            pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
-            match = re.search(pattern, dim_json['DefaultHierarchy'])
-            if match:
-                _, default_hierarchy_name = match.groups()
-                _dimension.defaultHierarchy = parsed_hierarchies.get(default_hierarchy_name)
-
-            if not _dimension.defaultHierarchy:
-                dimension_errors[dim_link] = 'no default hierarchy'
-                logger.warning("No default hierarchy resolved for dimension '%s'", file_name)
-                continue
-            dimensions[_dimension.name] = _dimension
-            if count_callback is not None:
-                count_callback(dimension_object_count)
+        if not _dimension.defaultHierarchy:
+            dimension_errors[dim_link] = 'no default hierarchy'
+            logger.warning("No default hierarchy resolved for dimension '%s'", file_name)
+            continue
+        dimensions[_dimension.name] = _dimension
+        if count_callback is not None:
+            count_callback(dimension_object_count)
     return dimensions, dimension_errors
 
 
@@ -1107,7 +1091,7 @@ def deserialize_cubes(
     cubes_dir,
     _dimensions: Dict[str, Dimension],
     *,
-    progress: Optional[ProgressSink] = None,
+    progress: ProgressSink,
     count_callback: Optional[Callable[[int], None]] = None,
 ) -> tuple[Dict[str, Cube], Dict[str, str]]:
     cubes: Dict[str, Cube] = {}

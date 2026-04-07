@@ -35,7 +35,10 @@ from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 from tm1_git_py.progress_reporting import (
     ProgressEvent,
+    ProgressKind,
+    ProgressScope,
     ProgressSink,
+    ProgressUnit,
 )
 
 from tm1_git_py.tm1py_ext import (
@@ -87,17 +90,17 @@ class TqdmExportProgress(ProgressSink):
                 position=1,
             )
 
-        if event.scope == "export:overall_rows":
-            if event.kind == "scope_start":
+        if event.scope == ProgressScope.TOTAL:
+            if event.kind == ProgressKind.START:
                 total = max(1, int(event.total or 0))
                 current = min(max(0, int(event.current or 0)), total)
                 self._overall_bar.reset(total=total)
-                self._overall_bar.unit = event.unit or "row"
-                self._overall_bar.set_description_str(event.activity or "Export overall", refresh=True)
+                self._overall_bar.unit = event.unit.value
+                self._overall_bar.set_description_str(event.message or "Export overall", refresh=True)
                 self._overall_bar.n = current
                 self._overall_bar.refresh()
                 return
-            if event.kind == "scope_update":
+            if event.kind == ProgressKind.UPDATE:
                 if event.total is not None:
                     new_total = max(1, int(event.total))
                     if int(self._overall_bar.total or 1) != new_total:
@@ -106,22 +109,17 @@ class TqdmExportProgress(ProgressSink):
                 self._overall_bar.n = min(max(0, int(event.current or 0)), total)
                 self._overall_bar.refresh()
                 return
-            if event.kind == "scope_complete":
-                self._overall_bar.n = int(self._overall_bar.total or 1)
-                self._overall_bar.refresh()
-                return
-
-        if event.scope == "export:current":
-            if event.kind == "scope_start":
+        if event.scope == ProgressScope.WORKER:
+            if event.kind == ProgressKind.START:
                 total = max(1, int(event.total or 0))
                 current = min(max(0, int(event.current or 0)), total)
                 self._current_bar.reset(total=total)
-                self._current_bar.unit = event.unit or "row"
-                self._current_bar.set_description_str(event.activity or "Current", refresh=True)
+                self._current_bar.unit = event.unit.value
+                self._current_bar.set_description_str(event.message or "Current", refresh=True)
                 self._current_bar.n = current
                 self._current_bar.refresh()
                 return
-            if event.kind == "scope_update":
+            if event.kind == ProgressKind.UPDATE:
                 if event.total is not None:
                     new_total = max(1, int(event.total))
                     if int(self._current_bar.total or 1) != new_total:
@@ -130,14 +128,6 @@ class TqdmExportProgress(ProgressSink):
                 self._current_bar.n = min(max(0, int(event.current or 0)), total)
                 self._current_bar.refresh()
                 return
-            if event.kind == "scope_complete":
-                self._current_bar.n = int(self._current_bar.total or 1)
-                self._current_bar.refresh()
-                return
-
-        if event.kind == "activity":
-            self._current_bar.set_description_str(event.activity or "Current", refresh=True)
-            return
 
     def close(self) -> None:
         if self._current_bar is not None:
@@ -148,9 +138,8 @@ class TqdmExportProgress(ProgressSink):
             self._overall_bar = None
 
 
-def _emit_progress_event(progress_sink: Optional[ProgressSink], event: ProgressEvent) -> None:
-    if progress_sink is not None:
-        progress_sink.on_event(event)
+def _emit_progress_event(progress_sink: ProgressSink, event: ProgressEvent) -> None:
+    progress_sink.on_event(event)
 
 
 def export(
@@ -158,10 +147,11 @@ def export(
     filter_rules_list: Optional[list[str]] = None,
     internal_model_dir: Optional[str] = None,
     internal_model_id: Optional[int] = None,
-    progress_sink: Optional[ProgressSink] = None,
+    *,
+    progress_sink: ProgressSink,
     max_workers: Optional[int] = None,
 ) -> tuple[Model, Dict[str, str]]:
-    active_progress_sink: Optional[ProgressSink] = progress_sink
+    active_progress_sink: ProgressSink = progress_sink
 
     logger.info("TM1 export started")
     effective_rules = list(filter_rules_list or [])
@@ -201,9 +191,7 @@ def export(
             progress_sink=active_progress_sink,
         )
     finally:
-        close_fn = getattr(active_progress_sink, "close", None)
-        if callable(close_fn):
-            close_fn()
+        active_progress_sink.close()
 
     _model = Model(cubes=list(_cubes.values()),
                    dimensions=list(_dimensions.values()),
@@ -240,7 +228,7 @@ def export(
 def chores_to_model(
     tm1_conn,
     filter_rules: FilterRules,
-    progress_sink: Optional[ProgressSink] = None,
+    progress_sink: ProgressSink,
 ) -> tuple[Dict[str, Chore], Dict[str, str]]:
     all_chores = tm1_conn.chores.get_all_names()
     _chores: Dict[str, Chore] = {}
@@ -251,12 +239,12 @@ def chores_to_model(
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_start",
-            scope="export:chores",
+            kind=ProgressKind.START,
+            scope=ProgressScope.WORKER,
             current=0,
             total=len(all_chores),
-            unit="item",
-            activity="exporting chores",
+            unit=ProgressUnit.LINE,
+            message="exporting chores",
         ),
     )
 
@@ -304,12 +292,12 @@ def chores_to_model(
             _emit_progress_event(
                 progress_sink,
                 ProgressEvent.make(
-                    kind="scope_update",
-                    scope="export:chores",
+                    kind=ProgressKind.UPDATE,
+                    scope=ProgressScope.WORKER,
                     current=idx,
                     total=len(all_chores),
-                    unit="item",
-                    activity="exporting chores",
+                    unit=ProgressUnit.LINE,
+                    message="exporting chores",
                 ),
             )
 
@@ -323,12 +311,12 @@ def chores_to_model(
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_complete",
-            scope="export:chores",
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
             current=len(all_chores),
             total=len(all_chores),
-            unit="item",
-            activity="exporting chores",
+            unit=ProgressUnit.LINE,
+            message="exporting chores",
         ),
     )
     return _chores, _errors
@@ -337,7 +325,7 @@ def chores_to_model(
 def procs_to_model(
     tm1_conn :TM1Service,
     filter_rules: FilterRules,
-    progress_sink: Optional[ProgressSink] = None,
+    progress_sink: ProgressSink,
 ) -> tuple[Dict[str, Process], Dict[str, str]]:
     processes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.PROCESS)
     filtered_process_names = [] if processes_tm1_filter.skip_all else get_process_names(
@@ -351,12 +339,12 @@ def procs_to_model(
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_start",
-            scope="export:processes",
+            kind=ProgressKind.START,
+            scope=ProgressScope.WORKER,
             current=0,
             total=len(filtered_process_names),
-            unit="item",
-            activity="exporting processes",
+            unit=ProgressUnit.LINE,
+            message="exporting processes",
         ),
     )
     for idx, process_name in enumerate(filtered_process_names, start=1):
@@ -376,12 +364,12 @@ def procs_to_model(
             _emit_progress_event(
                 progress_sink,
                 ProgressEvent.make(
-                    kind="scope_update",
-                    scope="export:processes",
+                    kind=ProgressKind.UPDATE,
+                    scope=ProgressScope.WORKER,
                     current=idx,
                     total=len(filtered_process_names),
-                    unit="item",
-                    activity="exporting processes",
+                    unit=ProgressUnit.LINE,
+                    message="exporting processes",
                 ),
             )
     logger.info(
@@ -392,12 +380,12 @@ def procs_to_model(
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_complete",
-            scope="export:processes",
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
             current=len(filtered_process_names),
             total=len(filtered_process_names),
-            unit="item",
-            activity="exporting processes",
+            unit=ProgressUnit.LINE,
+            message="exporting processes",
         ),
     )
     return _processes, _errors
@@ -407,7 +395,7 @@ def cubes_to_model(
     tm1_conn: TM1Service,
     _dimensions: Dict[str, Dimension],
     filter_rules: FilterRules,
-    progress_sink: Optional[ProgressSink] = None,
+    progress_sink: ProgressSink,
 ) -> tuple[Dict[str, Cube], Dict[str, str]]:
     cubes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.CUBE)
     filtered_cube_names = [] if cubes_tm1_filter.skip_all else get_cube_names(
@@ -423,12 +411,12 @@ def cubes_to_model(
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_start",
-            scope="export:cubes",
+            kind=ProgressKind.START,
+            scope=ProgressScope.WORKER,
             current=0,
             total=len(filtered_cube_names),
-            unit="item",
-            activity="exporting cubes",
+            unit=ProgressUnit.LINE,
+            message="exporting cubes",
         ),
     )
 
@@ -529,12 +517,12 @@ def cubes_to_model(
             _emit_progress_event(
                 progress_sink,
                 ProgressEvent.make(
-                    kind="scope_update",
-                    scope="export:cubes",
+                    kind=ProgressKind.UPDATE,
+                    scope=ProgressScope.WORKER,
                     current=idx,
                     total=len(filtered_cube_names),
-                    unit="item",
-                    activity="exporting cubes",
+                    unit=ProgressUnit.LINE,
+                    message="exporting cubes",
                 ),
             )
 
@@ -548,12 +536,12 @@ def cubes_to_model(
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_complete",
-            scope="export:cubes",
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
             current=len(filtered_cube_names),
             total=len(filtered_cube_names),
-            unit="item",
-            activity="exporting cubes",
+            unit=ProgressUnit.LINE,
+            message="exporting cubes",
         ),
     )
     return _cubes, _errors
@@ -564,7 +552,8 @@ def dimensions_to_model(
     filter_rules: FilterRules,
     internal_model_dir: Optional[str] = None,
     internal_model_id: Optional[int] = None,
-    progress_sink: Optional[ProgressSink] = None,
+    *,
+    progress_sink: ProgressSink,
     max_workers: Optional[int] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
     dimensions_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.DIMENSION)
@@ -587,19 +576,18 @@ def dimensions_to_model(
     count_queue: Queue[tuple[tuple[str, str, str], Optional[int], Optional[Exception]]] = Queue()
     overall_total_rows = 0
     overall_processed_rows = 0
-    next_count_worker_slot = 0
     count_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
 
     def _emit_overall_update() -> None:
         _emit_progress_event(
             progress_sink,
             ProgressEvent.make(
-                kind="scope_update",
-                scope="export:overall_rows",
+                kind=ProgressKind.UPDATE,
+                scope=ProgressScope.TOTAL,
                 current=overall_processed_rows,
                 total=overall_total_rows,
-                unit="row",
-                activity="Export overall",
+                unit=ProgressUnit.LINE,
+                message="Export overall",
             ),
         )
 
@@ -657,12 +645,12 @@ def dimensions_to_model(
         _emit_progress_event(
             progress_sink,
             ProgressEvent.make(
-                kind="scope_start",
-                scope="export:current",
+                kind=ProgressKind.START,
+                scope=ProgressScope.WORKER,
                 current=0,
                 total=total_rows,
-                unit="row",
-                activity=activity,
+                unit=ProgressUnit.LINE,
+                message=activity,
             ),
         )
 
@@ -670,12 +658,12 @@ def dimensions_to_model(
         _emit_progress_event(
             progress_sink,
             ProgressEvent.make(
-                kind="scope_update",
-                scope="export:current",
+                kind=ProgressKind.UPDATE,
+                scope=ProgressScope.WORKER,
                 current=current_rows,
                 total=total_rows,
-                unit="row",
-                activity=activity,
+                unit=ProgressUnit.LINE,
+                message=activity,
             ),
         )
 
@@ -683,12 +671,12 @@ def dimensions_to_model(
         _emit_progress_event(
             progress_sink,
             ProgressEvent.make(
-                kind="scope_complete",
-                scope="export:current",
+                kind=ProgressKind.UPDATE,
+                scope=ProgressScope.WORKER,
                 current=current_rows,
                 total=total_rows,
-                unit="row",
-                activity=activity,
+                unit=ProgressUnit.LINE,
+                message=activity,
             ),
         )
 
@@ -703,26 +691,21 @@ def dimensions_to_model(
         subsets_skip_all: bool,
         edges_skip_all: bool,
     ) -> None:
-        def _next_count_worker_slot() -> int:
-            nonlocal next_count_worker_slot
-            slot = next_count_worker_slot % count_workers
-            next_count_worker_slot += 1
-            return slot
-
         def _submit(group_name: str, fn, *args, **kwargs) -> None:
             key = (dim_name, hierarchy_name, group_name)
             group_totals[key] = None
             group_processed[key] = 0
-            worker_slot = _next_count_worker_slot()
             activity = f"collecting count {group_name} {dim_name}/{hierarchy_name}"
             logger.info("%s", activity)
             _emit_progress_event(
                 progress_sink,
                 ProgressEvent.make(
-                    kind="activity",
-                    scope="export:count_worker",
-                    activity=activity,
-                    worker_slot=worker_slot,
+                    kind=ProgressKind.UPDATE,
+                    scope=ProgressScope.WORKER,
+                    current=0,
+                    total=1,
+                    unit=ProgressUnit.LINE,
+                    message=activity,
                 ),
             )
 
@@ -778,23 +761,23 @@ def dimensions_to_model(
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_start",
-            scope="export:overall_rows",
+            kind=ProgressKind.START,
+            scope=ProgressScope.TOTAL,
             current=0,
             total=0,
-            unit="row",
-            activity="Export overall",
+            unit=ProgressUnit.LINE,
+            message="Export overall",
         ),
     )
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_start",
-            scope="export:dimensions",
+            kind=ProgressKind.START,
+            scope=ProgressScope.WORKER,
             current=0,
             total=len(all_dims),
-            unit="item",
-            activity="exporting dimensions",
+            unit=ProgressUnit.LINE,
+            message="exporting dimensions",
         ),
     )
 
@@ -813,12 +796,12 @@ def dimensions_to_model(
                 _emit_progress_event(
                     progress_sink,
                     ProgressEvent.make(
-                        kind="scope_start",
-                        scope="export:hierarchies",
+                        kind=ProgressKind.START,
+                        scope=ProgressScope.WORKER,
                         current=0,
                         total=len(hierarchy_identities),
-                        unit="item",
-                        activity=f"exporting hierarchies ({dim_name})",
+                        unit=ProgressUnit.LINE,
+                        message=f"exporting hierarchies ({dim_name})",
                     ),
                 )
 
@@ -1031,24 +1014,24 @@ def dimensions_to_model(
                     _emit_progress_event(
                         progress_sink,
                         ProgressEvent.make(
-                            kind="scope_update",
-                            scope="export:hierarchies",
+                            kind=ProgressKind.UPDATE,
+                            scope=ProgressScope.WORKER,
                             current=idx + 1,
                             total=len(hierarchy_identities),
-                            unit="item",
-                            activity=f"exporting hierarchies ({dim_name})",
+                            unit=ProgressUnit.LINE,
+                            message=f"exporting hierarchies ({dim_name})",
                         ),
                     )
 
                 _emit_progress_event(
                     progress_sink,
                     ProgressEvent.make(
-                        kind="scope_complete",
-                        scope="export:hierarchies",
+                        kind=ProgressKind.UPDATE,
+                        scope=ProgressScope.WORKER,
                         current=len(hierarchy_identities),
                         total=len(hierarchy_identities),
-                        unit="item",
-                        activity=f"exporting hierarchies ({dim_name})",
+                        unit=ProgressUnit.LINE,
+                        message=f"exporting hierarchies ({dim_name})",
                     ),
                 )
 
@@ -1074,12 +1057,12 @@ def dimensions_to_model(
                 _emit_progress_event(
                     progress_sink,
                     ProgressEvent.make(
-                        kind="scope_update",
-                        scope="export:dimensions",
+                        kind=ProgressKind.UPDATE,
+                        scope=ProgressScope.WORKER,
                         current=dim_index,
                         total=len(all_dims),
-                        unit="item",
-                        activity="exporting dimensions",
+                        unit=ProgressUnit.LINE,
+                        message="exporting dimensions",
                     ),
                 )
 
@@ -1090,23 +1073,23 @@ def dimensions_to_model(
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_complete",
-            scope="export:overall_rows",
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.TOTAL,
             current=overall_processed_rows,
             total=overall_total_rows,
-            unit="row",
-            activity="Export overall",
+            unit=ProgressUnit.LINE,
+            message="Export overall",
         ),
     )
     _emit_progress_event(
         progress_sink,
         ProgressEvent.make(
-            kind="scope_complete",
-            scope="export:dimensions",
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
             current=len(all_dims),
             total=len(all_dims),
-            unit="item",
-            activity="exporting dimensions",
+            unit=ProgressUnit.LINE,
+            message="exporting dimensions",
         ),
     )
     return _dimensions, _errors

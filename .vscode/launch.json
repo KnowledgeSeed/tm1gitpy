@@ -55,8 +55,12 @@
                 "--target=export3",
                 "--output=changeset.yml",
                 "--mode=full",
-                "--format=yaml"
+                "--format=yaml",
+                "--max-workers=8"
             ]
         }
     ]
 }
+
+compare --source=export2 --target=export3 --output=changeset.yml --mode=full --format=yaml
+python tm1_git_py/main.py compare --source=export2 --target=export3 --output=changeset.yml --mode=full --format=yaml

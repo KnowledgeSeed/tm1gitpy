@@ -16,7 +16,13 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.process import Process
 from tm1_git_py.filter import filter
-from tm1_git_py.progress_reporting import ProgressEvent, ProgressSink
+from tm1_git_py.progress_reporting import (
+    ProgressEvent,
+    ProgressKind,
+    ProgressScope,
+    ProgressSink,
+    ProgressUnit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,24 +99,25 @@ class TqdmComparatorProgressSink:
         with self._lock:
             if self._overall_bar is None or self._collection_bar is None:
                 return
-            if event.scope == "compare_overall":
+            if event.scope == ProgressScope.TOTAL:
                 bar = self._overall_bar
                 fallback_desc = "Comparing.."
-            elif event.scope == "compare_collection":
+            elif event.scope == ProgressScope.WORKER:
                 bar = self._collection_bar
                 fallback_desc = "Collection"
             else:
                 return
-            if event.unit:
-                bar.unit = event.unit
-                bar.unit_scale = event.unit == "B"
+            bar.unit = event.unit.value
+            bar.unit_scale = event.unit == ProgressUnit.BYTE
             target_total = int(event.total) if event.total is not None else int(bar.total or 1)
             target_total = max(1, target_total)
             if int(bar.total or 0) != target_total:
                 bar.reset(total=target_total)
             if event.current is not None:
                 bar.n = min(max(0, int(event.current)), target_total)
-            desc = event.activity or fallback_desc
+            else:
+                bar.n = min(max(0, int(bar.n) + int(event.current_delta or 0)), target_total)
+            desc = event.message or fallback_desc
             if event.path:
                 desc = f"{desc}: {event.path}"
             if bar is self._overall_bar:
@@ -295,24 +302,25 @@ class Comparator:
     def _emit_progress_event(
         self,
         *,
-        kind: str,
-        scope: str,
+        kind: ProgressKind,
+        scope: ProgressScope,
         current: Optional[int] = None,
+        current_delta: Optional[int] = None,
         total: Optional[int] = None,
-        unit: Optional[str] = None,
-        activity: Optional[str] = None,
+        unit: ProgressUnit = ProgressUnit.LINE,
+        message: Optional[str] = None,
         path: Optional[str] = None,
     ) -> None:
-        if self._progress_sink is None:
-            return
+        assert self._progress_sink is not None
         self._progress_sink.on_event(
             ProgressEvent.make(
                 kind=kind,
                 scope=scope,
-                current=current,
-                total=total,
                 unit=unit,
-                activity=activity,
+                current=current,
+                current_delta=current_delta,
+                total=total,
+                message=message,
                 path=path,
             )
         )
@@ -321,15 +329,15 @@ class Comparator:
         self._compare_progress_total = max(1, int(total_units))
         self._compare_progress_current = 0
         self._emit_progress_event(
-            kind="scope_start",
-            scope="compare_overall",
+            kind=ProgressKind.START,
+            scope=ProgressScope.TOTAL,
             current=0,
             total=self._compare_progress_total,
-            unit="object",
-            activity="comparing models",
+            unit=ProgressUnit.LINE,
+            message="comparing models",
         )
 
-    def _advance_compare_progress(self, delta: int, *, activity: Optional[str] = None) -> None:
+    def _advance_compare_progress(self, delta: int, *, message: Optional[str] = None) -> None:
         if delta <= 0:
             return
         self._compare_progress_current = min(
@@ -337,12 +345,12 @@ class Comparator:
             self._compare_progress_current + int(delta),
         )
         self._emit_progress_event(
-            kind="scope_update",
-            scope="compare_overall",
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.TOTAL,
             current=self._compare_progress_current,
             total=self._compare_progress_total,
-            unit="object",
-            activity=activity or "comparing models",
+            unit=ProgressUnit.LINE,
+            message=message or "comparing models",
         )
 
     def _begin_collection_progress(self, *, label: str, total_units: int) -> None:
@@ -350,16 +358,16 @@ class Comparator:
         self._collection_progress_total = max(1, int(total_units))
         self._collection_progress_current = 0
         self._emit_progress_event(
-            kind="scope_start",
-            scope="compare_collection",
+            kind=ProgressKind.START,
+            scope=ProgressScope.WORKER,
             current=0,
             total=self._collection_progress_total,
-            unit="object",
-            activity="comparing collection",
+            unit=ProgressUnit.LINE,
+            message="comparing collection",
             path=self._collection_progress_label,
         )
 
-    def _advance_collection_progress(self, delta: int, *, activity: Optional[str] = None) -> None:
+    def _advance_collection_progress(self, delta: int, *, message: Optional[str] = None) -> None:
         if delta <= 0:
             return
         self._collection_progress_current = min(
@@ -367,12 +375,12 @@ class Comparator:
             self._collection_progress_current + int(delta),
         )
         self._emit_progress_event(
-            kind="scope_update",
-            scope="compare_collection",
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
             current=self._collection_progress_current,
             total=self._collection_progress_total,
-            unit="object",
-            activity=activity or "comparing collection",
+            unit=ProgressUnit.LINE,
+            message=message or "comparing collection",
             path=self._collection_progress_label,
         )
 
@@ -387,9 +395,9 @@ class Comparator:
             self,
             model1: Model,
             model2: Model,
+            progress_sink: ProgressSink,
             mode: Literal['full', 'add_only'] = 'full',
             filter_rules: Optional[Union[list[str], list[dict]]] = None,
-            progress_sink: Optional[ProgressSink] = None,
     ) -> Changeset:
         """
         Compare two models and build a Changeset of Change entries.
@@ -458,12 +466,12 @@ class Comparator:
                 summary.get("modify", 0),
             )
             self._emit_progress_event(
-                kind="scope_complete",
-                scope="compare_overall",
+                kind=ProgressKind.UPDATE,
+                scope=ProgressScope.TOTAL,
+                unit=ProgressUnit.LINE,
                 current=self._compare_progress_total,
                 total=self._compare_progress_total,
-                unit="object",
-                activity="compare complete",
+                message="compare complete",
             )
             return changeset
         finally:
@@ -642,8 +650,8 @@ class Comparator:
         ):
             skipped_total = max(1, old_total + new_total)
             self._begin_collection_progress(label=object_type_name, total_units=skipped_total)
-            self._advance_collection_progress(skipped_total, activity=f"skipping {object_type_name}")
-            self._advance_compare_progress(skipped_total, activity=f"skipping {object_type_name}")
+            self._advance_collection_progress(skipped_total, message=f"skipping {object_type_name}")
+            self._advance_compare_progress(skipped_total, message=f"skipping {object_type_name}")
             logger.info(
                 "Skipping %s streaming compare: count+hash match count=%d hash_algo=%s",
                 object_type_name,
@@ -670,8 +678,8 @@ class Comparator:
                 return
             delta = max(0, current - reported_processed)
             if delta > 0:
-                self._advance_collection_progress(delta, activity=f"streaming {object_type_name}")
-                self._advance_compare_progress(delta, activity=f"streaming {object_type_name}")
+                self._advance_collection_progress(delta, message=f"streaming {object_type_name}")
+                self._advance_compare_progress(delta, message=f"streaming {object_type_name}")
                 reported_processed = current
             logger.info(
                 "Streaming compare progress for %s old=%d/%d new=%d/%d added=%d removed=%d common=%d",
@@ -870,8 +878,8 @@ class Comparator:
                 raise
 
         processed_units = len(old_list_m) + len(new_list_m)
-        self._advance_collection_progress(processed_units, activity=f"comparing {object_type_name}")
-        self._advance_compare_progress(processed_units, activity=f"comparing {object_type_name}")
+        self._advance_collection_progress(processed_units, message=f"comparing {object_type_name}")
+        self._advance_compare_progress(processed_units, message=f"comparing {object_type_name}")
 
         return _CompareObjectListsResult(
             matched_pairs=matched_pairs,

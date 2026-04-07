@@ -34,6 +34,14 @@ from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element
 from tm1_git_py.model.nativeview import NativeView
+from tm1_git_py.progress_reporting import (
+    CallbackProgressSink,
+    ProgressEvent,
+    ProgressKind,
+    ProgressScope,
+    ProgressUnit,
+    TqdmProgressSink,
+)
 from tests.utility import tm1_uri_from_path
 from tm1_git_py.tm1py_ext import subset_service_ext, process_service_ext, cube_service_ext, view_service_ext
 
@@ -83,11 +91,19 @@ class TestDeserializer:
         assert errors == {}
 
     def test_tqdm_deserializer_sink_uses_dynamic_worker_slots(self, tmp_path):
-        sink = deserializer_module.TqdmDeserializerProgressSink(str(tmp_path), worker_count=6)
+        sink = TqdmProgressSink(worker_count=6)
         try:
-            assert sink._worker_count == 6
-            assert len(sink._worker_file) == 6
-            assert len(sink._worker_activity) == 6
+            assert sink.worker_count == 6
+            assert len(sink._worker_bars) == 6
+        finally:
+            sink.close()
+
+    def test_tqdm_deserializer_sink_extends_generic_sink(self, tmp_path):
+        sink = TqdmProgressSink(worker_count=3)
+        try:
+            assert isinstance(sink, TqdmProgressSink)
+            assert sink.worker_count == 3
+            assert len(sink._worker_bars) == 3
         finally:
             sink.close()
 
@@ -395,7 +411,7 @@ class TestDeserializer:
         deserialize_dimensions(dimension_dir=dimensions_dir)
         assert len(thread_ids) == 1
 
-    def test_deserialize_progress_counts_model_bytes(self, tmp_path):
+    def test_deserialize_progress_sink_accepts_byte_events(self, tmp_path):
         import tm1_git_py.deserializer as deserializer_module
 
         model_dir = tmp_path / "model"
@@ -408,14 +424,30 @@ class TestDeserializer:
         f1.write_text("{}", encoding="utf-8")
         f2.write_text('{"k":1}', encoding="utf-8")
 
-        progress = deserializer_module._DeserializeProgress(str(model_dir))
-        progress.mark_file_processed(str(f1))
-        progress.mark_file_processed(str(f2))
+        progress = TqdmProgressSink(worker_count=1)
+        progress.on_event(
+            ProgressEvent.make(
+                kind=ProgressKind.START,
+                scope=ProgressScope.WORKER,
+                unit=ProgressUnit.BYTE,
+                current=0,
+                total=max(1, int(f1.stat().st_size)),
+                message="reading file",
+                path=str(f1),
+            )
+        )
+        progress.on_event(
+            ProgressEvent.make(
+                kind=ProgressKind.UPDATE,
+                scope=ProgressScope.WORKER,
+                unit=ProgressUnit.BYTE,
+                current=max(1, int(f1.stat().st_size)),
+                total=max(1, int(f1.stat().st_size)),
+                message="completed",
+                path=str(f1),
+            )
+        )
         progress.close()
-
-        expected = int(f1.stat().st_size) + int(f2.stat().st_size)
-        assert progress._total_bytes >= expected
-        assert progress._processed_bytes == expected
 
     def test_deserialize_subsets_rebuilds_store_only_when_subset_source_changes(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
@@ -503,11 +535,12 @@ class TestDeserializer:
                 {"Name": "B", "Type": "String"},
             ]
         )
-        sig_a = store_a.recalculate_group_content_signature_parallel(
-            seq_a.group_id,
+        sig_a = deserializer_module.recalculate_group_content_signature_parallel(
+            store=store_a,
+            group_id=seq_a.group_id,
             ordered_by_identity=True,
             chunk_size=1,
-            max_workers=2,
+            progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
 
         store_b = ModelStore.for_model_dir(str(tmp_path / "b"))
@@ -523,11 +556,12 @@ class TestDeserializer:
                 {"Name": "C", "Type": "Numeric"},
             ]
         )
-        sig_b = store_b.recalculate_group_content_signature_parallel(
-            seq_b.group_id,
+        sig_b = deserializer_module.recalculate_group_content_signature_parallel(
+            store=store_b,
+            group_id=seq_b.group_id,
             ordered_by_identity=True,
             chunk_size=2,
-            max_workers=2,
+            progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
         assert sig_a == sig_b
 
@@ -545,11 +579,12 @@ class TestDeserializer:
                 {"ParentName": "P1", "ComponentName": "C3", "Weight": 3},
             ]
         )
-        sig_a = store_a.recalculate_group_content_signature_parallel(
-            seq_a.group_id,
+        sig_a = deserializer_module.recalculate_group_content_signature_parallel(
+            store=store_a,
+            group_id=seq_a.group_id,
             ordered_by_identity=True,
             chunk_size=1,
-            max_workers=2,
+            progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
 
         store_b = ModelStore.for_model_dir(str(tmp_path / "b"))
@@ -565,11 +600,12 @@ class TestDeserializer:
                 {"ParentName": "P2", "ComponentName": "C2", "Weight": 55},
             ]
         )
-        sig_b = store_b.recalculate_group_content_signature_parallel(
-            seq_b.group_id,
+        sig_b = deserializer_module.recalculate_group_content_signature_parallel(
+            store=store_b,
+            group_id=seq_b.group_id,
             ordered_by_identity=True,
             chunk_size=2,
-            max_workers=2,
+            progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
         assert sig_a == sig_b
 
@@ -1289,9 +1325,8 @@ class TestComparator:
         )
 
         assert isinstance(changeset, Changeset)
-        assert any(event.scope == "compare_overall" and event.kind == "scope_start" for event in sink.events)
-        assert any(event.scope == "compare_overall" and event.kind == "scope_update" for event in sink.events)
-        assert any(event.scope == "compare_overall" and event.kind == "scope_complete" for event in sink.events)
+        assert any(event.scope.value == "TOTAL" and event.kind.value == "start" for event in sink.events)
+        assert any(event.scope.value == "TOTAL" and event.kind.value == "update" for event in sink.events)
 
     def test_comparator_result_unchanged_with_progress_sink(self):
         class _NoopSink:

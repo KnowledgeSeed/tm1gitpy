@@ -4,6 +4,7 @@ from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.element import Element
 from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.subset import Subset
+from tm1_git_py.progress_reporting import CallbackProgressSink
 
 T = TypeVar("T")
 
@@ -163,6 +164,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             self.group_id,
             payloads,
         )
+        self.recalculate_content_signature_parallel()
 
     def filter_in_place(self, predicate: Callable[[T], bool]) -> int:
         kept_payloads = []
@@ -184,9 +186,13 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         )
 
     def recalculate_content_signature_parallel(self) -> tuple[int, str]:
-        return self._store.recalculate_group_content_signature_parallel(
-            self.group_id,
+        from tm1_git_py.deserializer import recalculate_group_content_signature_parallel
+
+        return recalculate_group_content_signature_parallel(
+            store=self._store,
+            group_id=self.group_id,
             ordered_by_identity=True,
+            progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
 
     def set_source_json_mtime_ns(self, source_json_mtime_ns: int) -> None:
