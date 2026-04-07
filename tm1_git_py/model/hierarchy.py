@@ -141,6 +141,13 @@ class _HierarchyStagedWriter:
             )
 
     @staticmethod
+    def _sorted_element_payload_json_strings(payload_json_iter: Iterator[str]) -> Iterator[str]:
+        payloads = [_loads_json(payload_json) for payload_json in payload_json_iter]
+        payloads.sort(key=lambda payload: ((payload.get("Name") or payload.get("name") or ""), (payload.get("Type") or payload.get("type") or "")))
+        for payload in payloads:
+            yield json.dumps(payload, ensure_ascii=False)
+
+    @staticmethod
     def _apply_group_metadata(
         sequence: StoreBackedSequence[Any],
         *,
@@ -171,10 +178,12 @@ class _HierarchyStagedWriter:
             self._write_payload_array_from_json_strings(
                 fh,
                 "Elements",
-                self.elements_ref.iter_payload_json_strings(
-                    ordered_by_identity=True,
-                    progress_label=f"{self.hierarchy_name}:Elements",
-                    progress_every=self.JSON_DUMP_PROGRESS_EVERY,
+                self._sorted_element_payload_json_strings(
+                    self.elements_ref.iter_payload_json_strings(
+                        ordered_by_identity=True,
+                        progress_label=f"{self.hierarchy_name}:Elements",
+                        progress_every=self.JSON_DUMP_PROGRESS_EVERY,
+                    )
                 ) if self.elements_ref is not None else iter(()),
             )
             fh.write(",\n")
@@ -308,8 +317,13 @@ class Hierarchy:
     def _write_array(self, fh, key: str, collection: MutableSequence[Any], *, indent: str = "\t") -> None:
         item_prefix = indent * 2
         fh.write(f'{indent}"{key}": [')
+        if key == "Elements":
+            items = list(collection)
+            items.sort(key=lambda item: ((getattr(item, "name", None) or ""), (getattr(item, "type", None) or "")))
+        else:
+            items = list(collection)
         first = True
-        for item in collection:
+        for item in items:
             if first:
                 fh.write("\n")
                 first = False

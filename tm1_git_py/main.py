@@ -487,7 +487,7 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         target_progress_sink.close()
         manager.shutdown()
     model_source = _model_from_compare_snapshot(source_snapshot)
-    # model_target = _model_from_compare_snapshot(target_snapshot)
+    model_target = _model_from_compare_snapshot(target_snapshot)
     model_source = _rebind_model_store_handles(model_source, source)
     model_target = _rebind_model_store_handles(model_target, target)
 

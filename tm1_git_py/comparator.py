@@ -17,6 +17,7 @@ from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.process import Process
 from tm1_git_py.filter import filter
 from tm1_git_py.progress_reporting import (
+    NoopProgressSink,
     ProgressEvent,
     ProgressKind,
     ProgressScope,
@@ -223,6 +224,13 @@ def _object_identity(obj: Any, context: Optional[dict[str, str]] = None) -> str:
             return f"{obj_type}:{object_uri}|{area}"
         return f"{obj_type}:{getattr(obj, 'name', '')}:{area}"
 
+    if isinstance(obj, Element):
+        object_uri = _uri_from_object(obj, context=context)
+        element_type = getattr(obj, "type", "") or ""
+        if object_uri:
+            return f"{obj_type}:{object_uri}|{element_type}"
+        return f"{obj_type}:{getattr(obj, 'name', '')}|{element_type}"
+
     object_uri = _uri_from_object(obj, context=context)
     if object_uri:
         return f"{obj_type}:{object_uri}"
@@ -395,7 +403,7 @@ class Comparator:
             self,
             model1: Model,
             model2: Model,
-            progress_sink: ProgressSink,
+            progress_sink: Optional[ProgressSink] = None,
             mode: Literal['full', 'add_only'] = 'full',
             filter_rules: Optional[Union[list[str], list[dict]]] = None,
     ) -> Changeset:
@@ -405,7 +413,7 @@ class Comparator:
         mode='add_only' emits add/modify changes.
         """
 
-        self._progress_sink = progress_sink
+        self._progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
         self._compare_progress_total = 0
         self._compare_progress_current = 0
         try:

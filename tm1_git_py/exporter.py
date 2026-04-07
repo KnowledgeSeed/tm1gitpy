@@ -34,6 +34,7 @@ from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 from tm1_git_py.progress_reporting import (
+    NoopProgressSink,
     ProgressEvent,
     ProgressKind,
     ProgressScope,
@@ -148,10 +149,11 @@ def export(
     internal_model_dir: Optional[str] = None,
     internal_model_id: Optional[int] = None,
     *,
-    progress_sink: ProgressSink,
+    progress_sink: Optional[ProgressSink] = None,
     max_workers: Optional[int] = None,
 ) -> tuple[Model, Dict[str, str]]:
-    active_progress_sink: ProgressSink = progress_sink
+    active_progress_sink: ProgressSink = progress_sink if progress_sink is not None else NoopProgressSink()
+    include_progress_kwarg = progress_sink is not None
 
     logger.info("TM1 export started")
     effective_rules = list(filter_rules_list or [])
@@ -163,33 +165,52 @@ def export(
     )
 
     try:
-        _dimensions, _dim_errors = dimensions_to_model(
-            tm1_conn,
-            filter_rules=filter_rules,
-            internal_model_dir=internal_model_dir,
-            internal_model_id=internal_model_id,
-            progress_sink=active_progress_sink,
-            max_workers=max_workers,
-        )
-
-        _cubes, _cube_errors = cubes_to_model(
-            tm1_conn,
-            _dimensions,
-            filter_rules=filter_rules,
-            progress_sink=active_progress_sink,
-        )
-
-        _processes, _process_errors = procs_to_model(
-            tm1_conn,
-            filter_rules=filter_rules,
-            progress_sink=active_progress_sink,
-        )
-
-        _chores, _chore_errors = chores_to_model(
-            tm1_conn,
-            filter_rules=filter_rules,
-            progress_sink=active_progress_sink,
-        )
+        if include_progress_kwarg:
+            _dimensions, _dim_errors = dimensions_to_model(
+                tm1_conn,
+                filter_rules=filter_rules,
+                internal_model_dir=internal_model_dir,
+                internal_model_id=internal_model_id,
+                progress_sink=active_progress_sink,
+                max_workers=max_workers,
+            )
+            _cubes, _cube_errors = cubes_to_model(
+                tm1_conn,
+                _dimensions,
+                filter_rules=filter_rules,
+                progress_sink=active_progress_sink,
+            )
+            _processes, _process_errors = procs_to_model(
+                tm1_conn,
+                filter_rules=filter_rules,
+                progress_sink=active_progress_sink,
+            )
+            _chores, _chore_errors = chores_to_model(
+                tm1_conn,
+                filter_rules=filter_rules,
+                progress_sink=active_progress_sink,
+            )
+        else:
+            _dimensions, _dim_errors = dimensions_to_model(
+                tm1_conn,
+                filter_rules=filter_rules,
+                internal_model_dir=internal_model_dir,
+                internal_model_id=internal_model_id,
+                max_workers=max_workers,
+            )
+            _cubes, _cube_errors = cubes_to_model(
+                tm1_conn,
+                _dimensions,
+                filter_rules=filter_rules,
+            )
+            _processes, _process_errors = procs_to_model(
+                tm1_conn,
+                filter_rules=filter_rules,
+            )
+            _chores, _chore_errors = chores_to_model(
+                tm1_conn,
+                filter_rules=filter_rules,
+            )
     finally:
         active_progress_sink.close()
 
@@ -228,8 +249,9 @@ def export(
 def chores_to_model(
     tm1_conn,
     filter_rules: FilterRules,
-    progress_sink: ProgressSink,
+    progress_sink: Optional[ProgressSink] = None,
 ) -> tuple[Dict[str, Chore], Dict[str, str]]:
+    progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     all_chores = tm1_conn.chores.get_all_names()
     _chores: Dict[str, Chore] = {}
     _errors: Dict[str, str] = {}
@@ -325,8 +347,9 @@ def chores_to_model(
 def procs_to_model(
     tm1_conn :TM1Service,
     filter_rules: FilterRules,
-    progress_sink: ProgressSink,
+    progress_sink: Optional[ProgressSink] = None,
 ) -> tuple[Dict[str, Process], Dict[str, str]]:
+    progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     processes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.PROCESS)
     filtered_process_names = [] if processes_tm1_filter.skip_all else get_process_names(
             tm1_conn,
@@ -395,8 +418,9 @@ def cubes_to_model(
     tm1_conn: TM1Service,
     _dimensions: Dict[str, Dimension],
     filter_rules: FilterRules,
-    progress_sink: ProgressSink,
+    progress_sink: Optional[ProgressSink] = None,
 ) -> tuple[Dict[str, Cube], Dict[str, str]]:
+    progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     cubes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.CUBE)
     filtered_cube_names = [] if cubes_tm1_filter.skip_all else get_cube_names(
         tm1_conn,
@@ -553,9 +577,10 @@ def dimensions_to_model(
     internal_model_dir: Optional[str] = None,
     internal_model_id: Optional[int] = None,
     *,
-    progress_sink: ProgressSink,
+    progress_sink: Optional[ProgressSink] = None,
     max_workers: Optional[int] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
+    progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     dimensions_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.DIMENSION)
     all_dims = [] if dimensions_tm1_filter.skip_all else get_dimension_names(
         tm1_conn,

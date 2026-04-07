@@ -884,7 +884,7 @@ class TestComparator:
         modified = self._changes_by_type(changeset, ChangeType.MODIFY)
         removed = self._changes_by_type(changeset, ChangeType.REMOVE)
 
-        assert len(added) == 7
+        assert len(added) == 6
         assert len(modified) == 5
         assert len(removed) == 0
 
@@ -899,9 +899,9 @@ class TestComparator:
         modified = self._changes_by_type(changeset, ChangeType.MODIFY)
         removed = self._changes_by_type(changeset, ChangeType.REMOVE)
 
-        assert len(added) == 7
+        assert len(added) == 6
         assert len(modified) == 5
-        assert len(removed) == 7
+        assert len(removed) == 6
 
 
     def test_comparator_dimensions_change_propagation(self):
@@ -1972,7 +1972,7 @@ class TestChangeset:
 
         # For deletes, precedence is:
         # mdx_views -> rules -> cubes -> edges -> elements -> subsets -> hierarchies -> dimensions -> chore -> process
-        assert deleted_types == [MDXView, Cube, Edge, Element, Element, Chore, Process]
+        assert deleted_types == [MDXView, Cube, Edge, Element, Chore, Process]
 
 
     def test_apply_uses_sorted_order_for_create(self, mocker):
@@ -2007,7 +2007,7 @@ class TestChangeset:
 
         # For creates, precedence is:
         # dimensions -> hierarchies -> subsets -> elements -> edges -> cubes -> mdx_views -> rules -> processes -> chores
-        assert created_types == [Subset, Element, Element, Element, Edge, Edge, MDXView]
+        assert created_types == [Subset, Element, Element, Edge, Edge, MDXView]
 
 
     def test_apply_uses_sorted_order_for_update(self, mocker):

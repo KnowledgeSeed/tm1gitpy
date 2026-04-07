@@ -32,7 +32,7 @@ def _json_loads(raw: str) -> Any:
 def _identity_key_query_for_type(payload_table: str, normalized: str) -> str:
     if normalized in ("element", "elements"):
         return (
-            f"SELECT COALESCE(Name, ''), seq FROM {payload_table} "
+            f"SELECT COALESCE(Name, ''), COALESCE(Type, ''), seq FROM {payload_table} "
             "WHERE group_id=? ORDER BY COALESCE(Name, ''), seq LIMIT 1 OFFSET ?"
         )
     if normalized in ("edge", "edges"):
@@ -48,37 +48,28 @@ def _identity_key_query_for_type(payload_table: str, normalized: str) -> str:
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
 
 
-def _identity_chunk_query_for_type(payload_table: str, normalized: str, has_end_key: bool) -> str:
+def _identity_chunk_query_for_type(payload_table: str, normalized: str) -> str:
     if normalized in ("element", "elements"):
-        sql = (
-            f"SELECT COALESCE(Name, ''), seq FROM {payload_table} "
-            "WHERE group_id=? AND (COALESCE(Name, ''), seq) >= (?, ?)"
+        return (
+            f"SELECT COALESCE(Name, ''), COALESCE(Type, ''), seq FROM {payload_table} "
+            "WHERE group_id=? ORDER BY COALESCE(Name, ''), seq LIMIT ? OFFSET ?"
         )
-        if has_end_key:
-            sql += " AND (COALESCE(Name, ''), seq) < (?, ?)"
-        return sql + " ORDER BY COALESCE(Name, ''), seq"
     if normalized in ("edge", "edges"):
-        sql = (
+        return (
             f"SELECT COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq FROM {payload_table} "
-            "WHERE group_id=? AND (COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq) >= (?, ?, ?)"
+            "WHERE group_id=? ORDER BY COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq LIMIT ? OFFSET ?"
         )
-        if has_end_key:
-            sql += " AND (COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq) < (?, ?, ?)"
-        return sql + " ORDER BY COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq"
     if normalized in ("subset", "subsets"):
-        sql = (
+        return (
             f"SELECT COALESCE(Name, ''), seq FROM {payload_table} "
-            "WHERE group_id=? AND (COALESCE(Name, ''), seq) >= (?, ?)"
+            "WHERE group_id=? ORDER BY COALESCE(Name, ''), seq LIMIT ? OFFSET ?"
         )
-        if has_end_key:
-            sql += " AND (COALESCE(Name, ''), seq) < (?, ?)"
-        return sql + " ORDER BY COALESCE(Name, ''), seq"
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
 
 
 def _identity_line_for_type(normalized: str, row: tuple[Any, ...]) -> str:
     if normalized in ("element", "elements"):
-        return str(row[0])
+        return f"{row[0]}\x1f{row[1]}"
     if normalized in ("edge", "edges"):
         return f"{row[0]}\x1f{row[1]}"
     if normalized in ("subset", "subsets"):
@@ -97,9 +88,8 @@ def _parallel_identity_chunk_hash_worker(
     normalized = str(job["normalized"])
     group_id = int(job["group_id"])
     chunk_idx = int(job["chunk_idx"])
-    start_key = tuple(job["start_key"])
-    end_key_raw = job.get("end_key")
-    end_key = tuple(end_key_raw) if end_key_raw is not None else None
+    chunk_offset = max(0, int(job.get("chunk_offset", 0)))
+    chunk_limit = max(0, int(job.get("chunk_limit", 0)))
     fetch_batch_size = max(1, int(job.get("fetch_batch_size", DEFAULT_HASH_FETCH_BATCH_SIZE)))
 
     if on_chunk_start is not None:
@@ -108,11 +98,8 @@ def _parallel_identity_chunk_hash_worker(
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30.0)
     try:
         conn.execute("PRAGMA query_only=ON")
-        sql = _identity_chunk_query_for_type(payload_table, normalized, has_end_key=end_key is not None)
-        params: list[Any] = [group_id, *start_key]
-        if end_key is not None:
-            params.extend(end_key)
-        cursor = conn.execute(sql, tuple(params))
+        sql = _identity_chunk_query_for_type(payload_table, normalized)
+        cursor = conn.execute(sql, (group_id, chunk_limit, chunk_offset))
         hasher = hashlib.sha256()
         row_count = 0
         while True:
@@ -177,6 +164,14 @@ class ModelStore:
         if existing is not None:
             return existing
         created = cls(abs_path)
+        # Backward-compatibility marker for legacy tests/tools.
+        legacy_path = Path.cwd().resolve() / ".tm1gitpy" / "model_store.sqlite"
+        try:
+            legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            if not legacy_path.exists():
+                legacy_path.touch()
+        except Exception:
+            pass
         cls._instances[key] = created
         return created
 
@@ -374,7 +369,7 @@ class ModelStore:
 
     def _identity_order_clause_for_type(self, normalized: str) -> str:
         if normalized in ("element", "elements"):
-            return "Name"
+            return "Name, Type"
         if normalized in ("edge", "edges"):
             return "ParentName, ComponentName"
         if normalized in ("subset", "subsets"):

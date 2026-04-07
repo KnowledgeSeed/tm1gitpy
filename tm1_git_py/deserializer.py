@@ -33,6 +33,7 @@ from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 from tm1_git_py.progress_reporting import (
+    NoopProgressSink,
     ProgressKind,
     ProgressEvent,
     ProgressScope,
@@ -82,12 +83,9 @@ def _prepare_parallel_hash_jobs(
     if total_rows == 0:
         return normalized, 0, []
     chunk_offsets = list(range(0, total_rows, chunk_size))
-    start_keys = [
-        store.resolve_identity_key_at_offset(payload_table, normalized, group_id, offset)
-        for offset in chunk_offsets
-    ]
     jobs: list[dict[str, Any]] = []
-    for idx, start_key in enumerate(start_keys):
+    for idx, chunk_offset in enumerate(chunk_offsets):
+        chunk_limit = max(0, min(chunk_size, total_rows - int(chunk_offset)))
         jobs.append(
             {
                 "db_path": store.db_path,
@@ -95,8 +93,8 @@ def _prepare_parallel_hash_jobs(
                 "normalized": normalized,
                 "group_id": group_id,
                 "chunk_idx": idx,
-                "start_key": start_key,
-                "end_key": start_keys[idx + 1] if idx + 1 < len(start_keys) else None,
+                "chunk_offset": int(chunk_offset),
+                "chunk_limit": int(chunk_limit),
                 "fetch_batch_size": fetch_batch_size,
             }
         )
@@ -262,7 +260,8 @@ def recalculate_group_content_signature_parallel(
         # Keep serial mode deterministic and chunk-size agnostic.
         first_job = dict(jobs[0])
         first_job["chunk_idx"] = 0
-        first_job["end_key"] = None
+        first_job["chunk_offset"] = 0
+        first_job["chunk_limit"] = max(0, int(total_rows))
         jobs = [first_job]
     if use_parallel:
         progress_manager = None
@@ -711,7 +710,7 @@ def _handle_long_path(file_path) -> str:
 def deserialize_model(
     dir: str,
     *,
-    progress_sink: ProgressSink,
+    progress_sink: Optional[ProgressSink] = None,
     max_workers: Optional[int] = None,
 ) -> tuple[Model, dict[str, str]]:
     logger.debug("Deserializing model from '%s'", dir)
@@ -722,7 +721,7 @@ def deserialize_model(
     processes_dir = dir + '/processes'
     chores_dir = dir + '/chores'
 
-    progress = progress_sink
+    progress = progress_sink if progress_sink is not None else NoopProgressSink()
     progress.on_event(
         ProgressEvent.make(
             kind=ProgressKind.START,
@@ -802,9 +801,10 @@ def deserialize_model(
 def deserialize_chores(
     chore_dir,
     *,
-    progress: ProgressSink,
+    progress: Optional[ProgressSink] = None,
     count_callback: Optional[Callable[[int], None]] = None,
 ) -> tuple[Dict[str, Chore], Dict[str, str]]:
+    progress = progress if progress is not None else NoopProgressSink()
     chores: Dict[str, Chore] = {}
     chores_errors: Dict[str, str] = {}
     logger.debug("Deserializing chores from '%s'", chore_dir)
@@ -846,9 +846,10 @@ def deserialize_chores(
 def deserialize_processes(
     process_dir,
     *,
-    progress: ProgressSink,
+    progress: Optional[ProgressSink] = None,
     count_callback: Optional[Callable[[int], None]] = None,
 ) -> tuple[Dict[str, Process], Dict[str, str]]:
+    progress = progress if progress is not None else NoopProgressSink()
     processes: Dict[str, Process] = {}
     process_errors: Dict[str, str] = {}
     logger.debug("Deserializing processes from '%s'", process_dir)
@@ -958,11 +959,12 @@ def _deserialize_single_hierarchy(
 def deserialize_dimensions(
     dimension_dir,
     *,
-    progress: ProgressSink,
+    progress: Optional[ProgressSink] = None,
     count_callback: Optional[Callable[[int], None]] = None,
     max_workers: Optional[int] = None,
     process_pool: Optional[ProcessPoolExecutor] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
+    progress = progress if progress is not None else NoopProgressSink()
     dimensions: Dict[str, Dimension] = {}
     dimension_errors: Dict[str, str] = {}
     logger.debug("Deserializing dimensions from '%s'", dimension_dir)
@@ -1091,9 +1093,10 @@ def deserialize_cubes(
     cubes_dir,
     _dimensions: Dict[str, Dimension],
     *,
-    progress: ProgressSink,
+    progress: Optional[ProgressSink] = None,
     count_callback: Optional[Callable[[int], None]] = None,
 ) -> tuple[Dict[str, Cube], Dict[str, str]]:
+    progress = progress if progress is not None else NoopProgressSink()
     cubes: Dict[str, Cube] = {}
     cube_errors: Dict[str, str] = {}
     logger.debug("Deserializing cubes from '%s'", cubes_dir)
