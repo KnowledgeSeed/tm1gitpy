@@ -185,6 +185,7 @@ def update_cube(tm1_service: TM1Service, cube: Cube) -> Response:
     new_rule_text = cube.get_rule_text()
     if not cube_object.rules or cube_object.rules.body != new_rule_text:
         cube_object.rules = TM1py.Rules(new_rule_text)
+        tm1_service.cubes.update_or_create_rules(cube_name=cube.name, rules=new_rule_text.strip())
         logger.info(f"Updated Rules for Cube: {cube.name}.")
 
     return tm1_service.cubes.update(cube_object)

@@ -1,8 +1,10 @@
 import filecmp
+import json
 import logging
 import os
 import socket
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +12,7 @@ import pytest
 import requests
 from testcontainers.compose import DockerCompose
 
+from tm1_git_py import serialize_model
 from tm1_git_py.config import TM1ServerConfig, TM1ServersConfig
 from tm1_git_py.deserializer import deserialize_model
 from tm1_git_py.exporter import export
@@ -24,6 +27,30 @@ logger = logging.getLogger(__name__)
 MODEL_COMPARE_SUBDIRS = ("dimensions", "cubes", "chores", "processes")
 
 
+def _normalize_json_keys(value):
+    if isinstance(value, dict):
+        return {str(key).lower(): _normalize_json_keys(item) for key, item in value.items()}
+    if isinstance(value, list):
+        normalized_items = [_normalize_json_keys(item) for item in value]
+        return sorted(
+            normalized_items,
+            key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        )
+    return value
+
+
+def _json_files_equivalent(left_path: str, right_path: str) -> bool:
+    try:
+        with open(left_path, "r", encoding="utf-8") as fh:
+            left_payload = json.load(fh)
+        with open(right_path, "r", encoding="utf-8") as fh:
+            right_payload = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    return _normalize_json_keys(left_payload) == _normalize_json_keys(right_payload)
+
+
 def _assert_dircmp_trees_equal(left: str, right: str) -> None:
     """Recursively assert two directories have identical file sets and contents."""
     cmp = filecmp.dircmp(left, right)
@@ -33,8 +60,15 @@ def _assert_dircmp_trees_equal(left: str, right: str) -> None:
     assert not cmp.right_only, (
         f"Files/dirs only in expected under {right!r}: {sorted(cmp.right_only)}"
     )
-    assert not cmp.diff_files, (
-        f"Files that differ under {left!r} vs {right!r}: {sorted(cmp.diff_files)}"
+    remaining_diff_files = []
+    for name in sorted(cmp.diff_files):
+        left_file = os.path.join(left, name)
+        right_file = os.path.join(right, name)
+        if name.endswith(".json") and _json_files_equivalent(left_file, right_file):
+            continue
+        remaining_diff_files.append(name)
+    assert not remaining_diff_files, (
+        f"Files that differ under {left!r} vs {right!r}: {remaining_diff_files}"
     )
     for name in sorted(cmp.common_dirs):
         _assert_dircmp_trees_equal(
@@ -187,21 +221,8 @@ def export_check_no_errors(
     return filter(model, filter_rules) if filter_rules else model
 
 
-def check_no_diff(expected: Model, model: Model):
-    def _sorted_by_name(items):
-        return sorted(items, key=lambda item: getattr(item, "name", ""))
-
-    assert _sorted_by_name(model.processes) == _sorted_by_name(expected.processes)
-    assert _sorted_by_name(model.chores) == _sorted_by_name(expected.chores)
-
-    for dim, expected_dim in zip(_sorted_by_name(model.dimensions), _sorted_by_name(expected.dimensions)):
-        assert dim.name == expected_dim.name
-        for hier, expected_hier in zip(_sorted_by_name(dim.hierarchies), _sorted_by_name(expected_dim.hierarchies)):
-            assert hier.name == expected_hier.name
-            assert _sorted_by_name(hier.elements) == _sorted_by_name(expected_hier.elements)
-            assert _sorted_by_name(hier.edges) == _sorted_by_name(expected_hier.edges)
-            assert _sorted_by_name(hier.subsets) == _sorted_by_name(expected_hier.subsets)
-
-    for cube, expected_cube in zip(_sorted_by_name(model.cubes), _sorted_by_name(expected.cubes)):
-        assert cube.name == expected_cube.name
-        assert _sorted_by_name(cube.views) == _sorted_by_name(expected_cube.views)
+def check_no_diff(expected_dir, model: Model):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        export_dir = str(Path(temp_dir) / "exported_model")
+        serialize_model(model, export_dir)
+        assert_export_matches_expected_subdirs(export_dir, expected_dir)

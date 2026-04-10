@@ -3,36 +3,36 @@
 	"Name": "}StatsByProcess",
 	"Elements": [
 		{
-			"name": "Current State",
-			"type": "String"
+		  "Name": "Client Name",
+		  "Type": "String"
 		},
 		{
-			"name": "Completion Status",
-			"type": "Numeric"
+		  "Name": "Completion Status",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Client Name",
-			"type": "String"
+		  "Name": "Current Process",
+		  "Type": "String"
 		},
 		{
-			"name": "Last Start Time",
-			"type": "Numeric"
+		  "Name": "Current State",
+		  "Type": "String"
 		},
 		{
-			"name": "Last End Time",
-			"type": "Numeric"
+		  "Name": "Last Duration",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Last Duration",
-			"type": "Numeric"
+		  "Name": "Last End Time",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Next Activation Time",
-			"type": "Numeric"
+		  "Name": "Last Start Time",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Current Process",
-			"type": "String"
+		  "Name": "Next Activation Time",
+		  "Type": "Numeric"
 		}
 	],
 	"Edges": [],

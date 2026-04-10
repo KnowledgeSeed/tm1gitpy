@@ -3,8 +3,8 @@
 	"Name": "}Hierarchies_TestDimElemAttrib",
 	"Elements": [
 		{
-			"name": "TestDimElemAttrib",
-			"type": "String"
+		  "Name": "TestDimElemAttrib",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

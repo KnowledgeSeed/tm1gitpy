@@ -3,220 +3,220 @@
 	"Name": "}Dimensions",
 	"Elements": [
 		{
-			"name": "TestDim1",
-			"type": "String"
+		  "Name": "TestDim1",
+		  "Type": "String"
 		},
 		{
-			"name": "TestDim2",
-			"type": "String"
+		  "Name": "TestDim2",
+		  "Type": "String"
 		},
 		{
-			"name": "TestDim3",
-			"type": "String"
+		  "Name": "TestDim3",
+		  "Type": "String"
 		},
 		{
-			"name": "TestDimElemAttrib",
-			"type": "String"
+		  "Name": "TestDimElemAttrib",
+		  "Type": "String"
 		},
 		{
-			"name": "TestDimMultiHier",
-			"type": "String"
+		  "Name": "TestDimMultiHier",
+		  "Type": "String"
 		},
 		{
-			"name": "TestDimMultiHier:Hier1",
-			"type": "String"
+		  "Name": "TestDimMultiHier:Hier1",
+		  "Type": "String"
 		},
 		{
-			"name": "TestDimMultiHier:Hier2",
-			"type": "String"
+		  "Name": "TestDimMultiHier:Hier2",
+		  "Type": "String"
 		},
 		{
-			"name": "TestDimMultiHier:Leaves",
-			"type": "String"
+		  "Name": "TestDimMultiHier:Leaves",
+		  "Type": "String"
 		},
 		{
-			"name": "}ApplicationEntries",
-			"type": "String"
+		  "Name": "}ApplicationEntries",
+		  "Type": "String"
 		},
 		{
-			"name": "}CAMAssociatedGroups",
-			"type": "String"
+		  "Name": "}CAMAssociatedGroups",
+		  "Type": "String"
 		},
 		{
-			"name": "}Chores",
-			"type": "String"
+		  "Name": "}Chores",
+		  "Type": "String"
 		},
 		{
-			"name": "}ClientProperties",
-			"type": "String"
+		  "Name": "}ClientProperties",
+		  "Type": "String"
 		},
 		{
-			"name": "}Clients",
-			"type": "String"
+		  "Name": "}ClientSettings",
+		  "Type": "String"
 		},
 		{
-			"name": "}ClientSettings",
-			"type": "String"
+		  "Name": "}Clients",
+		  "Type": "String"
 		},
 		{
-			"name": "}ConnectionProperties",
-			"type": "String"
+		  "Name": "}ConnectionProperties",
+		  "Type": "String"
 		},
 		{
-			"name": "}Connections",
-			"type": "String"
+		  "Name": "}Connections",
+		  "Type": "String"
 		},
 		{
-			"name": "}Cube Functions",
-			"type": "String"
+		  "Name": "}Cube Functions",
+		  "Type": "String"
 		},
 		{
-			"name": "}CubeProperties",
-			"type": "String"
+		  "Name": "}CubeProperties",
+		  "Type": "String"
 		},
 		{
-			"name": "}Cubes",
-			"type": "String"
+		  "Name": "}CubeSecurityProperties",
+		  "Type": "String"
 		},
 		{
-			"name": "}CubeSecurityProperties",
-			"type": "String"
+		  "Name": "}Cubes",
+		  "Type": "String"
 		},
 		{
-			"name": "}Cultures",
-			"type": "String"
+		  "Name": "}Cultures",
+		  "Type": "String"
 		},
 		{
-			"name": "}DimensionFormatAttributes",
-			"type": "String"
+		  "Name": "}DimensionFormatAttributes",
+		  "Type": "String"
 		},
 		{
-			"name": "}DimensionFormatItems",
-			"type": "String"
+		  "Name": "}DimensionFormatItems",
+		  "Type": "String"
 		},
 		{
-			"name": "}DimensionProperties",
-			"type": "String"
+		  "Name": "}DimensionProperties",
+		  "Type": "String"
 		},
 		{
-			"name": "}Dimensions",
-			"type": "String"
+		  "Name": "}Dimensions",
+		  "Type": "String"
 		},
 		{
-			"name": "}ElementAttributes_}Clients",
-			"type": "String"
+		  "Name": "}ElementAttributes_}Clients",
+		  "Type": "String"
 		},
 		{
-			"name": "}ElementAttributes_}Cultures",
-			"type": "String"
+		  "Name": "}ElementAttributes_}Cultures",
+		  "Type": "String"
 		},
 		{
-			"name": "}ElementAttributes_}Groups",
-			"type": "String"
+		  "Name": "}ElementAttributes_}Groups",
+		  "Type": "String"
 		},
 		{
-			"name": "}ElementProperties",
-			"type": "String"
+		  "Name": "}ElementProperties",
+		  "Type": "String"
 		},
 		{
-			"name": "}Features",
-			"type": "String"
+		  "Name": "}Features",
+		  "Type": "String"
 		},
 		{
-			"name": "}Groups",
-			"type": "String"
+		  "Name": "}Groups",
+		  "Type": "String"
 		},
 		{
-			"name": "}Hierarchies",
-			"type": "String"
+		  "Name": "}Hierarchies",
+		  "Type": "String"
 		},
 		{
-			"name": "}Hierarchies_TestDim1",
-			"type": "String"
+		  "Name": "}Hierarchies_TestDim1",
+		  "Type": "String"
 		},
 		{
-			"name": "}Hierarchies_TestDim2",
-			"type": "String"
+		  "Name": "}Hierarchies_TestDim2",
+		  "Type": "String"
 		},
 		{
-			"name": "}Hierarchies_TestDim3",
-			"type": "String"
+		  "Name": "}Hierarchies_TestDim3",
+		  "Type": "String"
 		},
 		{
-			"name": "}Hierarchies_TestDimElemAttrib",
-			"type": "String"
+		  "Name": "}Hierarchies_TestDimElemAttrib",
+		  "Type": "String"
 		},
 		{
-			"name": "}Hierarchies_TestDimMultiHier",
-			"type": "String"
+		  "Name": "}Hierarchies_TestDimMultiHier",
+		  "Type": "String"
 		},
 		{
-			"name": "}HierarchyProperties",
-			"type": "String"
+		  "Name": "}HierarchyProperties",
+		  "Type": "String"
 		},
 		{
-			"name": "}Hold",
-			"type": "String"
+		  "Name": "}Hold",
+		  "Type": "String"
 		},
 		{
-			"name": "}LineNumber",
-			"type": "String"
+		  "Name": "}LineNumber",
+		  "Type": "String"
 		},
 		{
-			"name": "}PerfClients",
-			"type": "String"
+		  "Name": "}PerfClients",
+		  "Type": "String"
 		},
 		{
-			"name": "}PerfCubes",
-			"type": "String"
+		  "Name": "}PerfCubes",
+		  "Type": "String"
 		},
 		{
-			"name": "}Permissions",
-			"type": "String"
+		  "Name": "}Permissions",
+		  "Type": "String"
 		},
 		{
-			"name": "}PickList",
-			"type": "String"
+		  "Name": "}PickList",
+		  "Type": "String"
 		},
 		{
-			"name": "}Processes",
-			"type": "String"
+		  "Name": "}Processes",
+		  "Type": "String"
 		},
 		{
-			"name": "}RuleStats",
-			"type": "String"
+		  "Name": "}RuleStats",
+		  "Type": "String"
 		},
 		{
-			"name": "}SecurityOverlay",
-			"type": "String"
+		  "Name": "}SecurityOverlay",
+		  "Type": "String"
 		},
 		{
-			"name": "}StatsByProcess",
-			"type": "String"
+		  "Name": "}StatsByProcess",
+		  "Type": "String"
 		},
 		{
-			"name": "}StatsStatsByClient",
-			"type": "String"
+		  "Name": "}StatsStatsByClient",
+		  "Type": "String"
 		},
 		{
-			"name": "}StatsStatsByCube",
-			"type": "String"
+		  "Name": "}StatsStatsByCube",
+		  "Type": "String"
 		},
 		{
-			"name": "}StatsStatsByCubeByClient",
-			"type": "String"
+		  "Name": "}StatsStatsByCubeByClient",
+		  "Type": "String"
 		},
 		{
-			"name": "}StatsStatsForServer",
-			"type": "String"
+		  "Name": "}StatsStatsForServer",
+		  "Type": "String"
 		},
 		{
-			"name": "}TimeIntervals",
-			"type": "String"
+		  "Name": "}TimeIntervals",
+		  "Type": "String"
 		},
 		{
-			"name": "}Views_testcube3withview",
-			"type": "String"
+		  "Name": "}Views_testcube3withview",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

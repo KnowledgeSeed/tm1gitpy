@@ -913,14 +913,15 @@ def filter(model: Model, filter_rules: List[str]) -> Model:
     ) -> Any:
         # Explicitly stream disk-backed collections through their underlying JSONL payloads.
         if isinstance(collection, StoreBackedSequence):
-            def _kept_payloads() -> Iterator[dict]:
-                for payload in collection.iter_payloads():
-                    item = collection.item_from_payload(payload)
-                    if _should_remove(item_url_fn(item)):
-                        continue
-                    yield payload
+            # Materialize first: replace_with_payloads clears the underlying store.
+            kept_payloads: list[dict] = []
+            for payload in collection.iter_payloads():
+                item = collection.item_from_payload(payload)
+                if _should_remove(item_url_fn(item)):
+                    continue
+                kept_payloads.append(payload)
 
-            collection.replace_with_payloads(_kept_payloads())
+            collection.replace_with_payloads(kept_payloads)
             return collection
 
         return [item for item in collection if not _should_remove(item_url_fn(item))]

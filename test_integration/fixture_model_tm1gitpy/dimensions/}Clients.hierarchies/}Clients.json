@@ -3,8 +3,8 @@
 	"Name": "}Clients",
 	"Elements": [
 		{
-			"name": "Admin",
-			"type": "String"
+		  "Name": "Admin",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],
