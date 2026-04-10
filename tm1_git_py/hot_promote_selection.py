@@ -13,6 +13,7 @@ SUPPORTED_SELECTION_CATEGORIES = {
     "nativeviews": ObjectType.NATIVE_VIEW,
     "processes": ObjectType.PROCESS,
     "chores": ObjectType.CHORE,
+    "rules": ObjectType.RULE,
 }
 
 _SELECTION_PATTERNS = {
@@ -30,6 +31,7 @@ _SELECTION_PATTERNS = {
     "nativeviews": re.compile(r"^Cubes\('([^']+|\*)'\)/Views\('([^']+|\*)'\)$"),
     "processes": re.compile(r"^Processes\('([^']+|\*)'\)$"),
     "chores": re.compile(r"^Chores\('([^']+|\*)'\)$"),
+    "rules": re.compile(r"^Cubes\('([^']*)'\)/Rules\('([^']*)'\)(?:\|.*)?$"),
 }
 
 
