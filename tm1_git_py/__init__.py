@@ -21,6 +21,11 @@ if TYPE_CHECKING:
     from tm1_git_py.exporter import export
     from tm1_git_py.filter import filter as apply_filter
     from tm1_git_py.filter import FilterRules, filter_changeset, should_exclude_path
+    from tm1_git_py.hot_promote_selection import (
+        matches_selection,
+        update_changeset_apply,
+        validate_selection_category,
+    )
     from tm1_git_py.serializer import serialize_model
 
 __all__ = [
@@ -36,6 +41,9 @@ __all__ = [
     "FilterRules",
     "filter_changeset",
     "should_exclude_path",
+    "update_changeset_apply",
+    "matches_selection",
+    "validate_selection_category",
     "serialize_model",
     "export",
 ]
@@ -52,6 +60,9 @@ _LAZY_IMPORTS = {
     "FilterRules": ("tm1_git_py.filter", "FilterRules"),
     "filter_changeset": ("tm1_git_py.filter", "filter_changeset"),
     "should_exclude_path": ("tm1_git_py.filter", "should_exclude_path"),
+    "update_changeset_apply": ("tm1_git_py.hot_promote_selection", "update_changeset_apply"),
+    "matches_selection": ("tm1_git_py.hot_promote_selection", "matches_selection"),
+    "validate_selection_category": ("tm1_git_py.hot_promote_selection", "validate_selection_category"),
     "serialize_model": ("tm1_git_py.serializer", "serialize_model"),
     "export": ("tm1_git_py.exporter", "export"),
 }

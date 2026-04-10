@@ -135,6 +135,7 @@ class Change:
     object_type: ObjectType
     uri: str
     body: ChangesetBody
+    apply: bool = True
 
     def __post_init__(self):
         self.change_type = ChangeType.from_raw(self.change_type)
@@ -304,6 +305,7 @@ class Changeset:
                 "change_type": change_type,
                 "object_type": change.object_type.value,
                 "uri": change.uri,
+                "apply": change.apply,
                 "body": _serialize_change_body(change),
             })
             summary[change_type] = summary.get(change_type, 0) + 1
@@ -604,6 +606,7 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
                 uri_val = raw_legacy
             else:
                 raise ValueError("Missing uri (or legacy source_path)")
+            apply_flag = entry.get("apply")
 
             normalized_payload = _normalize_body_payload(object_type, body_payload, uri_val)
             body_object = _deserialize_object_from_payload(object_type.value, normalized_payload, uri_val)
