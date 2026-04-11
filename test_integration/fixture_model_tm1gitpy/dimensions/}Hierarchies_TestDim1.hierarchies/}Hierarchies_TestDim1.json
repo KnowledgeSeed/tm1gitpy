@@ -3,8 +3,8 @@
 	"Name": "}Hierarchies_TestDim1",
 	"Elements": [
 		{
-			"name": "TestDim1",
-			"type": "String"
+		  "Name": "TestDim1",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

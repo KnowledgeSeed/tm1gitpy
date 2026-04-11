@@ -3,12 +3,12 @@
 	"Name": "}DimensionFormatItems",
 	"Elements": [
 		{
-			"name": "HEADER",
-			"type": "String"
+		  "Name": "BODY",
+		  "Type": "String"
 		},
 		{
-			"name": "BODY",
-			"type": "String"
+		  "Name": "HEADER",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

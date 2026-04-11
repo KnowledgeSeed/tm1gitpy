@@ -3,32 +3,32 @@
 	"Name": "Leaves",
 	"Elements": [
 		{
-			"name": "Hier1Elem1",
-			"type": "Numeric"
+		  "Name": "DimElem1",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Hier2Elem1",
-			"type": "Numeric"
+		  "Name": "DimElem2",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Hier1Elem2",
-			"type": "Numeric"
+		  "Name": "Hier1Elem1",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "DimElem1",
-			"type": "Numeric"
+		  "Name": "Hier1Elem2",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "DimElem2",
-			"type": "Numeric"
+		  "Name": "Hier2Elem1",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "a",
-			"type": "Numeric"
+		  "Name": "a",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "b",
-			"type": "Numeric"
+		  "Name": "b",
+		  "Type": "Numeric"
 		}
 	],
 	"Edges": [],

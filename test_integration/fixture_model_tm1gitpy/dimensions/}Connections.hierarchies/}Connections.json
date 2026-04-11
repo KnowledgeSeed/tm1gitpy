@@ -3,8 +3,8 @@
 	"Name": "}Connections",
 	"Elements": [
 		{
-			"name": "ADMIN",
-			"type": "String"
+		  "Name": "ADMIN",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

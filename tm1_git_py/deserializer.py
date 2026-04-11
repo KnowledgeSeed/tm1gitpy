@@ -529,6 +529,15 @@ def _iter_hierarchy_array_payloads(
         raise ValueError(f"Malformed hierarchy json: key '{key}' not found")
 
 
+def _hierarchy_array_has_items(hierarchy_json_path: str, key: str) -> bool:
+    item_prefix = f"{key}.item"
+    with open(hierarchy_json_path, "rb") as src:
+        for payload in ijson.items(src, item_prefix):
+            if isinstance(payload, dict):
+                return True
+    return False
+
+
 def _append_payloads_in_batches(
     *,
     store: ModelStore,
@@ -601,6 +610,30 @@ def _ensure_hierarchy_store_groups(
     needs_edges_rebuild = source_mtime_ns is None or edges.source_json_mtime_ns() != source_mtime_ns
     subset_source_mtime_ns = _subset_source_mtime_ns(subset_dir_path)
     needs_subsets_rebuild = subsets.source_json_mtime_ns() != subset_source_mtime_ns
+    if not needs_elements_rebuild:
+        source_has_elements = _hierarchy_array_has_items(hierarchy_json_path, "Elements")
+        cached_has_elements = len(elements) > 0
+        if source_has_elements != cached_has_elements:
+            logger.info(
+                "Rebuilding stale cached elements for %s/%s: source_has_elements=%s cached_has_elements=%s",
+                dimension_name,
+                hierarchy_name,
+                source_has_elements,
+                cached_has_elements,
+            )
+            needs_elements_rebuild = True
+    if not needs_edges_rebuild:
+        source_has_edges = _hierarchy_array_has_items(hierarchy_json_path, "Edges")
+        cached_has_edges = len(edges) > 0
+        if source_has_edges != cached_has_edges:
+            logger.info(
+                "Rebuilding stale cached edges for %s/%s: source_has_edges=%s cached_has_edges=%s",
+                dimension_name,
+                hierarchy_name,
+                source_has_edges,
+                cached_has_edges,
+            )
+            needs_edges_rebuild = True
     if needs_elements_rebuild and needs_edges_rebuild:
         elements_progress_range = (0.0, 0.5)
         edges_progress_range = (0.5, 1.0)

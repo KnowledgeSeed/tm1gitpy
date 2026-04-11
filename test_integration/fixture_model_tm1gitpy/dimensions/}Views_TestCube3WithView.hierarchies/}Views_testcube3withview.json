@@ -3,12 +3,12 @@
 	"Name": "}Views_testcube3withview",
 	"Elements": [
 		{
-			"name": "testcube3withview_view1",
-			"type": "String"
+		  "Name": "testcube3withview_view1",
+		  "Type": "String"
 		},
 		{
-			"name": "testcube3withview_view2",
-			"type": "String"
+		  "Name": "testcube3withview_view2",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

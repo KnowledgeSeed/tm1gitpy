@@ -3,8 +3,8 @@
 	"Name": "}ElementProperties",
 	"Elements": [
 		{
-			"name": "LOCK",
-			"type": "String"
+		  "Name": "LOCK",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

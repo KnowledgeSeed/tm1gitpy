@@ -3,3136 +3,3136 @@
 	"Name": "}Cultures",
 	"Elements": [
 		{
-			"name": "af",
-			"type": "String"
+		  "Name": "af",
+		  "Type": "String"
 		},
 		{
-			"name": "af-NA",
-			"type": "String"
+		  "Name": "af-NA",
+		  "Type": "String"
 		},
 		{
-			"name": "af-ZA",
-			"type": "String"
+		  "Name": "af-ZA",
+		  "Type": "String"
 		},
 		{
-			"name": "agq",
-			"type": "String"
+		  "Name": "agq",
+		  "Type": "String"
 		},
 		{
-			"name": "agq-CM",
-			"type": "String"
+		  "Name": "agq-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "ak",
-			"type": "String"
+		  "Name": "ak",
+		  "Type": "String"
 		},
 		{
-			"name": "ak-GH",
-			"type": "String"
+		  "Name": "ak-GH",
+		  "Type": "String"
 		},
 		{
-			"name": "am",
-			"type": "String"
+		  "Name": "am",
+		  "Type": "String"
 		},
 		{
-			"name": "am-ET",
-			"type": "String"
+		  "Name": "am-ET",
+		  "Type": "String"
 		},
 		{
-			"name": "ar",
-			"type": "String"
+		  "Name": "ar",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-001",
-			"type": "String"
+		  "Name": "ar-001",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-AE",
-			"type": "String"
+		  "Name": "ar-AE",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-BH",
-			"type": "String"
+		  "Name": "ar-BH",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-DJ",
-			"type": "String"
+		  "Name": "ar-DJ",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-DZ",
-			"type": "String"
+		  "Name": "ar-DZ",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-EG",
-			"type": "String"
+		  "Name": "ar-EG",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-EH",
-			"type": "String"
+		  "Name": "ar-EH",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-ER",
-			"type": "String"
+		  "Name": "ar-ER",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-IL",
-			"type": "String"
+		  "Name": "ar-IL",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-IQ",
-			"type": "String"
+		  "Name": "ar-IQ",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-JO",
-			"type": "String"
+		  "Name": "ar-JO",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-KM",
-			"type": "String"
+		  "Name": "ar-KM",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-KW",
-			"type": "String"
+		  "Name": "ar-KW",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-LB",
-			"type": "String"
+		  "Name": "ar-LB",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-LY",
-			"type": "String"
+		  "Name": "ar-LY",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-MA",
-			"type": "String"
+		  "Name": "ar-MA",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-MR",
-			"type": "String"
+		  "Name": "ar-MR",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-OM",
-			"type": "String"
+		  "Name": "ar-OM",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-PS",
-			"type": "String"
+		  "Name": "ar-PS",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-QA",
-			"type": "String"
+		  "Name": "ar-QA",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-SA",
-			"type": "String"
+		  "Name": "ar-SA",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-SD",
-			"type": "String"
+		  "Name": "ar-SD",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-SO",
-			"type": "String"
+		  "Name": "ar-SO",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-SS",
-			"type": "String"
+		  "Name": "ar-SS",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-SY",
-			"type": "String"
+		  "Name": "ar-SY",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-TD",
-			"type": "String"
+		  "Name": "ar-TD",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-TN",
-			"type": "String"
+		  "Name": "ar-TN",
+		  "Type": "String"
 		},
 		{
-			"name": "ar-YE",
-			"type": "String"
+		  "Name": "ar-YE",
+		  "Type": "String"
 		},
 		{
-			"name": "as",
-			"type": "String"
+		  "Name": "as",
+		  "Type": "String"
 		},
 		{
-			"name": "as-IN",
-			"type": "String"
+		  "Name": "as-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "asa",
-			"type": "String"
+		  "Name": "asa",
+		  "Type": "String"
 		},
 		{
-			"name": "asa-TZ",
-			"type": "String"
+		  "Name": "asa-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "ast",
-			"type": "String"
+		  "Name": "ast",
+		  "Type": "String"
 		},
 		{
-			"name": "ast-ES",
-			"type": "String"
+		  "Name": "ast-ES",
+		  "Type": "String"
 		},
 		{
-			"name": "az",
-			"type": "String"
+		  "Name": "az",
+		  "Type": "String"
 		},
 		{
-			"name": "az-Cyrl",
-			"type": "String"
+		  "Name": "az-Cyrl",
+		  "Type": "String"
 		},
 		{
-			"name": "az-Cyrl-AZ",
-			"type": "String"
+		  "Name": "az-Cyrl-AZ",
+		  "Type": "String"
 		},
 		{
-			"name": "az-Latn",
-			"type": "String"
+		  "Name": "az-Latn",
+		  "Type": "String"
 		},
 		{
-			"name": "az-Latn-AZ",
-			"type": "String"
+		  "Name": "az-Latn-AZ",
+		  "Type": "String"
 		},
 		{
-			"name": "bas",
-			"type": "String"
+		  "Name": "bas",
+		  "Type": "String"
 		},
 		{
-			"name": "bas-CM",
-			"type": "String"
+		  "Name": "bas-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "be",
-			"type": "String"
+		  "Name": "be",
+		  "Type": "String"
 		},
 		{
-			"name": "be-BY",
-			"type": "String"
+		  "Name": "be-BY",
+		  "Type": "String"
 		},
 		{
-			"name": "bem",
-			"type": "String"
+		  "Name": "bem",
+		  "Type": "String"
 		},
 		{
-			"name": "bem-ZM",
-			"type": "String"
+		  "Name": "bem-ZM",
+		  "Type": "String"
 		},
 		{
-			"name": "bez",
-			"type": "String"
+		  "Name": "bez",
+		  "Type": "String"
 		},
 		{
-			"name": "bez-TZ",
-			"type": "String"
+		  "Name": "bez-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "bg",
-			"type": "String"
+		  "Name": "bg",
+		  "Type": "String"
 		},
 		{
-			"name": "bg-BG",
-			"type": "String"
+		  "Name": "bg-BG",
+		  "Type": "String"
 		},
 		{
-			"name": "bm",
-			"type": "String"
+		  "Name": "bm",
+		  "Type": "String"
 		},
 		{
-			"name": "bm-ML",
-			"type": "String"
+		  "Name": "bm-ML",
+		  "Type": "String"
 		},
 		{
-			"name": "bn",
-			"type": "String"
+		  "Name": "bn",
+		  "Type": "String"
 		},
 		{
-			"name": "bn-BD",
-			"type": "String"
+		  "Name": "bn-BD",
+		  "Type": "String"
 		},
 		{
-			"name": "bn-IN",
-			"type": "String"
+		  "Name": "bn-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "bo",
-			"type": "String"
+		  "Name": "bo",
+		  "Type": "String"
 		},
 		{
-			"name": "bo-CN",
-			"type": "String"
+		  "Name": "bo-CN",
+		  "Type": "String"
 		},
 		{
-			"name": "bo-IN",
-			"type": "String"
+		  "Name": "bo-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "br",
-			"type": "String"
+		  "Name": "br",
+		  "Type": "String"
 		},
 		{
-			"name": "br-FR",
-			"type": "String"
+		  "Name": "br-FR",
+		  "Type": "String"
 		},
 		{
-			"name": "brx",
-			"type": "String"
+		  "Name": "brx",
+		  "Type": "String"
 		},
 		{
-			"name": "brx-IN",
-			"type": "String"
+		  "Name": "brx-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "bs",
-			"type": "String"
+		  "Name": "bs",
+		  "Type": "String"
 		},
 		{
-			"name": "bs-Cyrl",
-			"type": "String"
+		  "Name": "bs-Cyrl",
+		  "Type": "String"
 		},
 		{
-			"name": "bs-Cyrl-BA",
-			"type": "String"
+		  "Name": "bs-Cyrl-BA",
+		  "Type": "String"
 		},
 		{
-			"name": "bs-Latn",
-			"type": "String"
+		  "Name": "bs-Latn",
+		  "Type": "String"
 		},
 		{
-			"name": "bs-Latn-BA",
-			"type": "String"
+		  "Name": "bs-Latn-BA",
+		  "Type": "String"
 		},
 		{
-			"name": "ca",
-			"type": "String"
+		  "Name": "ca",
+		  "Type": "String"
 		},
 		{
-			"name": "ca-AD",
-			"type": "String"
+		  "Name": "ca-AD",
+		  "Type": "String"
 		},
 		{
-			"name": "ca-ES",
-			"type": "String"
+		  "Name": "ca-ES",
+		  "Type": "String"
 		},
 		{
-			"name": "ca-FR",
-			"type": "String"
+		  "Name": "ca-FR",
+		  "Type": "String"
 		},
 		{
-			"name": "ca-IT",
-			"type": "String"
+		  "Name": "ca-IT",
+		  "Type": "String"
 		},
 		{
-			"name": "ccp",
-			"type": "String"
+		  "Name": "ccp",
+		  "Type": "String"
 		},
 		{
-			"name": "ccp-BD",
-			"type": "String"
+		  "Name": "ccp-BD",
+		  "Type": "String"
 		},
 		{
-			"name": "ccp-IN",
-			"type": "String"
+		  "Name": "ccp-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "ce",
-			"type": "String"
+		  "Name": "ce",
+		  "Type": "String"
 		},
 		{
-			"name": "ce-RU",
-			"type": "String"
+		  "Name": "ce-RU",
+		  "Type": "String"
 		},
 		{
-			"name": "ceb",
-			"type": "String"
+		  "Name": "ceb",
+		  "Type": "String"
 		},
 		{
-			"name": "ceb-PH",
-			"type": "String"
+		  "Name": "ceb-PH",
+		  "Type": "String"
 		},
 		{
-			"name": "cgg",
-			"type": "String"
+		  "Name": "cgg",
+		  "Type": "String"
 		},
 		{
-			"name": "cgg-UG",
-			"type": "String"
+		  "Name": "cgg-UG",
+		  "Type": "String"
 		},
 		{
-			"name": "chr",
-			"type": "String"
+		  "Name": "chr",
+		  "Type": "String"
 		},
 		{
-			"name": "chr-US",
-			"type": "String"
+		  "Name": "chr-US",
+		  "Type": "String"
 		},
 		{
-			"name": "ckb",
-			"type": "String"
+		  "Name": "ckb",
+		  "Type": "String"
 		},
 		{
-			"name": "ckb-IQ",
-			"type": "String"
+		  "Name": "ckb-IQ",
+		  "Type": "String"
 		},
 		{
-			"name": "ckb-IR",
-			"type": "String"
+		  "Name": "ckb-IR",
+		  "Type": "String"
 		},
 		{
-			"name": "cs",
-			"type": "String"
+		  "Name": "cs",
+		  "Type": "String"
 		},
 		{
-			"name": "cs-CZ",
-			"type": "String"
+		  "Name": "cs-CZ",
+		  "Type": "String"
 		},
 		{
-			"name": "cy",
-			"type": "String"
+		  "Name": "cy",
+		  "Type": "String"
 		},
 		{
-			"name": "cy-GB",
-			"type": "String"
+		  "Name": "cy-GB",
+		  "Type": "String"
 		},
 		{
-			"name": "da",
-			"type": "String"
+		  "Name": "da",
+		  "Type": "String"
 		},
 		{
-			"name": "da-DK",
-			"type": "String"
+		  "Name": "da-DK",
+		  "Type": "String"
 		},
 		{
-			"name": "da-GL",
-			"type": "String"
+		  "Name": "da-GL",
+		  "Type": "String"
 		},
 		{
-			"name": "dav",
-			"type": "String"
+		  "Name": "dav",
+		  "Type": "String"
 		},
 		{
-			"name": "dav-KE",
-			"type": "String"
+		  "Name": "dav-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "de",
-			"type": "String"
+		  "Name": "de",
+		  "Type": "String"
 		},
 		{
-			"name": "de-AT",
-			"type": "String"
+		  "Name": "de-AT",
+		  "Type": "String"
 		},
 		{
-			"name": "de-BE",
-			"type": "String"
+		  "Name": "de-BE",
+		  "Type": "String"
 		},
 		{
-			"name": "de-CH",
-			"type": "String"
+		  "Name": "de-CH",
+		  "Type": "String"
 		},
 		{
-			"name": "de-DE",
-			"type": "String"
+		  "Name": "de-DE",
+		  "Type": "String"
 		},
 		{
-			"name": "de-IT",
-			"type": "String"
+		  "Name": "de-IT",
+		  "Type": "String"
 		},
 		{
-			"name": "de-LI",
-			"type": "String"
+		  "Name": "de-LI",
+		  "Type": "String"
 		},
 		{
-			"name": "de-LU",
-			"type": "String"
+		  "Name": "de-LU",
+		  "Type": "String"
 		},
 		{
-			"name": "dje",
-			"type": "String"
+		  "Name": "dje",
+		  "Type": "String"
 		},
 		{
-			"name": "dje-NE",
-			"type": "String"
+		  "Name": "dje-NE",
+		  "Type": "String"
 		},
 		{
-			"name": "doi",
-			"type": "String"
+		  "Name": "doi",
+		  "Type": "String"
 		},
 		{
-			"name": "doi-IN",
-			"type": "String"
+		  "Name": "doi-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "dsb",
-			"type": "String"
+		  "Name": "dsb",
+		  "Type": "String"
 		},
 		{
-			"name": "dsb-DE",
-			"type": "String"
+		  "Name": "dsb-DE",
+		  "Type": "String"
 		},
 		{
-			"name": "dua",
-			"type": "String"
+		  "Name": "dua",
+		  "Type": "String"
 		},
 		{
-			"name": "dua-CM",
-			"type": "String"
+		  "Name": "dua-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "dyo",
-			"type": "String"
+		  "Name": "dyo",
+		  "Type": "String"
 		},
 		{
-			"name": "dyo-SN",
-			"type": "String"
+		  "Name": "dyo-SN",
+		  "Type": "String"
 		},
 		{
-			"name": "dz",
-			"type": "String"
+		  "Name": "dz",
+		  "Type": "String"
 		},
 		{
-			"name": "dz-BT",
-			"type": "String"
+		  "Name": "dz-BT",
+		  "Type": "String"
 		},
 		{
-			"name": "ebu",
-			"type": "String"
+		  "Name": "ebu",
+		  "Type": "String"
 		},
 		{
-			"name": "ebu-KE",
-			"type": "String"
+		  "Name": "ebu-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "ee",
-			"type": "String"
+		  "Name": "ee",
+		  "Type": "String"
 		},
 		{
-			"name": "ee-GH",
-			"type": "String"
+		  "Name": "ee-GH",
+		  "Type": "String"
 		},
 		{
-			"name": "ee-TG",
-			"type": "String"
+		  "Name": "ee-TG",
+		  "Type": "String"
 		},
 		{
-			"name": "el",
-			"type": "String"
+		  "Name": "el",
+		  "Type": "String"
 		},
 		{
-			"name": "el-CY",
-			"type": "String"
+		  "Name": "el-CY",
+		  "Type": "String"
 		},
 		{
-			"name": "el-GR",
-			"type": "String"
+		  "Name": "el-GR",
+		  "Type": "String"
 		},
 		{
-			"name": "en",
-			"type": "String"
+		  "Name": "en",
+		  "Type": "String"
 		},
 		{
-			"name": "en-001",
-			"type": "String"
+		  "Name": "en-001",
+		  "Type": "String"
 		},
 		{
-			"name": "en-150",
-			"type": "String"
+		  "Name": "en-150",
+		  "Type": "String"
 		},
 		{
-			"name": "en-AE",
-			"type": "String"
+		  "Name": "en-AE",
+		  "Type": "String"
 		},
 		{
-			"name": "en-AG",
-			"type": "String"
+		  "Name": "en-AG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-AI",
-			"type": "String"
+		  "Name": "en-AI",
+		  "Type": "String"
 		},
 		{
-			"name": "en-AS",
-			"type": "String"
+		  "Name": "en-AS",
+		  "Type": "String"
 		},
 		{
-			"name": "en-AT",
-			"type": "String"
+		  "Name": "en-AT",
+		  "Type": "String"
 		},
 		{
-			"name": "en-AU",
-			"type": "String"
+		  "Name": "en-AU",
+		  "Type": "String"
 		},
 		{
-			"name": "en-BB",
-			"type": "String"
+		  "Name": "en-BB",
+		  "Type": "String"
 		},
 		{
-			"name": "en-BE",
-			"type": "String"
+		  "Name": "en-BE",
+		  "Type": "String"
 		},
 		{
-			"name": "en-BI",
-			"type": "String"
+		  "Name": "en-BI",
+		  "Type": "String"
 		},
 		{
-			"name": "en-BM",
-			"type": "String"
+		  "Name": "en-BM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-BS",
-			"type": "String"
+		  "Name": "en-BS",
+		  "Type": "String"
 		},
 		{
-			"name": "en-BW",
-			"type": "String"
+		  "Name": "en-BW",
+		  "Type": "String"
 		},
 		{
-			"name": "en-BZ",
-			"type": "String"
+		  "Name": "en-BZ",
+		  "Type": "String"
 		},
 		{
-			"name": "en-CA",
-			"type": "String"
+		  "Name": "en-CA",
+		  "Type": "String"
 		},
 		{
-			"name": "en-CC",
-			"type": "String"
+		  "Name": "en-CC",
+		  "Type": "String"
 		},
 		{
-			"name": "en-CH",
-			"type": "String"
+		  "Name": "en-CH",
+		  "Type": "String"
 		},
 		{
-			"name": "en-CK",
-			"type": "String"
+		  "Name": "en-CK",
+		  "Type": "String"
 		},
 		{
-			"name": "en-CM",
-			"type": "String"
+		  "Name": "en-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-CX",
-			"type": "String"
+		  "Name": "en-CX",
+		  "Type": "String"
 		},
 		{
-			"name": "en-CY",
-			"type": "String"
+		  "Name": "en-CY",
+		  "Type": "String"
 		},
 		{
-			"name": "en-DE",
-			"type": "String"
+		  "Name": "en-DE",
+		  "Type": "String"
 		},
 		{
-			"name": "en-DG",
-			"type": "String"
+		  "Name": "en-DG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-DK",
-			"type": "String"
+		  "Name": "en-DK",
+		  "Type": "String"
 		},
 		{
-			"name": "en-DM",
-			"type": "String"
+		  "Name": "en-DM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-ER",
-			"type": "String"
+		  "Name": "en-ER",
+		  "Type": "String"
 		},
 		{
-			"name": "en-FI",
-			"type": "String"
+		  "Name": "en-FI",
+		  "Type": "String"
 		},
 		{
-			"name": "en-FJ",
-			"type": "String"
+		  "Name": "en-FJ",
+		  "Type": "String"
 		},
 		{
-			"name": "en-FK",
-			"type": "String"
+		  "Name": "en-FK",
+		  "Type": "String"
 		},
 		{
-			"name": "en-FM",
-			"type": "String"
+		  "Name": "en-FM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-GB",
-			"type": "String"
+		  "Name": "en-GB",
+		  "Type": "String"
 		},
 		{
-			"name": "en-GD",
-			"type": "String"
+		  "Name": "en-GD",
+		  "Type": "String"
 		},
 		{
-			"name": "en-GG",
-			"type": "String"
+		  "Name": "en-GG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-GH",
-			"type": "String"
+		  "Name": "en-GH",
+		  "Type": "String"
 		},
 		{
-			"name": "en-GI",
-			"type": "String"
+		  "Name": "en-GI",
+		  "Type": "String"
 		},
 		{
-			"name": "en-GM",
-			"type": "String"
+		  "Name": "en-GM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-GU",
-			"type": "String"
+		  "Name": "en-GU",
+		  "Type": "String"
 		},
 		{
-			"name": "en-GY",
-			"type": "String"
+		  "Name": "en-GY",
+		  "Type": "String"
 		},
 		{
-			"name": "en-HK",
-			"type": "String"
+		  "Name": "en-HK",
+		  "Type": "String"
 		},
 		{
-			"name": "en-IE",
-			"type": "String"
+		  "Name": "en-IE",
+		  "Type": "String"
 		},
 		{
-			"name": "en-IL",
-			"type": "String"
+		  "Name": "en-IL",
+		  "Type": "String"
 		},
 		{
-			"name": "en-IM",
-			"type": "String"
+		  "Name": "en-IM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-IN",
-			"type": "String"
+		  "Name": "en-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "en-IO",
-			"type": "String"
+		  "Name": "en-IO",
+		  "Type": "String"
 		},
 		{
-			"name": "en-JE",
-			"type": "String"
+		  "Name": "en-JE",
+		  "Type": "String"
 		},
 		{
-			"name": "en-JM",
-			"type": "String"
+		  "Name": "en-JM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-KE",
-			"type": "String"
+		  "Name": "en-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "en-KI",
-			"type": "String"
+		  "Name": "en-KI",
+		  "Type": "String"
 		},
 		{
-			"name": "en-KN",
-			"type": "String"
+		  "Name": "en-KN",
+		  "Type": "String"
 		},
 		{
-			"name": "en-KY",
-			"type": "String"
+		  "Name": "en-KY",
+		  "Type": "String"
 		},
 		{
-			"name": "en-LC",
-			"type": "String"
+		  "Name": "en-LC",
+		  "Type": "String"
 		},
 		{
-			"name": "en-LR",
-			"type": "String"
+		  "Name": "en-LR",
+		  "Type": "String"
 		},
 		{
-			"name": "en-LS",
-			"type": "String"
+		  "Name": "en-LS",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MG",
-			"type": "String"
+		  "Name": "en-MG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MH",
-			"type": "String"
+		  "Name": "en-MH",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MO",
-			"type": "String"
+		  "Name": "en-MO",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MP",
-			"type": "String"
+		  "Name": "en-MP",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MS",
-			"type": "String"
+		  "Name": "en-MS",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MT",
-			"type": "String"
+		  "Name": "en-MT",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MU",
-			"type": "String"
+		  "Name": "en-MU",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MW",
-			"type": "String"
+		  "Name": "en-MW",
+		  "Type": "String"
 		},
 		{
-			"name": "en-MY",
-			"type": "String"
+		  "Name": "en-MY",
+		  "Type": "String"
 		},
 		{
-			"name": "en-NA",
-			"type": "String"
+		  "Name": "en-NA",
+		  "Type": "String"
 		},
 		{
-			"name": "en-NF",
-			"type": "String"
+		  "Name": "en-NF",
+		  "Type": "String"
 		},
 		{
-			"name": "en-NG",
-			"type": "String"
+		  "Name": "en-NG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-NL",
-			"type": "String"
+		  "Name": "en-NL",
+		  "Type": "String"
 		},
 		{
-			"name": "en-NR",
-			"type": "String"
+		  "Name": "en-NR",
+		  "Type": "String"
 		},
 		{
-			"name": "en-NU",
-			"type": "String"
+		  "Name": "en-NU",
+		  "Type": "String"
 		},
 		{
-			"name": "en-NZ",
-			"type": "String"
+		  "Name": "en-NZ",
+		  "Type": "String"
 		},
 		{
-			"name": "en-PG",
-			"type": "String"
+		  "Name": "en-PG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-PH",
-			"type": "String"
+		  "Name": "en-PH",
+		  "Type": "String"
 		},
 		{
-			"name": "en-PK",
-			"type": "String"
+		  "Name": "en-PK",
+		  "Type": "String"
 		},
 		{
-			"name": "en-PN",
-			"type": "String"
+		  "Name": "en-PN",
+		  "Type": "String"
 		},
 		{
-			"name": "en-PR",
-			"type": "String"
+		  "Name": "en-PR",
+		  "Type": "String"
 		},
 		{
-			"name": "en-PW",
-			"type": "String"
+		  "Name": "en-PW",
+		  "Type": "String"
 		},
 		{
-			"name": "en-RW",
-			"type": "String"
+		  "Name": "en-RW",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SB",
-			"type": "String"
+		  "Name": "en-SB",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SC",
-			"type": "String"
+		  "Name": "en-SC",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SD",
-			"type": "String"
+		  "Name": "en-SD",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SE",
-			"type": "String"
+		  "Name": "en-SE",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SG",
-			"type": "String"
+		  "Name": "en-SG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SH",
-			"type": "String"
+		  "Name": "en-SH",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SI",
-			"type": "String"
+		  "Name": "en-SI",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SL",
-			"type": "String"
+		  "Name": "en-SL",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SS",
-			"type": "String"
+		  "Name": "en-SS",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SX",
-			"type": "String"
+		  "Name": "en-SX",
+		  "Type": "String"
 		},
 		{
-			"name": "en-SZ",
-			"type": "String"
+		  "Name": "en-SZ",
+		  "Type": "String"
 		},
 		{
-			"name": "en-TC",
-			"type": "String"
+		  "Name": "en-TC",
+		  "Type": "String"
 		},
 		{
-			"name": "en-TK",
-			"type": "String"
+		  "Name": "en-TK",
+		  "Type": "String"
 		},
 		{
-			"name": "en-TO",
-			"type": "String"
+		  "Name": "en-TO",
+		  "Type": "String"
 		},
 		{
-			"name": "en-TT",
-			"type": "String"
+		  "Name": "en-TT",
+		  "Type": "String"
 		},
 		{
-			"name": "en-TV",
-			"type": "String"
+		  "Name": "en-TV",
+		  "Type": "String"
 		},
 		{
-			"name": "en-TZ",
-			"type": "String"
+		  "Name": "en-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "en-UG",
-			"type": "String"
+		  "Name": "en-UG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-UM",
-			"type": "String"
+		  "Name": "en-UM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-US",
-			"type": "String"
+		  "Name": "en-US",
+		  "Type": "String"
 		},
 		{
-			"name": "en-US-u-va-posix",
-			"type": "String"
+		  "Name": "en-US-u-va-posix",
+		  "Type": "String"
 		},
 		{
-			"name": "en-VC",
-			"type": "String"
+		  "Name": "en-VC",
+		  "Type": "String"
 		},
 		{
-			"name": "en-VG",
-			"type": "String"
+		  "Name": "en-VG",
+		  "Type": "String"
 		},
 		{
-			"name": "en-VI",
-			"type": "String"
+		  "Name": "en-VI",
+		  "Type": "String"
 		},
 		{
-			"name": "en-VU",
-			"type": "String"
+		  "Name": "en-VU",
+		  "Type": "String"
 		},
 		{
-			"name": "en-WS",
-			"type": "String"
+		  "Name": "en-WS",
+		  "Type": "String"
 		},
 		{
-			"name": "en-ZA",
-			"type": "String"
+		  "Name": "en-ZA",
+		  "Type": "String"
 		},
 		{
-			"name": "en-ZM",
-			"type": "String"
+		  "Name": "en-ZM",
+		  "Type": "String"
 		},
 		{
-			"name": "en-ZW",
-			"type": "String"
+		  "Name": "en-ZW",
+		  "Type": "String"
 		},
 		{
-			"name": "eo",
-			"type": "String"
+		  "Name": "eo",
+		  "Type": "String"
 		},
 		{
-			"name": "eo-001",
-			"type": "String"
+		  "Name": "eo-001",
+		  "Type": "String"
 		},
 		{
-			"name": "es",
-			"type": "String"
+		  "Name": "es",
+		  "Type": "String"
 		},
 		{
-			"name": "es-419",
-			"type": "String"
+		  "Name": "es-419",
+		  "Type": "String"
 		},
 		{
-			"name": "es-AR",
-			"type": "String"
+		  "Name": "es-AR",
+		  "Type": "String"
 		},
 		{
-			"name": "es-BO",
-			"type": "String"
+		  "Name": "es-BO",
+		  "Type": "String"
 		},
 		{
-			"name": "es-BR",
-			"type": "String"
+		  "Name": "es-BR",
+		  "Type": "String"
 		},
 		{
-			"name": "es-BZ",
-			"type": "String"
+		  "Name": "es-BZ",
+		  "Type": "String"
 		},
 		{
-			"name": "es-CL",
-			"type": "String"
+		  "Name": "es-CL",
+		  "Type": "String"
 		},
 		{
-			"name": "es-CO",
-			"type": "String"
+		  "Name": "es-CO",
+		  "Type": "String"
 		},
 		{
-			"name": "es-CR",
-			"type": "String"
+		  "Name": "es-CR",
+		  "Type": "String"
 		},
 		{
-			"name": "es-CU",
-			"type": "String"
+		  "Name": "es-CU",
+		  "Type": "String"
 		},
 		{
-			"name": "es-DO",
-			"type": "String"
+		  "Name": "es-DO",
+		  "Type": "String"
 		},
 		{
-			"name": "es-EA",
-			"type": "String"
+		  "Name": "es-EA",
+		  "Type": "String"
 		},
 		{
-			"name": "es-EC",
-			"type": "String"
+		  "Name": "es-EC",
+		  "Type": "String"
 		},
 		{
-			"name": "es-ES",
-			"type": "String"
+		  "Name": "es-ES",
+		  "Type": "String"
 		},
 		{
-			"name": "es-GQ",
-			"type": "String"
+		  "Name": "es-GQ",
+		  "Type": "String"
 		},
 		{
-			"name": "es-GT",
-			"type": "String"
+		  "Name": "es-GT",
+		  "Type": "String"
 		},
 		{
-			"name": "es-HN",
-			"type": "String"
+		  "Name": "es-HN",
+		  "Type": "String"
 		},
 		{
-			"name": "es-IC",
-			"type": "String"
+		  "Name": "es-IC",
+		  "Type": "String"
 		},
 		{
-			"name": "es-MX",
-			"type": "String"
+		  "Name": "es-MX",
+		  "Type": "String"
 		},
 		{
-			"name": "es-NI",
-			"type": "String"
+		  "Name": "es-NI",
+		  "Type": "String"
 		},
 		{
-			"name": "es-PA",
-			"type": "String"
+		  "Name": "es-PA",
+		  "Type": "String"
 		},
 		{
-			"name": "es-PE",
-			"type": "String"
+		  "Name": "es-PE",
+		  "Type": "String"
 		},
 		{
-			"name": "es-PH",
-			"type": "String"
+		  "Name": "es-PH",
+		  "Type": "String"
 		},
 		{
-			"name": "es-PR",
-			"type": "String"
+		  "Name": "es-PR",
+		  "Type": "String"
 		},
 		{
-			"name": "es-PY",
-			"type": "String"
+		  "Name": "es-PY",
+		  "Type": "String"
 		},
 		{
-			"name": "es-SV",
-			"type": "String"
+		  "Name": "es-SV",
+		  "Type": "String"
 		},
 		{
-			"name": "es-US",
-			"type": "String"
+		  "Name": "es-US",
+		  "Type": "String"
 		},
 		{
-			"name": "es-UY",
-			"type": "String"
+		  "Name": "es-UY",
+		  "Type": "String"
 		},
 		{
-			"name": "es-VE",
-			"type": "String"
+		  "Name": "es-VE",
+		  "Type": "String"
 		},
 		{
-			"name": "et",
-			"type": "String"
+		  "Name": "et",
+		  "Type": "String"
 		},
 		{
-			"name": "et-EE",
-			"type": "String"
+		  "Name": "et-EE",
+		  "Type": "String"
 		},
 		{
-			"name": "eu",
-			"type": "String"
+		  "Name": "eu",
+		  "Type": "String"
 		},
 		{
-			"name": "eu-ES",
-			"type": "String"
+		  "Name": "eu-ES",
+		  "Type": "String"
 		},
 		{
-			"name": "ewo",
-			"type": "String"
+		  "Name": "ewo",
+		  "Type": "String"
 		},
 		{
-			"name": "ewo-CM",
-			"type": "String"
+		  "Name": "ewo-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "fa",
-			"type": "String"
+		  "Name": "fa",
+		  "Type": "String"
 		},
 		{
-			"name": "fa-AF",
-			"type": "String"
+		  "Name": "fa-AF",
+		  "Type": "String"
 		},
 		{
-			"name": "fa-IR",
-			"type": "String"
+		  "Name": "fa-IR",
+		  "Type": "String"
 		},
 		{
-			"name": "ff",
-			"type": "String"
+		  "Name": "ff",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm",
-			"type": "String"
+		  "Name": "ff-Adlm",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-BF",
-			"type": "String"
+		  "Name": "ff-Adlm-BF",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-CM",
-			"type": "String"
+		  "Name": "ff-Adlm-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-GH",
-			"type": "String"
+		  "Name": "ff-Adlm-GH",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-GM",
-			"type": "String"
+		  "Name": "ff-Adlm-GM",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-GN",
-			"type": "String"
+		  "Name": "ff-Adlm-GN",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-GW",
-			"type": "String"
+		  "Name": "ff-Adlm-GW",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-LR",
-			"type": "String"
+		  "Name": "ff-Adlm-LR",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-MR",
-			"type": "String"
+		  "Name": "ff-Adlm-MR",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-NE",
-			"type": "String"
+		  "Name": "ff-Adlm-NE",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-NG",
-			"type": "String"
+		  "Name": "ff-Adlm-NG",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-SL",
-			"type": "String"
+		  "Name": "ff-Adlm-SL",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Adlm-SN",
-			"type": "String"
+		  "Name": "ff-Adlm-SN",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn",
-			"type": "String"
+		  "Name": "ff-Latn",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-BF",
-			"type": "String"
+		  "Name": "ff-Latn-BF",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-CM",
-			"type": "String"
+		  "Name": "ff-Latn-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-GH",
-			"type": "String"
+		  "Name": "ff-Latn-GH",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-GM",
-			"type": "String"
+		  "Name": "ff-Latn-GM",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-GN",
-			"type": "String"
+		  "Name": "ff-Latn-GN",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-GW",
-			"type": "String"
+		  "Name": "ff-Latn-GW",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-LR",
-			"type": "String"
+		  "Name": "ff-Latn-LR",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-MR",
-			"type": "String"
+		  "Name": "ff-Latn-MR",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-NE",
-			"type": "String"
+		  "Name": "ff-Latn-NE",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-NG",
-			"type": "String"
+		  "Name": "ff-Latn-NG",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-SL",
-			"type": "String"
+		  "Name": "ff-Latn-SL",
+		  "Type": "String"
 		},
 		{
-			"name": "ff-Latn-SN",
-			"type": "String"
+		  "Name": "ff-Latn-SN",
+		  "Type": "String"
 		},
 		{
-			"name": "fi",
-			"type": "String"
+		  "Name": "fi",
+		  "Type": "String"
 		},
 		{
-			"name": "fi-FI",
-			"type": "String"
+		  "Name": "fi-FI",
+		  "Type": "String"
 		},
 		{
-			"name": "fil",
-			"type": "String"
+		  "Name": "fil",
+		  "Type": "String"
 		},
 		{
-			"name": "fil-PH",
-			"type": "String"
+		  "Name": "fil-PH",
+		  "Type": "String"
 		},
 		{
-			"name": "fo",
-			"type": "String"
+		  "Name": "fo",
+		  "Type": "String"
 		},
 		{
-			"name": "fo-DK",
-			"type": "String"
+		  "Name": "fo-DK",
+		  "Type": "String"
 		},
 		{
-			"name": "fo-FO",
-			"type": "String"
+		  "Name": "fo-FO",
+		  "Type": "String"
 		},
 		{
-			"name": "fr",
-			"type": "String"
+		  "Name": "fr",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-BE",
-			"type": "String"
+		  "Name": "fr-BE",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-BF",
-			"type": "String"
+		  "Name": "fr-BF",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-BI",
-			"type": "String"
+		  "Name": "fr-BI",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-BJ",
-			"type": "String"
+		  "Name": "fr-BJ",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-BL",
-			"type": "String"
+		  "Name": "fr-BL",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-CA",
-			"type": "String"
+		  "Name": "fr-CA",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-CD",
-			"type": "String"
+		  "Name": "fr-CD",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-CF",
-			"type": "String"
+		  "Name": "fr-CF",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-CG",
-			"type": "String"
+		  "Name": "fr-CG",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-CH",
-			"type": "String"
+		  "Name": "fr-CH",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-CI",
-			"type": "String"
+		  "Name": "fr-CI",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-CM",
-			"type": "String"
+		  "Name": "fr-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-DJ",
-			"type": "String"
+		  "Name": "fr-DJ",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-DZ",
-			"type": "String"
+		  "Name": "fr-DZ",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-FR",
-			"type": "String"
+		  "Name": "fr-FR",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-GA",
-			"type": "String"
+		  "Name": "fr-GA",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-GF",
-			"type": "String"
+		  "Name": "fr-GF",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-GN",
-			"type": "String"
+		  "Name": "fr-GN",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-GP",
-			"type": "String"
+		  "Name": "fr-GP",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-GQ",
-			"type": "String"
+		  "Name": "fr-GQ",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-HT",
-			"type": "String"
+		  "Name": "fr-HT",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-KM",
-			"type": "String"
+		  "Name": "fr-KM",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-LU",
-			"type": "String"
+		  "Name": "fr-LU",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-MA",
-			"type": "String"
+		  "Name": "fr-MA",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-MC",
-			"type": "String"
+		  "Name": "fr-MC",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-MF",
-			"type": "String"
+		  "Name": "fr-MF",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-MG",
-			"type": "String"
+		  "Name": "fr-MG",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-ML",
-			"type": "String"
+		  "Name": "fr-ML",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-MQ",
-			"type": "String"
+		  "Name": "fr-MQ",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-MR",
-			"type": "String"
+		  "Name": "fr-MR",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-MU",
-			"type": "String"
+		  "Name": "fr-MU",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-NC",
-			"type": "String"
+		  "Name": "fr-NC",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-NE",
-			"type": "String"
+		  "Name": "fr-NE",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-PF",
-			"type": "String"
+		  "Name": "fr-PF",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-PM",
-			"type": "String"
+		  "Name": "fr-PM",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-RE",
-			"type": "String"
+		  "Name": "fr-RE",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-RW",
-			"type": "String"
+		  "Name": "fr-RW",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-SC",
-			"type": "String"
+		  "Name": "fr-SC",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-SN",
-			"type": "String"
+		  "Name": "fr-SN",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-SY",
-			"type": "String"
+		  "Name": "fr-SY",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-TD",
-			"type": "String"
+		  "Name": "fr-TD",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-TG",
-			"type": "String"
+		  "Name": "fr-TG",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-TN",
-			"type": "String"
+		  "Name": "fr-TN",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-VU",
-			"type": "String"
+		  "Name": "fr-VU",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-WF",
-			"type": "String"
+		  "Name": "fr-WF",
+		  "Type": "String"
 		},
 		{
-			"name": "fr-YT",
-			"type": "String"
+		  "Name": "fr-YT",
+		  "Type": "String"
 		},
 		{
-			"name": "fur",
-			"type": "String"
+		  "Name": "fur",
+		  "Type": "String"
 		},
 		{
-			"name": "fur-IT",
-			"type": "String"
+		  "Name": "fur-IT",
+		  "Type": "String"
 		},
 		{
-			"name": "fy",
-			"type": "String"
+		  "Name": "fy",
+		  "Type": "String"
 		},
 		{
-			"name": "fy-NL",
-			"type": "String"
+		  "Name": "fy-NL",
+		  "Type": "String"
 		},
 		{
-			"name": "ga",
-			"type": "String"
+		  "Name": "ga",
+		  "Type": "String"
 		},
 		{
-			"name": "ga-GB",
-			"type": "String"
+		  "Name": "ga-GB",
+		  "Type": "String"
 		},
 		{
-			"name": "ga-IE",
-			"type": "String"
+		  "Name": "ga-IE",
+		  "Type": "String"
 		},
 		{
-			"name": "gd",
-			"type": "String"
+		  "Name": "gd",
+		  "Type": "String"
 		},
 		{
-			"name": "gd-GB",
-			"type": "String"
+		  "Name": "gd-GB",
+		  "Type": "String"
 		},
 		{
-			"name": "gl",
-			"type": "String"
+		  "Name": "gl",
+		  "Type": "String"
 		},
 		{
-			"name": "gl-ES",
-			"type": "String"
+		  "Name": "gl-ES",
+		  "Type": "String"
 		},
 		{
-			"name": "gsw",
-			"type": "String"
+		  "Name": "gsw",
+		  "Type": "String"
 		},
 		{
-			"name": "gsw-CH",
-			"type": "String"
+		  "Name": "gsw-CH",
+		  "Type": "String"
 		},
 		{
-			"name": "gsw-FR",
-			"type": "String"
+		  "Name": "gsw-FR",
+		  "Type": "String"
 		},
 		{
-			"name": "gsw-LI",
-			"type": "String"
+		  "Name": "gsw-LI",
+		  "Type": "String"
 		},
 		{
-			"name": "gu",
-			"type": "String"
+		  "Name": "gu",
+		  "Type": "String"
 		},
 		{
-			"name": "gu-IN",
-			"type": "String"
+		  "Name": "gu-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "guz",
-			"type": "String"
+		  "Name": "guz",
+		  "Type": "String"
 		},
 		{
-			"name": "guz-KE",
-			"type": "String"
+		  "Name": "guz-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "gv",
-			"type": "String"
+		  "Name": "gv",
+		  "Type": "String"
 		},
 		{
-			"name": "gv-IM",
-			"type": "String"
+		  "Name": "gv-IM",
+		  "Type": "String"
 		},
 		{
-			"name": "ha",
-			"type": "String"
+		  "Name": "ha",
+		  "Type": "String"
 		},
 		{
-			"name": "ha-GH",
-			"type": "String"
+		  "Name": "ha-GH",
+		  "Type": "String"
 		},
 		{
-			"name": "ha-NE",
-			"type": "String"
+		  "Name": "ha-NE",
+		  "Type": "String"
 		},
 		{
-			"name": "ha-NG",
-			"type": "String"
+		  "Name": "ha-NG",
+		  "Type": "String"
 		},
 		{
-			"name": "haw",
-			"type": "String"
+		  "Name": "haw",
+		  "Type": "String"
 		},
 		{
-			"name": "haw-US",
-			"type": "String"
+		  "Name": "haw-US",
+		  "Type": "String"
 		},
 		{
-			"name": "he",
-			"type": "String"
+		  "Name": "he",
+		  "Type": "String"
 		},
 		{
-			"name": "he-IL",
-			"type": "String"
+		  "Name": "he-IL",
+		  "Type": "String"
 		},
 		{
-			"name": "hi",
-			"type": "String"
+		  "Name": "hi",
+		  "Type": "String"
 		},
 		{
-			"name": "hi-IN",
-			"type": "String"
+		  "Name": "hi-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "hr",
-			"type": "String"
+		  "Name": "hr",
+		  "Type": "String"
 		},
 		{
-			"name": "hr-BA",
-			"type": "String"
+		  "Name": "hr-BA",
+		  "Type": "String"
 		},
 		{
-			"name": "hr-HR",
-			"type": "String"
+		  "Name": "hr-HR",
+		  "Type": "String"
 		},
 		{
-			"name": "hsb",
-			"type": "String"
+		  "Name": "hsb",
+		  "Type": "String"
 		},
 		{
-			"name": "hsb-DE",
-			"type": "String"
+		  "Name": "hsb-DE",
+		  "Type": "String"
 		},
 		{
-			"name": "hu",
-			"type": "String"
+		  "Name": "hu",
+		  "Type": "String"
 		},
 		{
-			"name": "hu-HU",
-			"type": "String"
+		  "Name": "hu-HU",
+		  "Type": "String"
 		},
 		{
-			"name": "hy",
-			"type": "String"
+		  "Name": "hy",
+		  "Type": "String"
 		},
 		{
-			"name": "hy-AM",
-			"type": "String"
+		  "Name": "hy-AM",
+		  "Type": "String"
 		},
 		{
-			"name": "ia",
-			"type": "String"
+		  "Name": "ia",
+		  "Type": "String"
 		},
 		{
-			"name": "ia-001",
-			"type": "String"
+		  "Name": "ia-001",
+		  "Type": "String"
 		},
 		{
-			"name": "id",
-			"type": "String"
+		  "Name": "id",
+		  "Type": "String"
 		},
 		{
-			"name": "id-ID",
-			"type": "String"
+		  "Name": "id-ID",
+		  "Type": "String"
 		},
 		{
-			"name": "ig",
-			"type": "String"
+		  "Name": "ig",
+		  "Type": "String"
 		},
 		{
-			"name": "ig-NG",
-			"type": "String"
+		  "Name": "ig-NG",
+		  "Type": "String"
 		},
 		{
-			"name": "ii",
-			"type": "String"
+		  "Name": "ii",
+		  "Type": "String"
 		},
 		{
-			"name": "ii-CN",
-			"type": "String"
+		  "Name": "ii-CN",
+		  "Type": "String"
 		},
 		{
-			"name": "is",
-			"type": "String"
+		  "Name": "is",
+		  "Type": "String"
 		},
 		{
-			"name": "is-IS",
-			"type": "String"
+		  "Name": "is-IS",
+		  "Type": "String"
 		},
 		{
-			"name": "it",
-			"type": "String"
+		  "Name": "it",
+		  "Type": "String"
 		},
 		{
-			"name": "it-CH",
-			"type": "String"
+		  "Name": "it-CH",
+		  "Type": "String"
 		},
 		{
-			"name": "it-IT",
-			"type": "String"
+		  "Name": "it-IT",
+		  "Type": "String"
 		},
 		{
-			"name": "it-SM",
-			"type": "String"
+		  "Name": "it-SM",
+		  "Type": "String"
 		},
 		{
-			"name": "it-VA",
-			"type": "String"
+		  "Name": "it-VA",
+		  "Type": "String"
 		},
 		{
-			"name": "ja",
-			"type": "String"
+		  "Name": "ja",
+		  "Type": "String"
 		},
 		{
-			"name": "ja-JP",
-			"type": "String"
+		  "Name": "ja-JP",
+		  "Type": "String"
 		},
 		{
-			"name": "jgo",
-			"type": "String"
+		  "Name": "jgo",
+		  "Type": "String"
 		},
 		{
-			"name": "jgo-CM",
-			"type": "String"
+		  "Name": "jgo-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "jmc",
-			"type": "String"
+		  "Name": "jmc",
+		  "Type": "String"
 		},
 		{
-			"name": "jmc-TZ",
-			"type": "String"
+		  "Name": "jmc-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "jv",
-			"type": "String"
+		  "Name": "jv",
+		  "Type": "String"
 		},
 		{
-			"name": "jv-ID",
-			"type": "String"
+		  "Name": "jv-ID",
+		  "Type": "String"
 		},
 		{
-			"name": "ka",
-			"type": "String"
+		  "Name": "ka",
+		  "Type": "String"
 		},
 		{
-			"name": "ka-GE",
-			"type": "String"
+		  "Name": "ka-GE",
+		  "Type": "String"
 		},
 		{
-			"name": "kab",
-			"type": "String"
+		  "Name": "kab",
+		  "Type": "String"
 		},
 		{
-			"name": "kab-DZ",
-			"type": "String"
+		  "Name": "kab-DZ",
+		  "Type": "String"
 		},
 		{
-			"name": "kam",
-			"type": "String"
+		  "Name": "kam",
+		  "Type": "String"
 		},
 		{
-			"name": "kam-KE",
-			"type": "String"
+		  "Name": "kam-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "kde",
-			"type": "String"
+		  "Name": "kde",
+		  "Type": "String"
 		},
 		{
-			"name": "kde-TZ",
-			"type": "String"
+		  "Name": "kde-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "kea",
-			"type": "String"
+		  "Name": "kea",
+		  "Type": "String"
 		},
 		{
-			"name": "kea-CV",
-			"type": "String"
+		  "Name": "kea-CV",
+		  "Type": "String"
 		},
 		{
-			"name": "khq",
-			"type": "String"
+		  "Name": "khq",
+		  "Type": "String"
 		},
 		{
-			"name": "khq-ML",
-			"type": "String"
+		  "Name": "khq-ML",
+		  "Type": "String"
 		},
 		{
-			"name": "ki",
-			"type": "String"
+		  "Name": "ki",
+		  "Type": "String"
 		},
 		{
-			"name": "ki-KE",
-			"type": "String"
+		  "Name": "ki-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "kk",
-			"type": "String"
+		  "Name": "kk",
+		  "Type": "String"
 		},
 		{
-			"name": "kk-KZ",
-			"type": "String"
+		  "Name": "kk-KZ",
+		  "Type": "String"
 		},
 		{
-			"name": "kkj",
-			"type": "String"
+		  "Name": "kkj",
+		  "Type": "String"
 		},
 		{
-			"name": "kkj-CM",
-			"type": "String"
+		  "Name": "kkj-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "kl",
-			"type": "String"
+		  "Name": "kl",
+		  "Type": "String"
 		},
 		{
-			"name": "kl-GL",
-			"type": "String"
+		  "Name": "kl-GL",
+		  "Type": "String"
 		},
 		{
-			"name": "kln",
-			"type": "String"
+		  "Name": "kln",
+		  "Type": "String"
 		},
 		{
-			"name": "kln-KE",
-			"type": "String"
+		  "Name": "kln-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "km",
-			"type": "String"
+		  "Name": "km",
+		  "Type": "String"
 		},
 		{
-			"name": "km-KH",
-			"type": "String"
+		  "Name": "km-KH",
+		  "Type": "String"
 		},
 		{
-			"name": "kn",
-			"type": "String"
+		  "Name": "kn",
+		  "Type": "String"
 		},
 		{
-			"name": "kn-IN",
-			"type": "String"
+		  "Name": "kn-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "ko",
-			"type": "String"
+		  "Name": "ko",
+		  "Type": "String"
 		},
 		{
-			"name": "ko-KP",
-			"type": "String"
+		  "Name": "ko-KP",
+		  "Type": "String"
 		},
 		{
-			"name": "ko-KR",
-			"type": "String"
+		  "Name": "ko-KR",
+		  "Type": "String"
 		},
 		{
-			"name": "kok",
-			"type": "String"
+		  "Name": "kok",
+		  "Type": "String"
 		},
 		{
-			"name": "kok-IN",
-			"type": "String"
+		  "Name": "kok-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "ks",
-			"type": "String"
+		  "Name": "ks",
+		  "Type": "String"
 		},
 		{
-			"name": "ks-Arab",
-			"type": "String"
+		  "Name": "ks-Arab",
+		  "Type": "String"
 		},
 		{
-			"name": "ks-Arab-IN",
-			"type": "String"
+		  "Name": "ks-Arab-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "ksb",
-			"type": "String"
+		  "Name": "ksb",
+		  "Type": "String"
 		},
 		{
-			"name": "ksb-TZ",
-			"type": "String"
+		  "Name": "ksb-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "ksf",
-			"type": "String"
+		  "Name": "ksf",
+		  "Type": "String"
 		},
 		{
-			"name": "ksf-CM",
-			"type": "String"
+		  "Name": "ksf-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "ksh",
-			"type": "String"
+		  "Name": "ksh",
+		  "Type": "String"
 		},
 		{
-			"name": "ksh-DE",
-			"type": "String"
+		  "Name": "ksh-DE",
+		  "Type": "String"
 		},
 		{
-			"name": "ku",
-			"type": "String"
+		  "Name": "ku",
+		  "Type": "String"
 		},
 		{
-			"name": "ku-TR",
-			"type": "String"
+		  "Name": "ku-TR",
+		  "Type": "String"
 		},
 		{
-			"name": "kw",
-			"type": "String"
+		  "Name": "kw",
+		  "Type": "String"
 		},
 		{
-			"name": "kw-GB",
-			"type": "String"
+		  "Name": "kw-GB",
+		  "Type": "String"
 		},
 		{
-			"name": "ky",
-			"type": "String"
+		  "Name": "ky",
+		  "Type": "String"
 		},
 		{
-			"name": "ky-KG",
-			"type": "String"
+		  "Name": "ky-KG",
+		  "Type": "String"
 		},
 		{
-			"name": "lag",
-			"type": "String"
+		  "Name": "lag",
+		  "Type": "String"
 		},
 		{
-			"name": "lag-TZ",
-			"type": "String"
+		  "Name": "lag-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "lb",
-			"type": "String"
+		  "Name": "lb",
+		  "Type": "String"
 		},
 		{
-			"name": "lb-LU",
-			"type": "String"
+		  "Name": "lb-LU",
+		  "Type": "String"
 		},
 		{
-			"name": "lg",
-			"type": "String"
+		  "Name": "lg",
+		  "Type": "String"
 		},
 		{
-			"name": "lg-UG",
-			"type": "String"
+		  "Name": "lg-UG",
+		  "Type": "String"
 		},
 		{
-			"name": "lkt",
-			"type": "String"
+		  "Name": "lkt",
+		  "Type": "String"
 		},
 		{
-			"name": "lkt-US",
-			"type": "String"
+		  "Name": "lkt-US",
+		  "Type": "String"
 		},
 		{
-			"name": "ln",
-			"type": "String"
+		  "Name": "ln",
+		  "Type": "String"
 		},
 		{
-			"name": "ln-AO",
-			"type": "String"
+		  "Name": "ln-AO",
+		  "Type": "String"
 		},
 		{
-			"name": "ln-CD",
-			"type": "String"
+		  "Name": "ln-CD",
+		  "Type": "String"
 		},
 		{
-			"name": "ln-CF",
-			"type": "String"
+		  "Name": "ln-CF",
+		  "Type": "String"
 		},
 		{
-			"name": "ln-CG",
-			"type": "String"
+		  "Name": "ln-CG",
+		  "Type": "String"
 		},
 		{
-			"name": "lo",
-			"type": "String"
+		  "Name": "lo",
+		  "Type": "String"
 		},
 		{
-			"name": "lo-LA",
-			"type": "String"
+		  "Name": "lo-LA",
+		  "Type": "String"
 		},
 		{
-			"name": "lrc",
-			"type": "String"
+		  "Name": "lrc",
+		  "Type": "String"
 		},
 		{
-			"name": "lrc-IQ",
-			"type": "String"
+		  "Name": "lrc-IQ",
+		  "Type": "String"
 		},
 		{
-			"name": "lrc-IR",
-			"type": "String"
+		  "Name": "lrc-IR",
+		  "Type": "String"
 		},
 		{
-			"name": "lt",
-			"type": "String"
+		  "Name": "lt",
+		  "Type": "String"
 		},
 		{
-			"name": "lt-LT",
-			"type": "String"
+		  "Name": "lt-LT",
+		  "Type": "String"
 		},
 		{
-			"name": "lu",
-			"type": "String"
+		  "Name": "lu",
+		  "Type": "String"
 		},
 		{
-			"name": "lu-CD",
-			"type": "String"
+		  "Name": "lu-CD",
+		  "Type": "String"
 		},
 		{
-			"name": "luo",
-			"type": "String"
+		  "Name": "luo",
+		  "Type": "String"
 		},
 		{
-			"name": "luo-KE",
-			"type": "String"
+		  "Name": "luo-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "luy",
-			"type": "String"
+		  "Name": "luy",
+		  "Type": "String"
 		},
 		{
-			"name": "luy-KE",
-			"type": "String"
+		  "Name": "luy-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "lv",
-			"type": "String"
+		  "Name": "lv",
+		  "Type": "String"
 		},
 		{
-			"name": "lv-LV",
-			"type": "String"
+		  "Name": "lv-LV",
+		  "Type": "String"
 		},
 		{
-			"name": "mai",
-			"type": "String"
+		  "Name": "mai",
+		  "Type": "String"
 		},
 		{
-			"name": "mai-IN",
-			"type": "String"
+		  "Name": "mai-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "mas",
-			"type": "String"
+		  "Name": "mas",
+		  "Type": "String"
 		},
 		{
-			"name": "mas-KE",
-			"type": "String"
+		  "Name": "mas-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "mas-TZ",
-			"type": "String"
+		  "Name": "mas-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "mer",
-			"type": "String"
+		  "Name": "mer",
+		  "Type": "String"
 		},
 		{
-			"name": "mer-KE",
-			"type": "String"
+		  "Name": "mer-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "mfe",
-			"type": "String"
+		  "Name": "mfe",
+		  "Type": "String"
 		},
 		{
-			"name": "mfe-MU",
-			"type": "String"
+		  "Name": "mfe-MU",
+		  "Type": "String"
 		},
 		{
-			"name": "mg",
-			"type": "String"
+		  "Name": "mg",
+		  "Type": "String"
 		},
 		{
-			"name": "mg-MG",
-			"type": "String"
+		  "Name": "mg-MG",
+		  "Type": "String"
 		},
 		{
-			"name": "mgh",
-			"type": "String"
+		  "Name": "mgh",
+		  "Type": "String"
 		},
 		{
-			"name": "mgh-MZ",
-			"type": "String"
+		  "Name": "mgh-MZ",
+		  "Type": "String"
 		},
 		{
-			"name": "mgo",
-			"type": "String"
+		  "Name": "mgo",
+		  "Type": "String"
 		},
 		{
-			"name": "mgo-CM",
-			"type": "String"
+		  "Name": "mgo-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "mi",
-			"type": "String"
+		  "Name": "mi",
+		  "Type": "String"
 		},
 		{
-			"name": "mi-NZ",
-			"type": "String"
+		  "Name": "mi-NZ",
+		  "Type": "String"
 		},
 		{
-			"name": "mk",
-			"type": "String"
+		  "Name": "mk",
+		  "Type": "String"
 		},
 		{
-			"name": "mk-MK",
-			"type": "String"
+		  "Name": "mk-MK",
+		  "Type": "String"
 		},
 		{
-			"name": "ml",
-			"type": "String"
+		  "Name": "ml",
+		  "Type": "String"
 		},
 		{
-			"name": "ml-IN",
-			"type": "String"
+		  "Name": "ml-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "mn",
-			"type": "String"
+		  "Name": "mn",
+		  "Type": "String"
 		},
 		{
-			"name": "mn-MN",
-			"type": "String"
+		  "Name": "mn-MN",
+		  "Type": "String"
 		},
 		{
-			"name": "mni",
-			"type": "String"
+		  "Name": "mni",
+		  "Type": "String"
 		},
 		{
-			"name": "mni-Beng",
-			"type": "String"
+		  "Name": "mni-Beng",
+		  "Type": "String"
 		},
 		{
-			"name": "mni-Beng-IN",
-			"type": "String"
+		  "Name": "mni-Beng-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "mr",
-			"type": "String"
+		  "Name": "mr",
+		  "Type": "String"
 		},
 		{
-			"name": "mr-IN",
-			"type": "String"
+		  "Name": "mr-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "ms",
-			"type": "String"
+		  "Name": "ms",
+		  "Type": "String"
 		},
 		{
-			"name": "ms-BN",
-			"type": "String"
+		  "Name": "ms-BN",
+		  "Type": "String"
 		},
 		{
-			"name": "ms-ID",
-			"type": "String"
+		  "Name": "ms-ID",
+		  "Type": "String"
 		},
 		{
-			"name": "ms-MY",
-			"type": "String"
+		  "Name": "ms-MY",
+		  "Type": "String"
 		},
 		{
-			"name": "ms-SG",
-			"type": "String"
+		  "Name": "ms-SG",
+		  "Type": "String"
 		},
 		{
-			"name": "mt",
-			"type": "String"
+		  "Name": "mt",
+		  "Type": "String"
 		},
 		{
-			"name": "mt-MT",
-			"type": "String"
+		  "Name": "mt-MT",
+		  "Type": "String"
 		},
 		{
-			"name": "mua",
-			"type": "String"
+		  "Name": "mua",
+		  "Type": "String"
 		},
 		{
-			"name": "mua-CM",
-			"type": "String"
+		  "Name": "mua-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "my",
-			"type": "String"
+		  "Name": "my",
+		  "Type": "String"
 		},
 		{
-			"name": "my-MM",
-			"type": "String"
+		  "Name": "my-MM",
+		  "Type": "String"
 		},
 		{
-			"name": "mzn",
-			"type": "String"
+		  "Name": "mzn",
+		  "Type": "String"
 		},
 		{
-			"name": "mzn-IR",
-			"type": "String"
+		  "Name": "mzn-IR",
+		  "Type": "String"
 		},
 		{
-			"name": "naq",
-			"type": "String"
+		  "Name": "naq",
+		  "Type": "String"
 		},
 		{
-			"name": "naq-NA",
-			"type": "String"
+		  "Name": "naq-NA",
+		  "Type": "String"
 		},
 		{
-			"name": "nb",
-			"type": "String"
+		  "Name": "nb",
+		  "Type": "String"
 		},
 		{
-			"name": "nb-NO",
-			"type": "String"
+		  "Name": "nb-NO",
+		  "Type": "String"
 		},
 		{
-			"name": "nb-SJ",
-			"type": "String"
+		  "Name": "nb-SJ",
+		  "Type": "String"
 		},
 		{
-			"name": "nd",
-			"type": "String"
+		  "Name": "nd",
+		  "Type": "String"
 		},
 		{
-			"name": "nd-ZW",
-			"type": "String"
+		  "Name": "nd-ZW",
+		  "Type": "String"
 		},
 		{
-			"name": "ne",
-			"type": "String"
+		  "Name": "ne",
+		  "Type": "String"
 		},
 		{
-			"name": "ne-IN",
-			"type": "String"
+		  "Name": "ne-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "ne-NP",
-			"type": "String"
+		  "Name": "ne-NP",
+		  "Type": "String"
 		},
 		{
-			"name": "nl",
-			"type": "String"
+		  "Name": "nl",
+		  "Type": "String"
 		},
 		{
-			"name": "nl-AW",
-			"type": "String"
+		  "Name": "nl-AW",
+		  "Type": "String"
 		},
 		{
-			"name": "nl-BE",
-			"type": "String"
+		  "Name": "nl-BE",
+		  "Type": "String"
 		},
 		{
-			"name": "nl-BQ",
-			"type": "String"
+		  "Name": "nl-BQ",
+		  "Type": "String"
 		},
 		{
-			"name": "nl-CW",
-			"type": "String"
+		  "Name": "nl-CW",
+		  "Type": "String"
 		},
 		{
-			"name": "nl-NL",
-			"type": "String"
+		  "Name": "nl-NL",
+		  "Type": "String"
 		},
 		{
-			"name": "nl-SR",
-			"type": "String"
+		  "Name": "nl-SR",
+		  "Type": "String"
 		},
 		{
-			"name": "nl-SX",
-			"type": "String"
+		  "Name": "nl-SX",
+		  "Type": "String"
 		},
 		{
-			"name": "nmg",
-			"type": "String"
+		  "Name": "nmg",
+		  "Type": "String"
 		},
 		{
-			"name": "nmg-CM",
-			"type": "String"
+		  "Name": "nmg-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "nn",
-			"type": "String"
+		  "Name": "nn",
+		  "Type": "String"
 		},
 		{
-			"name": "nn-NO",
-			"type": "String"
+		  "Name": "nn-NO",
+		  "Type": "String"
 		},
 		{
-			"name": "nnh",
-			"type": "String"
+		  "Name": "nnh",
+		  "Type": "String"
 		},
 		{
-			"name": "nnh-CM",
-			"type": "String"
+		  "Name": "nnh-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "nus",
-			"type": "String"
+		  "Name": "nus",
+		  "Type": "String"
 		},
 		{
-			"name": "nus-SS",
-			"type": "String"
+		  "Name": "nus-SS",
+		  "Type": "String"
 		},
 		{
-			"name": "nyn",
-			"type": "String"
+		  "Name": "nyn",
+		  "Type": "String"
 		},
 		{
-			"name": "nyn-UG",
-			"type": "String"
+		  "Name": "nyn-UG",
+		  "Type": "String"
 		},
 		{
-			"name": "om",
-			"type": "String"
+		  "Name": "om",
+		  "Type": "String"
 		},
 		{
-			"name": "om-ET",
-			"type": "String"
+		  "Name": "om-ET",
+		  "Type": "String"
 		},
 		{
-			"name": "om-KE",
-			"type": "String"
+		  "Name": "om-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "or",
-			"type": "String"
+		  "Name": "or",
+		  "Type": "String"
 		},
 		{
-			"name": "or-IN",
-			"type": "String"
+		  "Name": "or-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "os",
-			"type": "String"
+		  "Name": "os",
+		  "Type": "String"
 		},
 		{
-			"name": "os-GE",
-			"type": "String"
+		  "Name": "os-GE",
+		  "Type": "String"
 		},
 		{
-			"name": "os-RU",
-			"type": "String"
+		  "Name": "os-RU",
+		  "Type": "String"
 		},
 		{
-			"name": "pa",
-			"type": "String"
+		  "Name": "pa",
+		  "Type": "String"
 		},
 		{
-			"name": "pa-Arab",
-			"type": "String"
+		  "Name": "pa-Arab",
+		  "Type": "String"
 		},
 		{
-			"name": "pa-Arab-PK",
-			"type": "String"
+		  "Name": "pa-Arab-PK",
+		  "Type": "String"
 		},
 		{
-			"name": "pa-Guru",
-			"type": "String"
+		  "Name": "pa-Guru",
+		  "Type": "String"
 		},
 		{
-			"name": "pa-Guru-IN",
-			"type": "String"
+		  "Name": "pa-Guru-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "pcm",
-			"type": "String"
+		  "Name": "pcm",
+		  "Type": "String"
 		},
 		{
-			"name": "pcm-NG",
-			"type": "String"
+		  "Name": "pcm-NG",
+		  "Type": "String"
 		},
 		{
-			"name": "pl",
-			"type": "String"
+		  "Name": "pl",
+		  "Type": "String"
 		},
 		{
-			"name": "pl-PL",
-			"type": "String"
+		  "Name": "pl-PL",
+		  "Type": "String"
 		},
 		{
-			"name": "ps",
-			"type": "String"
+		  "Name": "ps",
+		  "Type": "String"
 		},
 		{
-			"name": "ps-AF",
-			"type": "String"
+		  "Name": "ps-AF",
+		  "Type": "String"
 		},
 		{
-			"name": "ps-PK",
-			"type": "String"
+		  "Name": "ps-PK",
+		  "Type": "String"
 		},
 		{
-			"name": "pt",
-			"type": "String"
+		  "Name": "pt",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-AO",
-			"type": "String"
+		  "Name": "pt-AO",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-BR",
-			"type": "String"
+		  "Name": "pt-BR",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-CH",
-			"type": "String"
+		  "Name": "pt-CH",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-CV",
-			"type": "String"
+		  "Name": "pt-CV",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-GQ",
-			"type": "String"
+		  "Name": "pt-GQ",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-GW",
-			"type": "String"
+		  "Name": "pt-GW",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-LU",
-			"type": "String"
+		  "Name": "pt-LU",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-MO",
-			"type": "String"
+		  "Name": "pt-MO",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-MZ",
-			"type": "String"
+		  "Name": "pt-MZ",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-PT",
-			"type": "String"
+		  "Name": "pt-PT",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-ST",
-			"type": "String"
+		  "Name": "pt-ST",
+		  "Type": "String"
 		},
 		{
-			"name": "pt-TL",
-			"type": "String"
+		  "Name": "pt-TL",
+		  "Type": "String"
 		},
 		{
-			"name": "qu",
-			"type": "String"
+		  "Name": "qu",
+		  "Type": "String"
 		},
 		{
-			"name": "qu-BO",
-			"type": "String"
+		  "Name": "qu-BO",
+		  "Type": "String"
 		},
 		{
-			"name": "qu-EC",
-			"type": "String"
+		  "Name": "qu-EC",
+		  "Type": "String"
 		},
 		{
-			"name": "qu-PE",
-			"type": "String"
+		  "Name": "qu-PE",
+		  "Type": "String"
 		},
 		{
-			"name": "rm",
-			"type": "String"
+		  "Name": "rm",
+		  "Type": "String"
 		},
 		{
-			"name": "rm-CH",
-			"type": "String"
+		  "Name": "rm-CH",
+		  "Type": "String"
 		},
 		{
-			"name": "rn",
-			"type": "String"
+		  "Name": "rn",
+		  "Type": "String"
 		},
 		{
-			"name": "rn-BI",
-			"type": "String"
+		  "Name": "rn-BI",
+		  "Type": "String"
 		},
 		{
-			"name": "ro",
-			"type": "String"
+		  "Name": "ro",
+		  "Type": "String"
 		},
 		{
-			"name": "ro-MD",
-			"type": "String"
+		  "Name": "ro-MD",
+		  "Type": "String"
 		},
 		{
-			"name": "ro-RO",
-			"type": "String"
+		  "Name": "ro-RO",
+		  "Type": "String"
 		},
 		{
-			"name": "rof",
-			"type": "String"
+		  "Name": "rof",
+		  "Type": "String"
 		},
 		{
-			"name": "rof-TZ",
-			"type": "String"
+		  "Name": "rof-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "ru",
-			"type": "String"
+		  "Name": "ru",
+		  "Type": "String"
 		},
 		{
-			"name": "ru-BY",
-			"type": "String"
+		  "Name": "ru-BY",
+		  "Type": "String"
 		},
 		{
-			"name": "ru-KG",
-			"type": "String"
+		  "Name": "ru-KG",
+		  "Type": "String"
 		},
 		{
-			"name": "ru-KZ",
-			"type": "String"
+		  "Name": "ru-KZ",
+		  "Type": "String"
 		},
 		{
-			"name": "ru-MD",
-			"type": "String"
+		  "Name": "ru-MD",
+		  "Type": "String"
 		},
 		{
-			"name": "ru-RU",
-			"type": "String"
+		  "Name": "ru-RU",
+		  "Type": "String"
 		},
 		{
-			"name": "ru-UA",
-			"type": "String"
+		  "Name": "ru-UA",
+		  "Type": "String"
 		},
 		{
-			"name": "rw",
-			"type": "String"
+		  "Name": "rw",
+		  "Type": "String"
 		},
 		{
-			"name": "rw-RW",
-			"type": "String"
+		  "Name": "rw-RW",
+		  "Type": "String"
 		},
 		{
-			"name": "rwk",
-			"type": "String"
+		  "Name": "rwk",
+		  "Type": "String"
 		},
 		{
-			"name": "rwk-TZ",
-			"type": "String"
+		  "Name": "rwk-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "sa",
-			"type": "String"
+		  "Name": "sa",
+		  "Type": "String"
 		},
 		{
-			"name": "sa-IN",
-			"type": "String"
+		  "Name": "sa-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "sah",
-			"type": "String"
+		  "Name": "sah",
+		  "Type": "String"
 		},
 		{
-			"name": "sah-RU",
-			"type": "String"
+		  "Name": "sah-RU",
+		  "Type": "String"
 		},
 		{
-			"name": "saq",
-			"type": "String"
+		  "Name": "saq",
+		  "Type": "String"
 		},
 		{
-			"name": "saq-KE",
-			"type": "String"
+		  "Name": "saq-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "sat",
-			"type": "String"
+		  "Name": "sat",
+		  "Type": "String"
 		},
 		{
-			"name": "sat-Olck",
-			"type": "String"
+		  "Name": "sat-Olck",
+		  "Type": "String"
 		},
 		{
-			"name": "sat-Olck-IN",
-			"type": "String"
+		  "Name": "sat-Olck-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "sbp",
-			"type": "String"
+		  "Name": "sbp",
+		  "Type": "String"
 		},
 		{
-			"name": "sbp-TZ",
-			"type": "String"
+		  "Name": "sbp-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "sd",
-			"type": "String"
+		  "Name": "sd",
+		  "Type": "String"
 		},
 		{
-			"name": "sd-Arab",
-			"type": "String"
+		  "Name": "sd-Arab",
+		  "Type": "String"
 		},
 		{
-			"name": "sd-Arab-PK",
-			"type": "String"
+		  "Name": "sd-Arab-PK",
+		  "Type": "String"
 		},
 		{
-			"name": "sd-Deva",
-			"type": "String"
+		  "Name": "sd-Deva",
+		  "Type": "String"
 		},
 		{
-			"name": "sd-Deva-IN",
-			"type": "String"
+		  "Name": "sd-Deva-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "se",
-			"type": "String"
+		  "Name": "se",
+		  "Type": "String"
 		},
 		{
-			"name": "se-FI",
-			"type": "String"
+		  "Name": "se-FI",
+		  "Type": "String"
 		},
 		{
-			"name": "se-NO",
-			"type": "String"
+		  "Name": "se-NO",
+		  "Type": "String"
 		},
 		{
-			"name": "se-SE",
-			"type": "String"
+		  "Name": "se-SE",
+		  "Type": "String"
 		},
 		{
-			"name": "seh",
-			"type": "String"
+		  "Name": "seh",
+		  "Type": "String"
 		},
 		{
-			"name": "seh-MZ",
-			"type": "String"
+		  "Name": "seh-MZ",
+		  "Type": "String"
 		},
 		{
-			"name": "ses",
-			"type": "String"
+		  "Name": "ses",
+		  "Type": "String"
 		},
 		{
-			"name": "ses-ML",
-			"type": "String"
+		  "Name": "ses-ML",
+		  "Type": "String"
 		},
 		{
-			"name": "sg",
-			"type": "String"
+		  "Name": "sg",
+		  "Type": "String"
 		},
 		{
-			"name": "sg-CF",
-			"type": "String"
+		  "Name": "sg-CF",
+		  "Type": "String"
 		},
 		{
-			"name": "shi",
-			"type": "String"
+		  "Name": "shi",
+		  "Type": "String"
 		},
 		{
-			"name": "shi-Latn",
-			"type": "String"
+		  "Name": "shi-Latn",
+		  "Type": "String"
 		},
 		{
-			"name": "shi-Latn-MA",
-			"type": "String"
+		  "Name": "shi-Latn-MA",
+		  "Type": "String"
 		},
 		{
-			"name": "shi-Tfng",
-			"type": "String"
+		  "Name": "shi-Tfng",
+		  "Type": "String"
 		},
 		{
-			"name": "shi-Tfng-MA",
-			"type": "String"
+		  "Name": "shi-Tfng-MA",
+		  "Type": "String"
 		},
 		{
-			"name": "si",
-			"type": "String"
+		  "Name": "si",
+		  "Type": "String"
 		},
 		{
-			"name": "si-LK",
-			"type": "String"
+		  "Name": "si-LK",
+		  "Type": "String"
 		},
 		{
-			"name": "sk",
-			"type": "String"
+		  "Name": "sk",
+		  "Type": "String"
 		},
 		{
-			"name": "sk-SK",
-			"type": "String"
+		  "Name": "sk-SK",
+		  "Type": "String"
 		},
 		{
-			"name": "sl",
-			"type": "String"
+		  "Name": "sl",
+		  "Type": "String"
 		},
 		{
-			"name": "sl-SI",
-			"type": "String"
+		  "Name": "sl-SI",
+		  "Type": "String"
 		},
 		{
-			"name": "smn",
-			"type": "String"
+		  "Name": "smn",
+		  "Type": "String"
 		},
 		{
-			"name": "smn-FI",
-			"type": "String"
+		  "Name": "smn-FI",
+		  "Type": "String"
 		},
 		{
-			"name": "sn",
-			"type": "String"
+		  "Name": "sn",
+		  "Type": "String"
 		},
 		{
-			"name": "sn-ZW",
-			"type": "String"
+		  "Name": "sn-ZW",
+		  "Type": "String"
 		},
 		{
-			"name": "so",
-			"type": "String"
+		  "Name": "so",
+		  "Type": "String"
 		},
 		{
-			"name": "so-DJ",
-			"type": "String"
+		  "Name": "so-DJ",
+		  "Type": "String"
 		},
 		{
-			"name": "so-ET",
-			"type": "String"
+		  "Name": "so-ET",
+		  "Type": "String"
 		},
 		{
-			"name": "so-KE",
-			"type": "String"
+		  "Name": "so-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "so-SO",
-			"type": "String"
+		  "Name": "so-SO",
+		  "Type": "String"
 		},
 		{
-			"name": "sq",
-			"type": "String"
+		  "Name": "sq",
+		  "Type": "String"
 		},
 		{
-			"name": "sq-AL",
-			"type": "String"
+		  "Name": "sq-AL",
+		  "Type": "String"
 		},
 		{
-			"name": "sq-MK",
-			"type": "String"
+		  "Name": "sq-MK",
+		  "Type": "String"
 		},
 		{
-			"name": "sq-XK",
-			"type": "String"
+		  "Name": "sq-XK",
+		  "Type": "String"
 		},
 		{
-			"name": "sr",
-			"type": "String"
+		  "Name": "sr",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Cyrl",
-			"type": "String"
+		  "Name": "sr-Cyrl",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Cyrl-BA",
-			"type": "String"
+		  "Name": "sr-Cyrl-BA",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Cyrl-ME",
-			"type": "String"
+		  "Name": "sr-Cyrl-ME",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Cyrl-RS",
-			"type": "String"
+		  "Name": "sr-Cyrl-RS",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Cyrl-XK",
-			"type": "String"
+		  "Name": "sr-Cyrl-XK",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Latn",
-			"type": "String"
+		  "Name": "sr-Latn",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Latn-BA",
-			"type": "String"
+		  "Name": "sr-Latn-BA",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Latn-ME",
-			"type": "String"
+		  "Name": "sr-Latn-ME",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Latn-RS",
-			"type": "String"
+		  "Name": "sr-Latn-RS",
+		  "Type": "String"
 		},
 		{
-			"name": "sr-Latn-XK",
-			"type": "String"
+		  "Name": "sr-Latn-XK",
+		  "Type": "String"
 		},
 		{
-			"name": "su",
-			"type": "String"
+		  "Name": "su",
+		  "Type": "String"
 		},
 		{
-			"name": "su-Latn",
-			"type": "String"
+		  "Name": "su-Latn",
+		  "Type": "String"
 		},
 		{
-			"name": "su-Latn-ID",
-			"type": "String"
+		  "Name": "su-Latn-ID",
+		  "Type": "String"
 		},
 		{
-			"name": "sv",
-			"type": "String"
+		  "Name": "sv",
+		  "Type": "String"
 		},
 		{
-			"name": "sv-AX",
-			"type": "String"
+		  "Name": "sv-AX",
+		  "Type": "String"
 		},
 		{
-			"name": "sv-FI",
-			"type": "String"
+		  "Name": "sv-FI",
+		  "Type": "String"
 		},
 		{
-			"name": "sv-SE",
-			"type": "String"
+		  "Name": "sv-SE",
+		  "Type": "String"
 		},
 		{
-			"name": "sw",
-			"type": "String"
+		  "Name": "sw",
+		  "Type": "String"
 		},
 		{
-			"name": "sw-CD",
-			"type": "String"
+		  "Name": "sw-CD",
+		  "Type": "String"
 		},
 		{
-			"name": "sw-KE",
-			"type": "String"
+		  "Name": "sw-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "sw-TZ",
-			"type": "String"
+		  "Name": "sw-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "sw-UG",
-			"type": "String"
+		  "Name": "sw-UG",
+		  "Type": "String"
 		},
 		{
-			"name": "ta",
-			"type": "String"
+		  "Name": "ta",
+		  "Type": "String"
 		},
 		{
-			"name": "ta-IN",
-			"type": "String"
+		  "Name": "ta-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "ta-LK",
-			"type": "String"
+		  "Name": "ta-LK",
+		  "Type": "String"
 		},
 		{
-			"name": "ta-MY",
-			"type": "String"
+		  "Name": "ta-MY",
+		  "Type": "String"
 		},
 		{
-			"name": "ta-SG",
-			"type": "String"
+		  "Name": "ta-SG",
+		  "Type": "String"
 		},
 		{
-			"name": "te",
-			"type": "String"
+		  "Name": "te",
+		  "Type": "String"
 		},
 		{
-			"name": "te-IN",
-			"type": "String"
+		  "Name": "te-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "teo",
-			"type": "String"
+		  "Name": "teo",
+		  "Type": "String"
 		},
 		{
-			"name": "teo-KE",
-			"type": "String"
+		  "Name": "teo-KE",
+		  "Type": "String"
 		},
 		{
-			"name": "teo-UG",
-			"type": "String"
+		  "Name": "teo-UG",
+		  "Type": "String"
 		},
 		{
-			"name": "tg",
-			"type": "String"
+		  "Name": "tg",
+		  "Type": "String"
 		},
 		{
-			"name": "tg-TJ",
-			"type": "String"
+		  "Name": "tg-TJ",
+		  "Type": "String"
 		},
 		{
-			"name": "th",
-			"type": "String"
+		  "Name": "th",
+		  "Type": "String"
 		},
 		{
-			"name": "th-TH",
-			"type": "String"
+		  "Name": "th-TH",
+		  "Type": "String"
 		},
 		{
-			"name": "ti",
-			"type": "String"
+		  "Name": "ti",
+		  "Type": "String"
 		},
 		{
-			"name": "ti-ER",
-			"type": "String"
+		  "Name": "ti-ER",
+		  "Type": "String"
 		},
 		{
-			"name": "ti-ET",
-			"type": "String"
+		  "Name": "ti-ET",
+		  "Type": "String"
 		},
 		{
-			"name": "tk",
-			"type": "String"
+		  "Name": "tk",
+		  "Type": "String"
 		},
 		{
-			"name": "tk-TM",
-			"type": "String"
+		  "Name": "tk-TM",
+		  "Type": "String"
 		},
 		{
-			"name": "to",
-			"type": "String"
+		  "Name": "to",
+		  "Type": "String"
 		},
 		{
-			"name": "to-TO",
-			"type": "String"
+		  "Name": "to-TO",
+		  "Type": "String"
 		},
 		{
-			"name": "tr",
-			"type": "String"
+		  "Name": "tr",
+		  "Type": "String"
 		},
 		{
-			"name": "tr-CY",
-			"type": "String"
+		  "Name": "tr-CY",
+		  "Type": "String"
 		},
 		{
-			"name": "tr-TR",
-			"type": "String"
+		  "Name": "tr-TR",
+		  "Type": "String"
 		},
 		{
-			"name": "tt",
-			"type": "String"
+		  "Name": "tt",
+		  "Type": "String"
 		},
 		{
-			"name": "tt-RU",
-			"type": "String"
+		  "Name": "tt-RU",
+		  "Type": "String"
 		},
 		{
-			"name": "twq",
-			"type": "String"
+		  "Name": "twq",
+		  "Type": "String"
 		},
 		{
-			"name": "twq-NE",
-			"type": "String"
+		  "Name": "twq-NE",
+		  "Type": "String"
 		},
 		{
-			"name": "tzm",
-			"type": "String"
+		  "Name": "tzm",
+		  "Type": "String"
 		},
 		{
-			"name": "tzm-MA",
-			"type": "String"
+		  "Name": "tzm-MA",
+		  "Type": "String"
 		},
 		{
-			"name": "ug",
-			"type": "String"
+		  "Name": "ug",
+		  "Type": "String"
 		},
 		{
-			"name": "ug-CN",
-			"type": "String"
+		  "Name": "ug-CN",
+		  "Type": "String"
 		},
 		{
-			"name": "uk",
-			"type": "String"
+		  "Name": "uk",
+		  "Type": "String"
 		},
 		{
-			"name": "uk-UA",
-			"type": "String"
+		  "Name": "uk-UA",
+		  "Type": "String"
 		},
 		{
-			"name": "ur",
-			"type": "String"
+		  "Name": "ur",
+		  "Type": "String"
 		},
 		{
-			"name": "ur-IN",
-			"type": "String"
+		  "Name": "ur-IN",
+		  "Type": "String"
 		},
 		{
-			"name": "ur-PK",
-			"type": "String"
+		  "Name": "ur-PK",
+		  "Type": "String"
 		},
 		{
-			"name": "uz",
-			"type": "String"
+		  "Name": "uz",
+		  "Type": "String"
 		},
 		{
-			"name": "uz-Arab",
-			"type": "String"
+		  "Name": "uz-Arab",
+		  "Type": "String"
 		},
 		{
-			"name": "uz-Arab-AF",
-			"type": "String"
+		  "Name": "uz-Arab-AF",
+		  "Type": "String"
 		},
 		{
-			"name": "uz-Cyrl",
-			"type": "String"
+		  "Name": "uz-Cyrl",
+		  "Type": "String"
 		},
 		{
-			"name": "uz-Cyrl-UZ",
-			"type": "String"
+		  "Name": "uz-Cyrl-UZ",
+		  "Type": "String"
 		},
 		{
-			"name": "uz-Latn",
-			"type": "String"
+		  "Name": "uz-Latn",
+		  "Type": "String"
 		},
 		{
-			"name": "uz-Latn-UZ",
-			"type": "String"
+		  "Name": "uz-Latn-UZ",
+		  "Type": "String"
 		},
 		{
-			"name": "vai",
-			"type": "String"
+		  "Name": "vai",
+		  "Type": "String"
 		},
 		{
-			"name": "vai-Latn",
-			"type": "String"
+		  "Name": "vai-Latn",
+		  "Type": "String"
 		},
 		{
-			"name": "vai-Latn-LR",
-			"type": "String"
+		  "Name": "vai-Latn-LR",
+		  "Type": "String"
 		},
 		{
-			"name": "vai-Vaii",
-			"type": "String"
+		  "Name": "vai-Vaii",
+		  "Type": "String"
 		},
 		{
-			"name": "vai-Vaii-LR",
-			"type": "String"
+		  "Name": "vai-Vaii-LR",
+		  "Type": "String"
 		},
 		{
-			"name": "vi",
-			"type": "String"
+		  "Name": "vi",
+		  "Type": "String"
 		},
 		{
-			"name": "vi-VN",
-			"type": "String"
+		  "Name": "vi-VN",
+		  "Type": "String"
 		},
 		{
-			"name": "vun",
-			"type": "String"
+		  "Name": "vun",
+		  "Type": "String"
 		},
 		{
-			"name": "vun-TZ",
-			"type": "String"
+		  "Name": "vun-TZ",
+		  "Type": "String"
 		},
 		{
-			"name": "wae",
-			"type": "String"
+		  "Name": "wae",
+		  "Type": "String"
 		},
 		{
-			"name": "wae-CH",
-			"type": "String"
+		  "Name": "wae-CH",
+		  "Type": "String"
 		},
 		{
-			"name": "wo",
-			"type": "String"
+		  "Name": "wo",
+		  "Type": "String"
 		},
 		{
-			"name": "wo-SN",
-			"type": "String"
+		  "Name": "wo-SN",
+		  "Type": "String"
 		},
 		{
-			"name": "xh",
-			"type": "String"
+		  "Name": "xh",
+		  "Type": "String"
 		},
 		{
-			"name": "xh-ZA",
-			"type": "String"
+		  "Name": "xh-ZA",
+		  "Type": "String"
 		},
 		{
-			"name": "xog",
-			"type": "String"
+		  "Name": "xog",
+		  "Type": "String"
 		},
 		{
-			"name": "xog-UG",
-			"type": "String"
+		  "Name": "xog-UG",
+		  "Type": "String"
 		},
 		{
-			"name": "yav",
-			"type": "String"
+		  "Name": "yav",
+		  "Type": "String"
 		},
 		{
-			"name": "yav-CM",
-			"type": "String"
+		  "Name": "yav-CM",
+		  "Type": "String"
 		},
 		{
-			"name": "yi",
-			"type": "String"
+		  "Name": "yi",
+		  "Type": "String"
 		},
 		{
-			"name": "yi-001",
-			"type": "String"
+		  "Name": "yi-001",
+		  "Type": "String"
 		},
 		{
-			"name": "yo",
-			"type": "String"
+		  "Name": "yo",
+		  "Type": "String"
 		},
 		{
-			"name": "yo-BJ",
-			"type": "String"
+		  "Name": "yo-BJ",
+		  "Type": "String"
 		},
 		{
-			"name": "yo-NG",
-			"type": "String"
+		  "Name": "yo-NG",
+		  "Type": "String"
 		},
 		{
-			"name": "yue",
-			"type": "String"
+		  "Name": "yue",
+		  "Type": "String"
 		},
 		{
-			"name": "yue-Hans",
-			"type": "String"
+		  "Name": "yue-Hans",
+		  "Type": "String"
 		},
 		{
-			"name": "yue-Hans-CN",
-			"type": "String"
+		  "Name": "yue-Hans-CN",
+		  "Type": "String"
 		},
 		{
-			"name": "yue-Hant",
-			"type": "String"
+		  "Name": "yue-Hant",
+		  "Type": "String"
 		},
 		{
-			"name": "yue-Hant-HK",
-			"type": "String"
+		  "Name": "yue-Hant-HK",
+		  "Type": "String"
 		},
 		{
-			"name": "zgh",
-			"type": "String"
+		  "Name": "zgh",
+		  "Type": "String"
 		},
 		{
-			"name": "zgh-MA",
-			"type": "String"
+		  "Name": "zgh-MA",
+		  "Type": "String"
 		},
 		{
-			"name": "zh",
-			"type": "String"
+		  "Name": "zh",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hans",
-			"type": "String"
+		  "Name": "zh-Hans",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hans-CN",
-			"type": "String"
+		  "Name": "zh-Hans-CN",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hans-HK",
-			"type": "String"
+		  "Name": "zh-Hans-HK",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hans-MO",
-			"type": "String"
+		  "Name": "zh-Hans-MO",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hans-SG",
-			"type": "String"
+		  "Name": "zh-Hans-SG",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hant",
-			"type": "String"
+		  "Name": "zh-Hant",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hant-HK",
-			"type": "String"
+		  "Name": "zh-Hant-HK",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hant-MO",
-			"type": "String"
+		  "Name": "zh-Hant-MO",
+		  "Type": "String"
 		},
 		{
-			"name": "zh-Hant-TW",
-			"type": "String"
+		  "Name": "zh-Hant-TW",
+		  "Type": "String"
 		},
 		{
-			"name": "zu",
-			"type": "String"
+		  "Name": "zu",
+		  "Type": "String"
 		},
 		{
-			"name": "zu-ZA",
-			"type": "String"
+		  "Name": "zu-ZA",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

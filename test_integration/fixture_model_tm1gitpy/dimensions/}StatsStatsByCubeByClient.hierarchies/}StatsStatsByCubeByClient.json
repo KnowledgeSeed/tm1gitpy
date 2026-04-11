@@ -3,12 +3,12 @@
 	"Name": "}StatsStatsByCubeByClient",
 	"Elements": [
 		{
-			"name": "Count",
-			"type": "Numeric"
+		  "Name": "Count",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Elapse Time (ms)",
-			"type": "Numeric"
+		  "Name": "Elapse Time (ms)",
+		  "Type": "Numeric"
 		}
 	],
 	"Edges": [],

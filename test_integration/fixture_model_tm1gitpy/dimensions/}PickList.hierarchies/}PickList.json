@@ -3,8 +3,8 @@
 	"Name": "}PickList",
 	"Elements": [
 		{
-			"name": "Value",
-			"type": "String"
+		  "Name": "Value",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

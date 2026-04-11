@@ -3,12 +3,12 @@
 	"Name": "Hier1",
 	"Elements": [
 		{
-			"name": "Hier1Elem1",
-			"type": "Numeric"
+		  "Name": "Hier1Elem1",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Hier1Elem2",
-			"type": "Numeric"
+		  "Name": "Hier1Elem2",
+		  "Type": "Numeric"
 		}
 	],
 	"Edges": [],
