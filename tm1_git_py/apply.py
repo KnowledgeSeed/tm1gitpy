@@ -2,7 +2,7 @@ import importlib
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Union, TypeVar
+from typing import Iterable, Optional, Union, TypeVar
 
 from TM1py import TM1Service
 from requests import Response
@@ -45,14 +45,13 @@ def apply(
         *,
         status_dir: Optional[Union[str, Path]] = None,
         execution_id: Optional[str] = None,
-        changeset_name: Optional[str] = None,
         fail_fast: bool = True
 ) -> tuple[bool, Union[list, None]]:
 
     changes = []
     logger.info(
-        "Starting apply changeset_name=%s fail_fast=%s changes=%d",
-        changeset_name or changeset.changeset_name,
+        "Starting apply changeset_id=%s fail_fast=%s changes=%d",
+        changeset.changeset_id,
         fail_fast,
         len(changeset.changes),
     )
@@ -62,6 +61,9 @@ def apply(
 
     execution_changes = _prepare_execution_changes(changeset.changes)
     logger.info("Prepared %d execution change(s)", len(execution_changes))
+    if not execution_changes:
+        logger.info("No executable changes after apply flag filtering.")
+        return True, None
     """    
     validate_errors = validate_changeset(
         tm1_service=tm1_service,
@@ -75,7 +77,7 @@ def apply(
     store: Optional[ChangeSetStatusStore] = None
     if status_dir is not None:
         store = ChangeSetStatusStore(status_dir=status_dir, execution_id=execution_id,
-                                     changeset_name=changeset_name)
+                                     changeset_id=changeset.changeset_id)
         store.start(total_operations=len(execution_changes))
         changeset.last_execution_id = store.execution_id
         logger.info("changeset execution_id=%s status_file=%s", store.execution_id, store.path)
@@ -234,12 +236,19 @@ def update_object(tm1_service: TM1Service, object_instance: T, object_type, uri:
         return update(tm1_service, object_instance)
 
 
-def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
-    logger.debug("Preparing execution changes from %d incoming change(s)", len(changes))
+def _prepare_execution_changes(changes: Iterable[Change]) -> list[Change]:
+    incoming = list(changes)
+    executable_changes = [change for change in incoming if getattr(change, "apply", True)]
+    skipped_count = len(incoming) - len(executable_changes)
+    logger.debug(
+        "Preparing execution changes from %d incoming change(s); skipped apply=false=%d",
+        len(incoming),
+        skipped_count,
+    )
     non_rule_changes: list[Change] = []
     rule_changes_by_cube: dict[str, Change] = {}
 
-    for change in changes:
+    for change in executable_changes:
         if change.object_type == ObjectType.RULE:
             cube_name = Rule.cube_name_from_uri(change.uri)
             if not cube_name:
@@ -278,6 +287,10 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
     execution_changes = non_rule_changes + synthesized_cube_changes
     temp = Changeset()
     temp.changes = execution_changes
-    temp.sort()
-    logger.debug("Prepared execution changes count=%d", len(temp.changes))
-    return temp.changes
+    sorted_execution_changes = list(temp.changes)
+    logger.debug(
+        "Prepared execution changes count=%d (from executable=%d)",
+        len(sorted_execution_changes),
+        len(executable_changes),
+    )
+    return sorted_execution_changes

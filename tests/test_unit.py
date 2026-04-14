@@ -1,6 +1,7 @@
 import json
 import os.path
 import shutil
+import sqlite3
 import types
 from unittest import mock
 from pathlib import Path
@@ -2044,6 +2045,157 @@ class TestChangeset:
         # subsets -> cubes (including synthesized rule updates) -> mdx_views -> processes -> chores
         assert updated_types == [Subset, Cube, MDXView, Process, Chore]
 
+    def test_apply_skips_changes_marked_apply_false(self, mocker):
+        changeset = Changeset(changeset_id="20260413000001")
+        process_a = make_process(name="ProcApply")
+        process_b = make_process(name="ProcSkip")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_a.uri(),
+                body=process_a,
+                apply=True,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_b.uri(),
+                body=process_b,
+                apply=False,
+            ),
+        ]
+
+        mock_create = mocker.patch("tm1_git_py.apply.create_object")
+        mocker.patch("tm1_git_py.apply.delete_object")
+        mocker.patch("tm1_git_py.apply.update_object")
+        mock_create.return_value = types.SimpleNamespace(url="ok", status_code=200, ok=True)
+
+        success, _ = apply(tm1_service=mocker.Mock(), changeset=changeset, fail_fast=False)
+
+        assert success
+        assert mock_create.call_count == 1
+        assert mock_create.call_args.kwargs["object_instance"].name == "ProcApply"
+
+    def test_changeset_persist_creates_sqlite_with_expected_name(self):
+        changeset = Changeset(changeset_id="20260413000002")
+        process_obj = make_process(name="ProcPersist")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+            )
+        ]
+
+        sqlite_path = changeset.sqlite_path
+        assert sqlite_path.name == "changeset-20260413000002.sqlite"
+        assert sqlite_path.exists()
+
+        conn = sqlite3.connect(sqlite_path)
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM changes").fetchone()
+            assert int(row[0]) == 1
+        finally:
+            conn.close()
+
+    def test_changeset_filter_uses_readme_rules_and_preserves_parent_exclude(self):
+        changeset = Changeset(changeset_id="20260413000003")
+        dim = make_dimension(name="Sales", hierarchy_names=["Main"])
+        subset_obj = make_subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([Sales].[Main])}",
+            dimension_name="Sales",
+            hierarchy_name="Main",
+        )
+        process_obj = make_process(name="KeepProcess")
+
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.DIMENSION,
+                uri=dim.uri(),
+                body=dim,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.SUBSET,
+                uri=subset_obj.uri("Sales", "Main"),
+                body=subset_obj,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+            ),
+        ]
+
+        toggled = changeset.filter(["Dimensions('Sales')"])
+        assert toggled == 2
+        changes = changeset.query(from_=0, to=10)
+        by_uri = {change.uri: change.apply for change in changes}
+        assert by_uri[dim.uri()] is False
+        assert by_uri[subset_obj.uri("Sales", "Main")] is False
+        assert by_uri[process_obj.uri()] is True
+
+    def test_changeset_query_supports_filter_and_paging(self):
+        changeset = Changeset(changeset_id="20260413000004")
+        processes = [make_process(name=f"Proc{i}") for i in range(6)]
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+            )
+            for process_obj in processes
+        ]
+
+        page = changeset.query(
+            rules=["Processes('Proc0')", "Processes('Proc4')"],
+            offset=1,
+            limit=2,
+        )
+        assert [change.body.name for change in page] == ["Proc2", "Proc3"]
+
+    def test_changeset_filter_sets_apply_from_effective_rules(self):
+        changeset = Changeset(changeset_id="20260413000006")
+        p0 = make_process(name="Proc0")
+        p1 = make_process(name="Proc1")
+        changeset.changes = [
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p0.uri(), body=p0, apply=True),
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p1.uri(), body=p1, apply=False),
+        ]
+
+        updated = changeset.filter(["Processes('Proc1')"])
+
+        assert updated == 0
+        queried = changeset.query(from_=0, to=10)
+        by_name = {change.body.name: change.apply for change in queried}
+        assert by_name["Proc0"] is True
+        assert by_name["Proc1"] is False
+
+    def test_changeset_can_be_loaded_by_changeset_id(self):
+        changeset = Changeset(changeset_id="20260413000007")
+        process_obj = make_process(name="ProcLoad")
+        changeset.changes.append(
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+            )
+        )
+        loaded = Changeset.from_changeset_id("20260413000007")
+        assert len(loaded.changes) == 1
+        assert loaded.changes[0].body.name == "ProcLoad"
+
+    def test_changeset_from_changeset_id_raises_when_missing(self):
+        with pytest.raises(FileNotFoundError):
+            Changeset.from_changeset_id("20990101000000")
+
 
     def test_models_expose_canonical_urls(self):
         hierarchy_obj = make_hierarchy(dimension_name="TestDim", hierarchy_name="TestHier")
@@ -2101,7 +2253,7 @@ class TestChangeset:
 
 
     def test_export_persists_expected_payload(self, tmp_path):
-        changes = Changeset(changeset_name="mock_changes")
+        changes = Changeset(changeset_id="20260413000000")
 
         created_subset = make_subset(
             name="Subset_Create",
@@ -2147,7 +2299,7 @@ class TestChangeset:
         exported_payload = yaml.safe_load(export_path.read_text(encoding="utf-8"))
 
         expected_payload = {
-            "changeset_name": "mock_changes",
+            "changeset_id": "20260413000000",
             "summary": {
                 "add": 1,
                 "remove": 1,
@@ -2158,6 +2310,7 @@ class TestChangeset:
                     "change_type": "remove",
                     "object_type": "MDXView",
                     "uri": tm1_uri_from_path("cubes/Cube_One.views/View_To_Delete.json"),
+                    "apply": True,
                     "body": {
                         "name": "View_To_Delete",
                     },
@@ -2166,6 +2319,7 @@ class TestChangeset:
                     "change_type": "add",
                     "object_type": "Subset",
                     "uri": tm1_uri_from_path("dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json"),
+                    "apply": True,
                     "body": {
                         "name": "Subset_Create",
                         "expression": "{[Dim_New].[Hier_New].Members}",
@@ -2175,6 +2329,7 @@ class TestChangeset:
                     "change_type": "modify",
                     "object_type": "Dimension",
                     "uri": tm1_uri_from_path("dimensions/Dim_Update.json"),
+                    "apply": True,
                     "body": {
                         "name": "Dim_Update",
                         "hierarchies": [
@@ -2214,8 +2369,50 @@ class TestChangeset:
             assert expected.uri == actual.uri
             assert expected.body.__class__ == actual.body.__class__
 
+    def test_changeset_class_import_alias_json_stream(self, tmp_path):
+        changeset = Changeset(changeset_id="20260413000008")
+        process_obj = make_process(name="ProcAlias")
+        changeset.changes.append(
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+                apply=False,
+            )
+        )
+        export_path = tmp_path / "alias_import.json"
+        changeset.export(export_path)
+
+        imported = import_changeset(export_path)
+        assert imported.changeset_id == "20260413000008"
+        assert len(imported.changes) == 1
+        assert imported.changes[0].apply is False
+
+    def test_export_import_roundtrip_preserves_changeset_id_and_apply(self, tmp_path):
+        changeset = Changeset(changeset_id="20260413000005")
+        process_obj = make_process(name="ProcRoundtrip")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+                apply=False,
+            )
+        ]
+
+        export_path = tmp_path / "roundtrip_changeset.yaml"
+        changeset.export(export_path)
+
+        imported = import_changeset(str(export_path))
+
+        assert imported.changeset_id == "20260413000005"
+        assert len(imported.changes) == 1
+        assert imported.changes[0].apply is False
+
     def test_export_changeset_preserves_unicode_characters(self, tmp_path):
-        changes = Changeset(changeset_name="unicode_changes")
+        changes = Changeset()
         subset = make_subset(
             name="Subset_Día",
             expression="{[Dim].[Hier].[café]}",

@@ -1070,7 +1070,7 @@ class TestChangesetApply:
                 element=TM1py.Element(name="b", element_type="Numeric"),
             )
 
-        changeset = Changeset(changeset_name="mixed_changeset_ops")
+        changeset = Changeset()
         changeset.changes = [
             Change(
                 change_type=ChangeType.REMOVE,
