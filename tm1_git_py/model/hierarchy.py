@@ -1,64 +1,367 @@
 import json
+import io
 import logging
+import os
 import re
-from typing import List, Any, Dict, Optional, Tuple
+from typing import List, Any, Dict, Optional, Tuple, MutableSequence, Iterator
 import TM1py
 from TM1py import TM1Service
 from TM1py.Utils import format_url
 from requests import Response
 
+# Keep CRUD helpers imported in module namespace for compatibility with existing patches/tests.
 from .element import Element, create_element, delete_element, update_element
 from .edge import Edge
 from .subset import Subset
+from .model_store import ModelStore
+from .store_backed_sequence import StoreBackedSequence
+import orjson
 
-# {
-# 	"@type": "Hierarchy",
-# 	"Name": "Capex Balance Sheet Assignment Measure",
-# 	"Elements": [
-# 		{
-# 			"Name": "Assignment",
-# 			"Type": "Numeric"
-# 		},
-# 		{
-# 			"Name": "Comment",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "CapexName",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "BalanceSheetName",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "Value",
-# 			"Type": "Numeric"
-# 		}
-# 	],
-# 	"Subsets@Code.links": []
-# }
+
+logger = logging.getLogger(__name__)
+
+
+def _loads_json(payload_json: str) -> dict:
+    return dict(orjson.loads(payload_json))
+
+
+def _pretty_json(obj: dict) -> str:
+    return orjson.dumps(obj, option=orjson.OPT_INDENT_2).decode("utf-8")
+
+
+def _write_json_object_block(
+    fh,
+    obj: dict,
+    *,
+    item_line_prefix: str,
+) -> None:
+    """Write one JSON object with inner pretty-printing and outer line prefix (for array items)."""
+    pretty = _pretty_json(obj)
+    fh.write(item_line_prefix)
+    fh.write(pretty.replace("\n", "\n" + item_line_prefix))
+
+
+class _HierarchyStagedWriter:
+    """SQLite-backed hierarchy writer with streaming finalize."""
+    JSON_DUMP_PROGRESS_EVERY = 100_000
+
+    def __init__(
+        self,
+        model_output_dir: str,
+        dimension_name: str,
+        hierarchy_name: str,
+        hierarchy_etag: Optional[str] = None,
+        elements_filter_rules: Optional[list[str]] = None,
+        edges_filter_rules: Optional[list[str]] = None,
+        subsets_filter_rules: Optional[list[str]] = None,
+    ):
+        final_parent_dir = os.path.join(model_output_dir, "dimensions", f"{dimension_name}.hierarchies")
+        os.makedirs(final_parent_dir, exist_ok=True)
+        self.final_path = os.path.join(final_parent_dir, f"{hierarchy_name}.json")
+        self.inprogress_path = os.path.join(final_parent_dir, f".{hierarchy_name}.json.inprogress")
+        self.hierarchy_name = hierarchy_name
+        self.hierarchy_etag = hierarchy_etag
+        self.elements_filter_rules = list(elements_filter_rules or [])
+        self.edges_filter_rules = list(edges_filter_rules or [])
+        self.subsets_filter_rules = list(subsets_filter_rules or [])
+        if os.path.exists(self.inprogress_path):
+            os.remove(self.inprogress_path)
+        self.elements_ref: Optional[StoreBackedSequence[Element]] = None
+        self.edges_ref: Optional[StoreBackedSequence[Edge]] = None
+        self.subsets_ref: Optional[StoreBackedSequence[Subset]] = None
+        self._finalized = False
+
+    def bind_collections(
+        self,
+        *,
+        elements: StoreBackedSequence[Element],
+        edges: StoreBackedSequence[Edge],
+        subsets: StoreBackedSequence[Subset],
+    ) -> None:
+        self.elements_ref = elements
+        self.edges_ref = edges
+        self.subsets_ref = subsets
+
+    def _write_payload_array_from_json_strings(
+        self,
+        fh,
+        key: str,
+        payload_json_iter: Iterator[str],
+    ) -> int:
+        fh.write(f'\t"{key}": [')
+        first = True
+        emitted = 0
+        for payload_json in payload_json_iter:
+            if first:
+                fh.write("\n")
+                first = False
+            else:
+                fh.write(",\n")
+            emitted += 1
+            payload_obj = _loads_json(payload_json)
+            _write_json_object_block(fh, payload_obj, item_line_prefix="\t\t")
+        if first:
+            fh.write("]")
+        else:
+            fh.write("\n\t]")
+        return emitted
+
+    def _build_subset_links(self) -> list[str]:
+        links: list[str] = []
+        if self.subsets_ref is None:
+            return links
+        for payload_json in self.subsets_ref.iter_payload_json_strings(ordered_by_identity=True):
+            payload = _loads_json(payload_json)
+            subset_name = payload.get("name") or payload.get("Name")
+            if not subset_name:
+                continue
+            links.append(format_url("{}.subsets/{}.json", self.hierarchy_name, subset_name))
+        return links
+
+    def _sort_staged_jsonls(self) -> None:
+        if self.elements_ref is None or self.edges_ref is None or self.subsets_ref is None:
+            return
+        for collection_name, collection_ref in (
+            ("Elements", self.elements_ref),
+            ("Edges", self.edges_ref),
+            ("Subsets", self.subsets_ref),
+        ):
+            count = len(collection_ref)
+            logger.info(
+                "Finalization order check hierarchy='%s' collection=%s count=%d",
+                self.hierarchy_name,
+                collection_name,
+                count,
+            )
+            logger.info(
+                "Finalization order done hierarchy='%s' collection=%s count=%d",
+                self.hierarchy_name,
+                collection_name,
+                len(collection_ref),
+            )
+
+    @staticmethod
+    def _sorted_element_payload_json_strings(payload_json_iter: Iterator[str]) -> Iterator[str]:
+        payloads = [_loads_json(payload_json) for payload_json in payload_json_iter]
+        payloads.sort(key=lambda payload: ((payload.get("Name") or payload.get("name") or ""), (payload.get("Type") or payload.get("type") or "")))
+        for payload in payloads:
+            yield json.dumps(payload, ensure_ascii=False)
+
+    @staticmethod
+    def _apply_group_metadata(
+        sequence: StoreBackedSequence[Any],
+        *,
+        final_mtime_ns: int,
+        filter_rules: list[str],
+        etag: Optional[str],
+    ) -> None:
+        sequence.set_source_json_mtime_ns(final_mtime_ns)
+        sequence.set_filter_rules(filter_rules)
+        sequence.recalculate_content_signature_parallel()
+        if etag is not None:
+            sequence.set_etag(etag)
+
+    def finalize(self) -> str:
+        if self._finalized:
+            logger.debug("Skipping finalize for hierarchy='%s' (already finalized)", self.hierarchy_name)
+            return self.final_path
+        logger.info(
+            "Starting hierarchy finalization hierarchy='%s' target='%s'",
+            self.hierarchy_name,
+            self.final_path,
+        )
+        self._sort_staged_jsonls()
+        with open(self.inprogress_path, "w", encoding="utf-8") as fh:
+            fh.write("{\n")
+            fh.write('\t"@type": "Hierarchy",\n')
+            fh.write(f'\t"Name": {json.dumps(self.hierarchy_name, ensure_ascii=False)},\n')
+            self._write_payload_array_from_json_strings(
+                fh,
+                "Elements",
+                self._sorted_element_payload_json_strings(
+                    self.elements_ref.iter_payload_json_strings(
+                        ordered_by_identity=True,
+                        progress_label=f"{self.hierarchy_name}:Elements",
+                        progress_every=self.JSON_DUMP_PROGRESS_EVERY,
+                    )
+                ) if self.elements_ref is not None else iter(()),
+            )
+            fh.write(",\n")
+            self._write_payload_array_from_json_strings(
+                fh,
+                "Edges",
+                self.edges_ref.iter_payload_json_strings(
+                    ordered_by_identity=True,
+                    progress_label=f"{self.hierarchy_name}:Edges",
+                    progress_every=self.JSON_DUMP_PROGRESS_EVERY,
+                ) if self.edges_ref is not None else iter(()),
+            )
+            fh.write(",\n")
+            fh.write('\t"Subsets@Code.links": ')
+            subset_links = self._build_subset_links()
+            fh.write(json.dumps(subset_links, ensure_ascii=False))
+            fh.write("\n}")
+        os.replace(self.inprogress_path, self.final_path)
+        final_mtime_ns = int(os.stat(self.final_path).st_mtime_ns)
+        if self.elements_ref is not None:
+            self._apply_group_metadata(
+                self.elements_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.elements_filter_rules,
+                etag=self.hierarchy_etag,
+            )
+        if self.edges_ref is not None:
+            self._apply_group_metadata(
+                self.edges_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.edges_filter_rules,
+                etag=self.hierarchy_etag,
+            )
+        if self.subsets_ref is not None:
+            self._apply_group_metadata(
+                self.subsets_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.subsets_filter_rules,
+                etag=self.hierarchy_etag,
+            )
+        logger.info(
+            "Completed hierarchy finalization hierarchy='%s' target='%s'",
+            self.hierarchy_name,
+            self.final_path,
+        )
+        self._finalized = True
+        return self.final_path
 
 
 class Hierarchy:
-    def __init__(self, name, elements: List[Element], edges: List[Edge], subsets: List[Subset], source_path: str):
+    def __init__(
+        self,
+        name,
+        elements: Optional[MutableSequence[Element]] = None,
+        edges: Optional[MutableSequence[Edge]] = None,
+        subsets: Optional[MutableSequence[Subset]] = None,
+        *,
+        dimension_name: Optional[str] = None,
+        internal_model_dir: Optional[str] = None,
+        internal_model_id: Optional[int] = None,
+        hierarchy_etag: Optional[str] = None,
+        reuse_existing_store: bool = False,
+        elements_filter_rules: Optional[list[str]] = None,
+        edges_filter_rules: Optional[list[str]] = None,
+        subsets_filter_rules: Optional[list[str]] = None,
+    ):
+        self._staged_writer: Optional[_HierarchyStagedWriter] = None
+        if internal_model_dir:
+            if not dimension_name:
+                raise ValueError("Hierarchy with internal_model_dir requires dimension_name.")
+            if elements is not None or edges is not None or subsets is not None:
+                raise ValueError(
+                    "Hierarchy with internal_model_dir should not provide explicit elements/edges/subsets."
+                )
+            self._staged_writer = _HierarchyStagedWriter(
+                model_output_dir=internal_model_dir,
+                dimension_name=dimension_name,
+                hierarchy_name=name,
+                hierarchy_etag=hierarchy_etag,
+                elements_filter_rules=elements_filter_rules,
+                edges_filter_rules=edges_filter_rules,
+                subsets_filter_rules=subsets_filter_rules,
+            )
+            store = ModelStore.for_main_dir(internal_model_dir)
+            resolved_model_id = internal_model_id
+            if resolved_model_id is None:
+                resolved_model_id = store.resolve_model_for_deserialize(internal_model_dir)
+            elements = StoreBackedSequence.for_elements_sink(
+                store=store,
+                model_id=resolved_model_id,
+                dimension_name=dimension_name,
+                hierarchy_name=name,
+            )
+            edges = StoreBackedSequence.for_edges_sink(
+                store=store,
+                model_id=resolved_model_id,
+                dimension_name=dimension_name,
+                hierarchy_name=name,
+            )
+            subsets = StoreBackedSequence.for_subsets_sink(
+                store=store,
+                model_id=resolved_model_id,
+                dimension_name=dimension_name,
+                hierarchy_name=name,
+            )
+            if not reuse_existing_store:
+                elements.replace_with_payloads(())
+                edges.replace_with_payloads(())
+                subsets.replace_with_payloads(())
+            self._staged_writer.bind_collections(elements=elements, edges=edges, subsets=subsets)
+
         self.type = 'Hierarchy'
         self.name = name
-        self.elements = elements
-        self.edges = edges
-        self.subsets = subsets
-        self.source_path = source_path
+        self.elements = elements if elements is not None else []
+        self.edges = edges if edges is not None else []
+        self.subsets = subsets if subsets is not None else []
 
     def as_json(self):
-        elements = [obj.to_dict() for obj in self.elements]
-        edges = [obj.to_dict() for obj in self.edges]
-        return json.dumps({
-            "@type": self.type,
-            "Name": self.name,
-            "Elements": elements,
-            "Edges": edges,
-            "Subsets@Code.links": [format_url("{}.subsets/{}.json", self.name, s.name) for s in self.subsets]
-        }, indent='\t')
+        buf = io.StringIO()
+        self.write_json(buf)
+        return buf.getvalue()
+
+    def finalize(self) -> Optional[str]:
+        if not self._staged_writer:
+            return None
+        return self._staged_writer.finalize()
+
+    def finalize_staged_json(self) -> Optional[str]:
+        return self.finalize()
+
+    def _write_array(self, fh, key: str, collection: MutableSequence[Any], *, indent: str = "\t") -> None:
+        item_prefix = indent * 2
+        fh.write(f'{indent}"{key}": [')
+        if key == "Elements":
+            items = list(collection)
+            items.sort(key=lambda item: ((getattr(item, "name", None) or ""), (getattr(item, "type", None) or "")))
+        else:
+            items = list(collection)
+        first = True
+        for item in items:
+            if first:
+                fh.write("\n")
+                first = False
+            else:
+                fh.write(",\n")
+            _write_json_object_block(fh, item.to_dict(), item_line_prefix=item_prefix)
+        if not first:
+            fh.write(f"\n{indent}]")
+        else:
+            fh.write("]")
+
+    def write_json(self, fh) -> None:
+        if self._staged_writer:
+            final_path = self.finalize()
+            target_path = getattr(fh, "name", None)
+            if isinstance(target_path, str):
+                try:
+                    if os.path.abspath(target_path) == os.path.abspath(final_path):
+                        return
+                except Exception:
+                    pass
+            with open(final_path, "r", encoding="utf-8") as src:
+                while True:
+                    chunk = src.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+            return
+        fh.write("{\n")
+        fh.write(f'\t"@type": {json.dumps(self.type, ensure_ascii=False)},\n')
+        fh.write(f'\t"Name": {json.dumps(self.name, ensure_ascii=False)},\n')
+        self._write_array(fh, "Elements", self.elements)
+        fh.write(",\n")
+        self._write_array(fh, "Edges", self.edges)
+        fh.write(",\n")
+        subset_links = [format_url("{}.subsets/{}.json", self.name, s.name) for s in self.subsets]
+        fh.write(f'\t"Subsets@Code.links": {json.dumps(subset_links, ensure_ascii=False)}\n')
+        fh.write("}")
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Hierarchy):
@@ -83,7 +386,7 @@ class Hierarchy:
             self.name,
             frozenset(self.elements),
             frozenset(self.edges),
-            frozenset(self.subsets)
+            frozenset(self.subsets),
         ))
     
     def __repr__(self):
@@ -94,78 +397,64 @@ class Hierarchy:
             'name': self.name,
             'elements': [e.to_dict() for e in self.elements],
             'edges': [e.to_dict() for e in self.edges],
-            'subsets': [s.to_dict() for s in self.subsets]
+            'subsets': [s.to_dict() for s in self.subsets],
         }
-
-    def asLink(self, dimension_name):
-        # /dimensions/Dimension_A.hierarchies/Dimension_A.json
-        return '/dimensions/' + dimension_name + '.hierarchies/' + self.name + '.json'
 
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None,
-            dimension_name: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Hierarchy":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path
-        if resolved_path is None and dimension_name and name:
-            resolved_path = f"dimensions/{dimension_name}.hierarchies/{name}.json"
-        if resolved_path is None:
-            raise ValueError("Hierarchy.from_dict requires a source_path or dimension context.")
-
+     
         element_payloads = data.get("elements") or data.get("Elements") or []
         edge_payloads = data.get("edges") or data.get("Edges") or []
         subset_payloads = data.get("subsets") or data.get("Subsets") or []
-        subset_base_path = resolved_path.rsplit(".json", 1)[0] + ".subsets" if resolved_path else None
 
         elements: List[Element] = []
         for payload in element_payloads:
-            element_name = payload.get("name") or payload.get("Name")
-            element_path = f"{resolved_path}/{element_name}" if element_name else None
-            elements.append(Element.from_dict(payload, source_path=element_path))
+            elements.append(Element.from_dict(payload))
 
         edges: List[Edge] = []
         for payload in edge_payloads:
-            parent = payload.get("parentName") or payload.get("parent") or payload.get("ParentName")
-            component = payload.get("componentName") or payload.get("name") or payload.get("ComponentName")
-            edge_path = f"{resolved_path}/{parent}:{component}" if parent and component else None
-            edges.append(Edge.from_dict(payload, source_path=edge_path))
+            edges.append(Edge.from_dict(payload))
+
         subsets: List[Subset] = []
         for payload in subset_payloads:
-            subset_name = payload.get("name") or payload.get("Name")
-            subset_path = None
-            if subset_base_path and subset_name:
-                subset_path = f"{subset_base_path}/{subset_name}.json"
-            subsets.append(
-                Subset.from_dict(payload, source_path=subset_path, dimension_name=dimension_name, hierarchy_name=name)
-            )
+            subsets.append(Subset.from_dict(payload))
 
-        return cls(name=name, elements=elements, edges=edges, subsets=subsets, source_path=resolved_path)
+        return cls(
+            name=name,
+            elements=elements,
+            edges=edges,
+            subsets=subsets,
+        )
 
     @staticmethod
-    def as_link(dimension_name_base, name):
-        # /dimensions/Dimension_A.json
-        return '/dimensions/' + dimension_name_base + '.hierarchies/' + name
+    def uri_for(dimension_name: str, hierarchy_name: str) -> str:
+        return f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+
+    def uri(self, dimension_name: str) -> Optional[str]:
+        if not dimension_name or not self.name:
+            return None
+        return self.uri_for(dimension_name, self.name)
 
 
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-logger = logging.getLogger(__name__)
-
-def _hierarchy_context_from_path(source_path: str) -> Tuple[str, str]:
-    dimension_name = re.search(r'/([\w}]*)(.hierarchies)', source_path).group(1)
-    hierarchy_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+def _hierarchy_context_from_uri(uri: str) -> Tuple[str, str]:
+    match = re.search(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)$", uri or "")
+    if not match:
+        raise ValueError(f"Invalid hierarchy uri format: '{uri}'")
+    dimension_name, hierarchy_name = match.groups()
     return dimension_name, hierarchy_name
 
 
-def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     hierarchy_object = TM1py.Hierarchy(name=hierarchy.name, dimension_name=dimension_name)
     response = tm1_service.hierarchies.create(hierarchy_object)
     logger.info(f"Created Hierarchy: {hierarchy.name}.")
@@ -173,8 +462,8 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     return response
 
 
-def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     logger.info("Skipping direct Hierarchy update for '%s'; updates are handled by child changes.", hierarchy.name)
     return _build_noop_update_response(
         resource_url=format_url("/api/v1/Dimensions('{}')/Hierarchies('{}')", dimension_name, hierarchy.name),
@@ -182,8 +471,8 @@ def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     )
 
 
-def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     logger.info(f"Deleting Hierarchy: {hierarchy.name} of Dimension: {dimension_name}.")
     return tm1_service.hierarchies.delete(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
 

@@ -1,0 +1,9 @@
+-r requirements.txt
+pytest>=7.0
+pytest-mock
+testcontainers>=4.0.0
+orjson
+nuitka
+ijson
+cffi
+tqdm

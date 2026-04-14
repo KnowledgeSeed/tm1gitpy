@@ -10,9 +10,22 @@ if TYPE_CHECKING:
     from tm1_git_py.changeset import Changeset
     from tm1_git_py.comparator import Comparator
     from tm1_git_py.deserializer import deserialize_model
+    from tm1_git_py.tm1py_ext.element_service_ext import (
+        PaginatedElementsResult,
+        get_elements,
+    )
+    from tm1_git_py.tm1py_ext.subset_service_ext import (
+        PaginatedSubsetsResult,
+        get_subsets,
+    )
     from tm1_git_py.exporter import export
     from tm1_git_py.filter import filter as apply_filter
-    from tm1_git_py.filter import filter_changeset, should_exclude_path
+    from tm1_git_py.filter import FilterRules, filter_changeset, should_exclude_path
+    from tm1_git_py.hot_promote_selection import (
+        matches_selection,
+        update_changeset_apply,
+        validate_selection_category,
+    )
     from tm1_git_py.serializer import serialize_model
 
 __all__ = [
@@ -20,20 +33,36 @@ __all__ = [
     "Comparator",
     "deserialize_model",
     "filter",
+    "get_elements",
+    "PaginatedElementsResult",
+    "get_subsets",
+    "PaginatedSubsetsResult",
     "apply_filter",
+    "FilterRules",
     "filter_changeset",
     "should_exclude_path",
+    "update_changeset_apply",
+    "matches_selection",
+    "validate_selection_category",
     "serialize_model",
     "export",
 ]
 
 _LAZY_IMPORTS = {
     "Changeset": ("tm1_git_py.changeset", "Changeset"),
+    "get_elements": ("tm1_git_py.tm1py_ext.element_service_ext", "get_elements"),
+    "PaginatedElementsResult": ("tm1_git_py.tm1py_ext.element_service_ext", "PaginatedElementsResult"),
+    "get_subsets": ("tm1_git_py.tm1py_ext.subset_service_ext", "get_subsets"),
+    "PaginatedSubsetsResult": ("tm1_git_py.tm1py_ext.subset_service_ext", "PaginatedSubsetsResult"),
     "Comparator": ("tm1_git_py.comparator", "Comparator"),
     "deserialize_model": ("tm1_git_py.deserializer", "deserialize_model"),
     "apply_filter": ("tm1_git_py.filter", "filter"),
+    "FilterRules": ("tm1_git_py.filter", "FilterRules"),
     "filter_changeset": ("tm1_git_py.filter", "filter_changeset"),
     "should_exclude_path": ("tm1_git_py.filter", "should_exclude_path"),
+    "update_changeset_apply": ("tm1_git_py.hot_promote_selection", "update_changeset_apply"),
+    "matches_selection": ("tm1_git_py.hot_promote_selection", "matches_selection"),
+    "validate_selection_category": ("tm1_git_py.hot_promote_selection", "validate_selection_category"),
     "serialize_model": ("tm1_git_py.serializer", "serialize_model"),
     "export": ("tm1_git_py.exporter", "export"),
 }

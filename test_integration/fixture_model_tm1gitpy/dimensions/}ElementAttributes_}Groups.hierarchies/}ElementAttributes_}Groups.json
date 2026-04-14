@@ -3,8 +3,8 @@
 	"Name": "}ElementAttributes_}Groups",
 	"Elements": [
 		{
-			"name": "}TM1_DefaultDisplayValue",
-			"type": "String"
+		  "Name": "}TM1_DefaultDisplayValue",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

@@ -10,13 +10,10 @@ class Rule:
             comment: str = "",
             *,
             name: Optional[str] = None,
-            source_path: Optional[str] = None,
-            cube_name: Optional[str] = None
     ):
         self.area = area
         self.full_statement = full_statement
         self.comment = comment
-        self.source_path = source_path or (self.as_link(cube_name) if cube_name else None)
         self.name = name or "default"
         self._normalized_statement = "".join(full_statement.split())
         self._normalized_comment = "".join(comment.split())
@@ -43,10 +40,7 @@ class Rule:
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None,
-            cube_name: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Rule":
         name = data.get("name") or data.get("Name")
         area = data.get("area") or data.get("Area") or ""
@@ -56,13 +50,11 @@ class Rule:
         comment = data.get("comment") or data.get("Comment") or ""
         if not area:
             area = f"[{name}]"
-        resolved_path = source_path or (cls.as_link(cube_name) if cube_name else None)
         return cls(
             area=area,
             full_statement=statement,
             comment=comment,
             name=name,
-            source_path=resolved_path
         )
 
     @staticmethod
@@ -77,8 +69,15 @@ class Rule:
         return f"subrule_{slug or 'default'}"
 
     @staticmethod
-    def as_link(cube_base_name: Optional[str]) -> Optional[str]:
-        # cubes/Cube_A.rules
-        if not cube_base_name:
-            return None
-        return f"cubes/{cube_base_name}.rules"
+    def uri_for(cube_name: str) -> str:
+        return f"Cubes('{cube_name}')/Rules('default')"
+
+    def uri(self, cube_name: str) -> str:
+        return self.uri_for(cube_name)
+
+    @staticmethod
+    def cube_name_from_uri(uri: str) -> str:
+        match = re.match(r"^Cubes\('((?:''|[^'])+)'\)/Rules\('(?:''|[^'])+'\)$", uri or "")
+        if not match:
+            return ""
+        return match.group(1).replace("''", "'")

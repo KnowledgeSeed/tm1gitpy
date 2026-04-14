@@ -2,7 +2,7 @@ import importlib
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Union, TypeVar
+from typing import Iterable, Optional, Union, TypeVar
 
 from TM1py import TM1Service
 from requests import Response
@@ -39,21 +39,19 @@ def _normalize_apply_response(
     normalized.encoding = "utf-8"
     return normalized
 
-
 def apply(
         changeset: Changeset,
         tm1_service: TM1Service,
         *,
         status_dir: Optional[Union[str, Path]] = None,
         execution_id: Optional[str] = None,
-        changeset_name: Optional[str] = None,
         fail_fast: bool = True
 ) -> tuple[bool, Union[list, None]]:
 
     changes = []
     logger.info(
-        "Starting apply changeset_name=%s fail_fast=%s changes=%d",
-        changeset_name or changeset.changeset_name,
+        "Starting apply changeset_id=%s fail_fast=%s changes=%d",
+        changeset.changeset_id,
         fail_fast,
         len(changeset.changes),
     )
@@ -63,6 +61,9 @@ def apply(
 
     execution_changes = _prepare_execution_changes(changeset.changes)
     logger.info("Prepared %d execution change(s)", len(execution_changes))
+    if not execution_changes:
+        logger.info("No executable changes after apply flag filtering.")
+        return True, None
     """    
     validate_errors = validate_changeset(
         tm1_service=tm1_service,
@@ -76,7 +77,7 @@ def apply(
     store: Optional[ChangeSetStatusStore] = None
     if status_dir is not None:
         store = ChangeSetStatusStore(status_dir=status_dir, execution_id=execution_id,
-                                     changeset_name=changeset_name)
+                                     changeset_id=changeset.changeset_id)
         store.start(total_operations=len(execution_changes))
         changeset.last_execution_id = store.execution_id
         logger.info("changeset execution_id=%s status_file=%s", store.execution_id, store.path)
@@ -88,19 +89,34 @@ def apply(
         action = ChangeType.from_raw(change.change_type)
         action_name = action.value
         obj_type = change.object_type.value
-        obj_path = change.source_path
+        obj_path = change.uri
         obj_name = getattr(obj, "name", "")
 
         if store is not None:
-            store.begin_operation(i, action_name, obj_type, obj_name, obj_path)
+            store.begin_operation(i, action_name, obj_type, obj_name, change.uri)
 
         try:
             if action == ChangeType.ADD:
-                resp = create_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
+                resp = create_object(
+                    tm1_service=tm1_service,
+                    object_instance=obj,
+                    object_type=obj_type,
+                    uri=change.uri,
+                )
             elif action == ChangeType.MODIFY:
-                resp = update_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
+                resp = update_object(
+                    tm1_service=tm1_service,
+                    object_instance=obj,
+                    object_type=obj_type,
+                    uri=change.uri,
+                )
             elif action == ChangeType.REMOVE:
-                resp = delete_object(tm1_service=tm1_service, object_instance=obj, object_type=obj_type)
+                resp = delete_object(
+                    tm1_service=tm1_service,
+                    object_instance=obj,
+                    object_type=obj_type,
+                    uri=change.uri,
+                )
             else:
                 raise ValueError(f"Unknown action: {action_name}")
 
@@ -193,40 +209,50 @@ def _resolve_handler(module, action: str, object_type: str):
     )
 
 
-def create_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
+def create_object(tm1_service: TM1Service, object_instance: T, object_type, uri: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     create = _resolve_handler(module, "create", object_type)
-    return create(tm1_service, object_instance)
+    try:
+        return create(tm1_service, object_instance, uri=uri)
+    except TypeError:
+        return create(tm1_service, object_instance)
 
 
-def delete_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
+def delete_object(tm1_service: TM1Service, object_instance: T, object_type, uri: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     delete = _resolve_handler(module, "delete", object_type)
-    return delete(tm1_service, object_instance)
+    try:
+        return delete(tm1_service, object_instance, uri=uri)
+    except TypeError:
+        return delete(tm1_service, object_instance)
 
 
-def update_object(tm1_service: TM1Service, object_instance: T, object_type) -> Response:
+def update_object(tm1_service: TM1Service, object_instance: T, object_type, uri: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     update = _resolve_handler(module, "update", object_type)
-    return update(tm1_service, object_instance)
+    try:
+        return update(tm1_service, object_instance, uri=uri)
+    except TypeError:
+        return update(tm1_service, object_instance)
 
 
-def _cube_name_from_rule_source_path(source_path: str) -> str:
-    normalized = (source_path or "").replace("\\", "/").lstrip("/")
-    match = re.match(r"cubes/(.+)\.rules$", normalized)
-    if not match:
-        raise ValueError(f"Invalid rule source_path: '{source_path}'")
-    return match.group(1)
-
-
-def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
-    logger.debug("Preparing execution changes from %d incoming change(s)", len(changes))
+def _prepare_execution_changes(changes: Iterable[Change]) -> list[Change]:
+    incoming = list(changes)
+    executable_changes = [change for change in incoming if getattr(change, "apply", True)]
+    skipped_count = len(incoming) - len(executable_changes)
+    logger.debug(
+        "Preparing execution changes from %d incoming change(s); skipped apply=false=%d",
+        len(incoming),
+        skipped_count,
+    )
     non_rule_changes: list[Change] = []
     rule_changes_by_cube: dict[str, Change] = {}
 
-    for change in changes:
+    for change in executable_changes:
         if change.object_type == ObjectType.RULE:
-            cube_name = _cube_name_from_rule_source_path(change.source_path)
+            cube_name = Rule.cube_name_from_uri(change.uri)
+            if not cube_name:
+                raise ValueError(f"Invalid rule change uri: '{change.uri}'")
             # Keep the last rule change for a cube; compare path now emits one unified entry.
             rule_changes_by_cube[cube_name] = change
         else:
@@ -244,13 +270,12 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CUBE,
-                source_path=f"cubes/{cube_name}.json",
+                uri=Cube.uri_for(cube_name),
                 body=Cube(
                     name=cube_name,
                     dimensions=[],
                     rules=cube_rules,
                     views=[],
-                    source_path=f"cubes/{cube_name}.json",
                 ),
             )
         )
@@ -262,6 +287,10 @@ def _prepare_execution_changes(changes: list[Change]) -> list[Change]:
     execution_changes = non_rule_changes + synthesized_cube_changes
     temp = Changeset()
     temp.changes = execution_changes
-    temp.sort()
-    logger.debug("Prepared execution changes count=%d", len(temp.changes))
-    return temp.changes
+    sorted_execution_changes = list(temp.changes)
+    logger.debug(
+        "Prepared execution changes count=%d (from executable=%d)",
+        len(sorted_execution_changes),
+        len(executable_changes),
+    )
+    return sorted_execution_changes

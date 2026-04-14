@@ -1,4 +1,5 @@
 import tm1_git_py
+import re
 from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.dimension import Dimension
@@ -120,13 +121,11 @@ def _base_mock_dimension():
         elements=[element],
         edges=[],
         subsets=[],
-        source_path="dimensions/MockDim.hierarchies/MockHier.json"
     )
     return Dimension(
         name="MockDim",
         hierarchies=[hierarchy],
         defaultHierarchy=hierarchy,
-        source_path="dimensions/MockDim.json"
     )
 
 
@@ -136,7 +135,6 @@ def build_mock_model(include_chore: bool = False, include_rules: bool = False, a
     view = MDXView(
         name="Default",
         mdx="SELECT {TM1SUBSETALL([MockDim].[MockHier])} ON 0 FROM [MockCube]",
-        source_path="cubes/MockCube.views/Default.json"
     )
     views = [view]
     if additional_views:
@@ -144,7 +142,6 @@ def build_mock_model(include_chore: bool = False, include_rules: bool = False, a
             MDXView(
                 name="AdditionalView",
                 mdx="SELECT {TM1FILTERBYLEVEL({TM1SUBSETALL([MockDim].[MockHier])}, 0)} ON 0 FROM [MockCube]",
-                source_path="cubes/MockCube.views/AdditionalView.json"
             )
         )
     cube = Cube(
@@ -152,7 +149,6 @@ def build_mock_model(include_chore: bool = False, include_rules: bool = False, a
         dimensions=[dimension],
         rules=[Rule(area="[Default]", full_statement="[] = N:1;", comment="")] if include_rules else [],
         views=views,
-        source_path="cubes/MockCube.json"
     )
 
     ti_stub = TI("# prolog", "# metadata", "# data", "# epilog")
@@ -164,7 +160,6 @@ def build_mock_model(include_chore: bool = False, include_rules: bool = False, a
         parameters=[],
         variables=[],
         ti=ti_stub,
-        source_path="processes/MockProcess.json"
     )
 
     chores = []
@@ -177,7 +172,6 @@ def build_mock_model(include_chore: bool = False, include_rules: bool = False, a
             execution_mode="SingleCommit",
             frequency="P01DT00H00M00S",
             tasks=[],
-            source_path="chores/MockChore.json"
         )
         chores.append(chore)
 
@@ -197,12 +191,10 @@ def _build_mock_changeset_data():
         elements=[Element(name="Leaf1", type="Numeric")],
         edges=[],
         subsets=[],
-        source_path=hierarchy_old.source_path
     )
     subset_added = Subset(
         name="NewSubset",
         expression="{TM1SUBSETALL([MockDim].[MockHier])}",
-        source_path="dimensions/MockDim.hierarchies/MockHier.subsets/NewSubset.json"
     )
     ti_stub = TI("", "", "", "")
     process_added = Process(
@@ -213,14 +205,12 @@ def _build_mock_changeset_data():
         parameters=[],
         variables=[],
         ti=ti_stub,
-        source_path="processes/MockProcess.json"
     )
     cube_removed = Cube(
         name="MockCube",
         dimensions=[dimension],
         rules=[],
         views=[],
-        source_path="cubes/MockCube.json"
     )
 
     return {
@@ -242,13 +232,11 @@ def _objects_equal_case_builders():
             elements=[Element(name="Leaf1", type="String")],
             edges=[],
             subsets=[],
-            source_path=hierarchy_numeric.source_path
         )
         dim_two = Dimension(
             name=dimension.name,
             hierarchies=[hierarchy_string],
             defaultHierarchy=hierarchy_string,
-            source_path=dimension.source_path
         )
         return dimension, dim_two, tm1_git_py.comparator._dimensions_equal_shallow, False
 
@@ -257,21 +245,18 @@ def _objects_equal_case_builders():
         subset = Subset(
             name="SubsetA",
             expression="{SUBSETALL()}",
-            source_path="dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"
         )
         hierarchy_one = Hierarchy(
             name=hierarchy.name,
             elements=[Element(name="Leaf", type="Numeric")],
             edges=[Edge("Parent", "Leaf", 1)],
             subsets=[subset],
-            source_path=hierarchy.source_path
         )
         hierarchy_two = Hierarchy(
             name=hierarchy.name,
             elements=[Element(name="Leaf", type="String")],
             edges=[Edge("Parent", "Leaf", 2)],
             subsets=[subset],
-            source_path=hierarchy.source_path
         )
         return hierarchy_one, hierarchy_two, tm1_git_py.comparator._hierarchies_equal_shallow, False
 
@@ -280,26 +265,22 @@ def _objects_equal_case_builders():
         view_one = MDXView(
             name="Default",
             mdx="SELECT {TM1SUBSETALL([MockDim])} ON 0 FROM [MockCube]",
-            source_path="cubes/MockCube.views/Default.json"
         )
         view_two = MDXView(
             name="Default",
             mdx="SELECT {TM1FILTERBYLEVEL({TM1SUBSETALL([MockDim])}, 0)} ON 0 FROM [MockCube]",
-            source_path="cubes/MockCube.views/Default.json"
         )
         cube_one = Cube(
             name="MockCube",
             dimensions=[dimension],
             rules=[],
             views=[view_one],
-            source_path="cubes/MockCube.json"
         )
         cube_two = Cube(
             name="MockCube",
             dimensions=[dimension],
             rules=[],
             views=[view_two],
-            source_path="cubes/MockCube.json"
         )
         return cube_one, cube_two, tm1_git_py.comparator._cubes_equal_shallow, False
 
@@ -319,7 +300,6 @@ def _objects_equal_case_builders():
             parameters=params,
             variables=[],
             ti=ti_stub,
-            source_path="processes/MockProcess.json"
         )
         process_two = Process(
             name="MockProcess",
@@ -329,7 +309,6 @@ def _objects_equal_case_builders():
             parameters=params,
             variables=[],
             ti=ti_stub,
-            source_path="processes/MockProcess.json"
         )
         return process_one, process_two, None, True
 
@@ -342,7 +321,7 @@ def _objects_equal_case_builders():
 
 
 def make_element(name: str, el_type: str = "Numeric") -> Element:
-    return Element(name="Leaf1", type="Numeric")
+    return Element(name=name, type=el_type)
 
 
 def make_hierarchy(
@@ -356,16 +335,13 @@ def make_hierarchy(
         elements = [make_element(n) for n in element_names]
 
     if edges is None:
-        edges = [Edge(parent="Total", name="E1", weight=1)]
-
-    source_path = Hierarchy.as_link(dimension_name_base=dimension_name, name=hierarchy_name)
+        edges = [Edge(parent="Total", component_name="E1", weight=1)]
 
     return Hierarchy(
         name=hierarchy_name,
         elements=elements,
         edges=edges,
         subsets=[],
-        source_path=source_path + ".json",
     )
 
 
@@ -375,20 +351,19 @@ def make_dimension(name: str, hierarchy_names=None, source_path=None) -> Dimensi
     """
     if source_path is None:
         source_path = "/dimensions/dummy"
-    hierarchies = None
+    hierarchies = []
     if hierarchy_names:
-        hier_source_path = source_path + ".hierarchies/dummy.json"
-        hierarchies = [Hierarchy(name=h_name, elements=[], edges=[], subsets=[], source_path=hier_source_path)
+        hierarchies = [Hierarchy(name=h_name, elements=[], edges=[], subsets=[])
                        for h_name in hierarchy_names]
         default_hierarchy = hierarchies[0]
     else:
         default_hierarchy = make_hierarchy(dimension_name=name, hierarchy_name=name)
+        hierarchies = [default_hierarchy]
 
     return Dimension(
         name=name,
         hierarchies=hierarchies,
         defaultHierarchy=default_hierarchy,
-        source_path=source_path+".json"
     )
 
 
@@ -398,10 +373,7 @@ def make_subset(
     dimension_name: str = "Dim_A",
     hierarchy_name: str = "Hier_A",
 ) -> Subset:
-    source_path = Subset.as_link(dimension_name_base=dimension_name,
-                                 hierarchy_name_base=hierarchy_name,
-                                 name=name)
-    return Subset(name=name, expression=expression, source_path=source_path)
+    return Subset(name=name, expression=expression)
 
 
 def make_chore(
@@ -426,7 +398,6 @@ def make_chore(
         execution_mode=execution_mode,
         frequency=frequency,
         tasks=tasks,
-        source_path=f"/chores/{name}.json",
     )
 
 
@@ -454,7 +425,6 @@ def make_process(
         parameters=parameters,
         variables=variables,
         ti=None,
-        source_path=f"/processes/{name}.json",
     )
 
 
@@ -463,7 +433,8 @@ def make_mdx_view(
     mdx: str = "SELECT FROM [Cube_A]",
     source_path: str = "cubes/Cube_A.views/View_A.json",
 ) -> MDXView:
-    return MDXView(name=name, mdx=mdx, source_path=source_path)
+    cube_name = source_path.split("/", 1)[-1].split(".views", 1)[0] if ".views" in source_path else "Cube_A"
+    return MDXView(name=name, mdx=mdx)
 
 
 def make_rule(area: str, full_statement: str, comment: str = "") -> Rule:
@@ -502,5 +473,42 @@ def make_cube(
         dimensions=dimensions,
         rules=rules,
         views=views,
-        source_path=f"/cubes/{name}.json",
     )
+
+
+def tm1_uri_from_path(path: str) -> str:
+    p = (path or "").replace("\\", "/").lstrip("/")
+    if not p:
+        return ""
+    m = re.match(r"^cubes/(.+)\.rules$", p)
+    if m:
+        return f"Cubes('{m.group(1)}')/Rules('default')"
+    m = re.match(r"^cubes/(.+)\.views/(.+)\.json$", p)
+    if m:
+        return f"Cubes('{m.group(1)}')/Views('{m.group(2)}')"
+    m = re.match(r"^cubes/([^/]+)$", p)
+    if m:
+        return f"Cubes('{m.group(1)}')"
+    m = re.match(r"^dimensions/([^/]+)\.hierarchies/([^/]+)\.subsets/([^/]+)\.json$", p)
+    if m:
+        return f"Dimensions('{m.group(1)}')/Hierarchies('{m.group(2)}')/Subsets('{m.group(3)}')"
+    m = re.match(r"^dimensions/([^/]+)\.hierarchies/([^/]+)\.json/(.+)$", p)
+    if m:
+        dim, hier, rest = m.group(1), m.group(2), m.group(3)
+        if ":" in rest:
+            parent, comp = rest.split(":", 1)
+            return f"Dimensions('{dim}')/Hierarchies('{hier}')/Edges('{parent}'/'{comp}')"
+        return f"Dimensions('{dim}')/Hierarchies('{hier}')/Elements('{rest}')"
+    m = re.match(r"^dimensions/([^/]+)\.hierarchies/([^/]+)\.json$", p)
+    if m:
+        return f"Dimensions('{m.group(1)}')/Hierarchies('{m.group(2)}')"
+    m = re.match(r"^dimensions/([^/]+)\.json$", p)
+    if m:
+        return f"Dimensions('{m.group(1)}')"
+    m = re.match(r"^processes/([^/]+)\.json$", p)
+    if m:
+        return f"Processes('{m.group(1)}')"
+    m = re.match(r"^chores/([^/]+)\.json$", p)
+    if m:
+        return f"Chores('{m.group(1)}')"
+    return ""

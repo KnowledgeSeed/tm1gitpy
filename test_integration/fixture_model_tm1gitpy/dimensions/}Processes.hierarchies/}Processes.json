@@ -3,16 +3,16 @@
 	"Name": "}Processes",
 	"Elements": [
 		{
-			"name": "myprocess",
-			"type": "String"
+		  "Name": "myprocess",
+		  "Type": "String"
 		},
 		{
-			"name": "myprocess2",
-			"type": "String"
+		  "Name": "myprocess2",
+		  "Type": "String"
 		},
 		{
-			"name": "myprocess3",
-			"type": "String"
+		  "Name": "myprocess3",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

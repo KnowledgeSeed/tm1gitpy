@@ -1,18 +1,16 @@
-+/data_csv/*.*
-+/data_source/*.*
--/Cubes/Views*
--/dimensions/Product*
--/dimensions/Source Product*
--/dimensions/Target Product*
--/dimensions/zSYS Analogic UserPool*
--/dimensions/Channel*
--/dimensions/Csoportos Flat*
--/dimensions/Individual Cost Ledger*
--/dimensions/ledger*
--/dimensions/Provider*
--/dimensions/Version*
--/dimensions/Comment ID*
--/dimensions/Capex Ledger*
--/dimensions/Balance Sheet Planning Ledger*
--/cubes/zSYS Maintenance Parameter*
--/processes/zSYS Analogic Operation Version Copy*
+Cubes('Views*')
+Dimensions('Product*')
+Dimensions('Source Product*')
+Dimensions('Target Product*')
+Dimensions('zSYS Analogic UserPool*')
+Dimensions('Channel*')
+Dimensions('Csoportos Flat*')
+Dimensions('Individual Cost Ledger*')
+Dimensions('ledger*')
+Dimensions('Provider*')
+Dimensions('Version*')
+Dimensions('Comment ID*')
+Dimensions('Capex Ledger*')
+Dimensions('Balance Sheet Planning Ledger*')
+Cubes('zSYS Maintenance Parameter*')
+Processes('zSYS Analogic Operation Version Copy*')

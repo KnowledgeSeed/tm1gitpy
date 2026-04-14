@@ -3,8 +3,8 @@
 	"Name": "}ApplicationEntries",
 	"Elements": [
 		{
-			"name": "}applications",
-			"type": "Consolidated"
+		  "Name": "}applications",
+		  "Type": "Consolidated"
 		}
 	],
 	"Edges": [],

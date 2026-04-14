@@ -3,24 +3,24 @@
 	"Name": "}StatsStatsByClient",
 	"Elements": [
 		{
-			"name": "Message Count",
-			"type": "Numeric"
+		  "Name": "Bytes/Message",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Message Bytes",
-			"type": "Numeric"
+		  "Name": "Elapse Time (ms)",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Request Count",
-			"type": "Numeric"
+		  "Name": "Message Bytes",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Elapse Time (ms)",
-			"type": "Numeric"
+		  "Name": "Message Count",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Bytes/Message",
-			"type": "Numeric"
+		  "Name": "Request Count",
+		  "Type": "Numeric"
 		}
 	],
 	"Edges": [],

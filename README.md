@@ -14,10 +14,22 @@ A utility for exporting and comparing TM1 models in Git-friendly formats, enabli
 
 ### From Source
 
+To **use** the package (runtime dependencies only):
+
 ```bash
 git clone <repository-url>
 cd tm1_git_py
 pip install -e .
+```
+
+Or install from a requirements file: `pip install -r requirements.txt` then `pip install -e .`
+
+To **run tests** or develop (runtime + test dependencies):
+
+```bash
+pip install -r requirements-dev.txt
+# or
+pip install -e ".[dev]"
 ```
 
 ### Requirements
@@ -25,7 +37,7 @@ pip install -e .
 - Python 3.10 or higher
 - TM1py >= 2.1, < 3.0
 - requests >= 2.25
-- tm1_bedrock_py >= 1.1.4
+- PyYAML >= 6.0
 
 ## Configuration
 
@@ -51,7 +63,7 @@ servers:
 Export a full TM1 model from a server:
 
 ```bash
-python tm1_git_py/main.py export --server dev --model_output_folder model_dir --overwrite
+python tm1_git_py/main.py export --server dev --model-output-folder model_dir --overwrite
 ```
 
 ### Filter Model
@@ -59,22 +71,82 @@ python tm1_git_py/main.py export --server dev --model_output_folder model_dir --
 Apply filters to include only specific objects:
 
 ```bash
-python tm1_git_py/main.py filter --filter examples/filter.txt --model_folder model_dir --model_output_folder model_dir_filtered --overwrite
+python tm1_git_py/main.py model-filter --filter-rules file://examples/filter.txt --model-folder model_dir --model-output-folder model_dir_filtered --overwrite
+```
+
+Toggle `apply` flags inside an existing changeset with the same filter rule language:
+
+```bash
+python tm1_git_py/main.py changset-filter --changeset-path changeset.yml --filter-rules file://examples/filter.txt
 ```
 
 Filter file format (one pattern per line, `#` for comments):
 
 ```
-# Include specific dimensions
-}Dimensions/}TimeDay
-}Dimensions/}TimePeriods
+# Exclude technical dimensions
+Dimensions('}*')
 
-# Include all cubes starting with "Sales"
-}Cubes/Sales*
+# Force-include all BW dimensions
+!Dimensions('BW*')
 
-# Include specific processes
-}Processes/bedrock.*
+# Exclude BW Comp dimensions
+Dimensions('BW Comp*')
+
+# Exclude technical hierarchies for all dimensions
+Dimensions('*')/Hierarchies('}*')
+
+# Chore task rules target the underlying process_name
+Chores('Daily*')/Tasks('LoadData')
 ```
+
+#### Filter Rule Logic
+
+- Each rule line is a TM1 URL-style selector, optionally prefixed with `!`.
+- No prefix means **exclude**.
+- `!` prefix means **force include**.
+- Wildcards in quoted identifiers are supported:
+  - `a*` -> starts with `a`
+  - `*a` -> ends with `a`
+  - `a` -> exact match
+- Rules are evaluated per entity level (dimensions, hierarchies, elements, subsets, cubes, views, processes, chores, tasks).
+- Hierarchy traversal is parent-first, with force-include branch retention:
+  - normally, excluded parent excludes descendants
+  - if a descendant is force-included (`!`), its required parent chain is retained
+    (e.g. force-include element keeps matching hierarchy and dimension references)
+- At each level, filter expression is composed as:
+  - base excludes: `not (<exclude_1>) and not (<exclude_2>) and ...`
+  - plus force includes: `or (<include_group>)`
+  - effective shape: `(not (<exclude_1>) and not (<exclude_2>) and ...) or (<include_group>)`
+- TM1 export filters inherit force-includes from descendants:
+  - a force-included hierarchy contributes include criteria to the dimension-level TM1 filter
+  - a force-included element/subset/edge contributes include criteria to the hierarchy-level TM1 filter
+
+#### Supported Rule Patterns
+
+| Level | Pattern |
+| --- | --- |
+| Dimension | `Dimensions('<pattern>')` |
+| Hierarchy | `Dimensions('<dim_pattern>')/Hierarchies('<hier_pattern>')` |
+| Element | `Dimensions('<dim_pattern>')/Hierarchies('<hier_pattern>')/Elements('<elem_pattern>')` |
+| Subset | `Dimensions('<dim_pattern>')/Hierarchies('<hier_pattern>')/Subsets('<subset_pattern>')` |
+| Edge | `Dimensions('<dim_pattern>')/Hierarchies('<hier_pattern>')/Edges(...)` |
+| Cube | `Cubes('<pattern>')` |
+| View | `Cubes('<cube_pattern>')/Views('<view_pattern>')` |
+| Rule | `Cubes('<cube_pattern>')/Rules(...)` |
+| Process | `Processes('<pattern>')` |
+| Chore | `Chores('<pattern>')` |
+| Task | `Chores('<chore_pattern>')/Tasks('<process_name_pattern>')` |
+
+Use `!` prefix on any supported pattern to force-include matching objects.
+
+#### Filter Rule Input Formats (CLI)
+
+For CLI flags that accept filter rules (`--filter` or `--filter-rules`):
+
+- File path: `examples/filter.txt`
+- File URI: `file://examples/filter.txt`
+- Inline comma-separated rules:
+  `Dimensions('}*'),!Dimensions('BW*')`
 
 ### Command-Line Arguments
 
@@ -83,19 +155,29 @@ python tm1_git_py/main.py <command> [options]
 
 Commands:
   export    Export TM1 model from server
-  filter    Filter an existing model export
-  compare   Compare two model versions
+  model-filter    Filter an existing model export
+  changset-filter Toggle changeset apply flags by filter rules
+  compare   Compare two model versions and write a changeset file
+  apply     Apply a changeset file to a TM1 server
 
 Options:
   -s, --server SERVER           TM1 server name from tm1servers.yaml
-  -m, --model_folder FOLDER     Input model folder (default: export)
-  -mo, --model_output_folder    Output model folder (default: export)
+  -m, --model-folder FOLDER     Input model folder (default: export)
+  -mo, --model-output-folder    Output model folder (default: export)
   -o, --overwrite              Overwrite existing folder
-  -f, --filter FILE            Filter file path
+  -f, --filter FILE            Filter rules for export (file path, file:// URI, or comma-separated rules)
+  -f, --filter-rules RULES     Filter rules for compare/model-filter/changset-filter
+  --changeset-path PATH         Changeset path for changset-filter
+  --max-workers N              Worker budget for export/compare (default: cpu_count/2 + 1)
   --log-level LEVEL            Log level: DEBUG, INFO, WARNING, ERROR
 ```
 
 Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment; `--log-level` takes precedence.
+
+For `compare`, `--max-workers` is split between source and target model deserialization:
+- source workers = `max(1, max_workers // 2)`
+- target workers = `max(1, max_workers - source_workers)`
+- odd values give one extra worker to target
 
 ## Examples
 
@@ -105,12 +187,14 @@ See the [examples](examples/) directory for usage examples:
 
 For model comparison and changeset workflows, use the Python API (`tm1_git_py.comparator`, `tm1_git_py.changeset`, `tm1_git_py.apply`).
 
+For paginated element/subset fetching (e.g., large hierarchies), use `tm1_git_py.get_elements`, `tm1_git_py.get_subsets`, and related functions.
+
 ## Building Binary
 
 Build a standalone executable using Nuitka:
 
 ```bash
-python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-execution --mode=onefile --include-module=ijson.backends.yajl2_c --output-filename=tm1gitpy
+python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-execution --mode=onefile --output-filename=tm1gitpy
 ```
 
 ## Development
@@ -135,16 +219,29 @@ tm1_git_py/
 │   ├── main.py          # CLI entry point
 │   ├── config.py        # Server configuration
 │   ├── exporter.py      # TM1 model export
+│   ├── hierarchy_export.py  # Hierarchy export logic
 │   ├── serializer.py    # Model serialization
 │   ├── deserializer.py  # Model deserialization
 │   ├── filter.py        # Object filtering
-│   ├── comaprator.py    # Compare TM1 models
+│   ├── comparator.py    # Compare TM1 models
 │   ├── changeset.py     # Build changeset
 │   ├── apply.py         # Apply changeset
+│   ├── logging_config.py   # Logging setup
+│   ├── changeset_status.py # Changeset status tracking
+│   ├── validation.py    # Validation utilities
+│   ├── tm1project_to_filter.py  # TM1 project to filter conversion
+│   ├── tm1py_ext/       # TM1py extensions and paginated services
+│   │   ├── paginated_element_service.py
+│   │   ├── paginated_subset_service.py
+│   │   └── paginated_edge_service.py
 │   └── model/           # Model data structures
+│       ├── element_attribute.py
+│       ├── task_summary.py
+│       └── ...
 ├── examples/            # Usage examples
 ├── docs/               # Documentation
-└── tests/              # Test suite
+├── tests/              # Test suite
+└── test_integration/   # Integration tests
 ```
 
 ## License

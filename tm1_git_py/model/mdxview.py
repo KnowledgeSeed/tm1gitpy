@@ -22,7 +22,6 @@ class MDXView:
         mdx,
         format_string="0.#########",
         meta: Optional[dict] = None,
-        source_path: str = None,
     ):
         self.type = 'MDXView'
         self.name = name
@@ -33,7 +32,6 @@ class MDXView:
             "ContextSets": {},
             "ExpandAboves": {},
         }
-        self.source_path = source_path
 
     def as_json(self):
         return json.dumps({
@@ -69,20 +67,21 @@ class MDXView:
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None,
-            cube_name: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "MDXView":
 
         name = data.get("name") or data.get("Name")
         mdx = data.get("mdx") or data.get("MDX") or ""
-        resolved_path = source_path
-        if resolved_path is None and cube_name and name:
-            resolved_path = f"cubes/{cube_name}.views/{name}.json"
-        if resolved_path is None:
-            raise ValueError("MDXView.from_dict requires a source_path or cube context.")
-        return cls(name=name, mdx=mdx, source_path=resolved_path)
+        return cls(name=name, mdx=mdx)
+
+    @staticmethod
+    def uri_for(cube_name: str, view_name: str) -> str:
+        return f"Cubes('{cube_name}')/Views('{view_name}')"
+
+    def uri(self, cube_name: str) -> Optional[str]:
+        if not cube_name or not self.name:
+            return None
+        return self.uri_for(cube_name, self.name)
 
     
 # ------------------------------------------------------------------------------------------------------------
@@ -91,21 +90,23 @@ class MDXView:
 
 logger = logging.getLogger(__name__)
 
-def _view_context_from_path(source_path: str) -> Tuple[str, str]:
-    cube_name = re.search(r'/([\w}]*)(.views)', source_path).group(1)
-    view_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+def _view_context_from_uri(uri: str) -> Tuple[str, str]:
+    match = re.search(r"^Cubes\('([^']+)'\)/Views\('([^']+)'\)$", uri or "")
+    if not match:
+        raise ValueError(f"Invalid mdx view uri format: '{uri}'")
+    cube_name, view_name = match.groups()
     return cube_name, view_name
 
 
-def create_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
-    cube_name, _ = _view_context_from_path(mdx_view.source_path)
+def create_mdxview(tm1_service: TM1Service, mdx_view: MDXView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _view_context_from_uri(uri)
     mdx_view_object = TM1py.MDXView(cube_name=cube_name, view_name=mdx_view.name, MDX=mdx_view.mdx)
     logger.info(f"Creating MDXView: {mdx_view.name} for Cube: {cube_name}.")
     return tm1_service.views.create(mdx_view_object)
 
 
-def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
-    cube_name, _ = _view_context_from_path(mdx_view.source_path)
+def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _view_context_from_uri(uri)
 
     mdx_view_object = tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=mdx_view.name)
     mdx_view_object.mdx = mdx_view.mdx
@@ -113,7 +114,7 @@ def update_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
     return tm1_service.views.update(mdx_view_object)
 
 
-def delete_mdxview(tm1_service: TM1Service, mdx_view: MDXView) -> Response:
-    cube_name, _ = _view_context_from_path(mdx_view.source_path)
+def delete_mdxview(tm1_service: TM1Service, mdx_view: MDXView, uri: Optional[str] = None) -> Response:
+    cube_name, _ = _view_context_from_uri(uri)
     logger.info(f"Deleting View: {mdx_view.name} from Cube: {cube_name}.")
     return tm1_service.views.delete(view_name=mdx_view.name, cube_name=cube_name)

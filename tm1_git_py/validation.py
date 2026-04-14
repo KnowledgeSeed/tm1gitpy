@@ -41,8 +41,13 @@ def __get_parent_name_args(object_instance: T, parent_type: str) -> dict[str, st
     object_type = __normalize_for_view(object_instance).lower()
     parent_type = parent_type.lower()
     module = importlib.import_module(object_instance.__class__.__module__)
-    get_parent_name = getattr(module, f"_{object_type}_context_from_path")
-    parent_names = get_parent_name(object_instance.source_path)
+    get_parent_name = getattr(module, f"_{object_type}_context_from_uri")
+    object_uri = getattr(object_instance, "uri", None)
+    if callable(object_uri):
+        return {}
+    if not isinstance(object_uri, str) or not object_uri:
+        return {}
+    parent_names = get_parent_name(object_uri)
     if parent_type == "hierarchy":
         args = {
             f"dimension_name": parent_names[0],

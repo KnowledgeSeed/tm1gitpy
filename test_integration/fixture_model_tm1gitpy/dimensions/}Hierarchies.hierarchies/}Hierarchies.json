@@ -3,8 +3,8 @@
 	"Name": "}Hierarchies",
 	"Elements": [
 		{
-			"name": "hierarchy0",
-			"type": "String"
+		  "Name": "hierarchy0",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

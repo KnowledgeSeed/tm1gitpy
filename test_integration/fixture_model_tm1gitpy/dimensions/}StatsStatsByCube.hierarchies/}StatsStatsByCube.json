@@ -3,52 +3,52 @@
 	"Name": "}StatsStatsByCube",
 	"Elements": [
 		{
-			"name": "Memory Used for Views",
-			"type": "Numeric"
+		  "Name": "Memory Used for Calculations",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Number of Stored Views",
-			"type": "Numeric"
+		  "Name": "Memory Used for Feeders",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Number of Stored Calculated Cells",
-			"type": "Numeric"
+		  "Name": "Memory Used for Input Data",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Number of Populated String Cells",
-			"type": "Numeric"
+		  "Name": "Memory Used for Views",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Number of Populated Numeric Cells",
-			"type": "Numeric"
+		  "Name": "Number of Fed Cells",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Number of Fed Cells",
-			"type": "Numeric"
+		  "Name": "Number of Populated Numeric Cells",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Memory Used for Calculations",
-			"type": "Numeric"
+		  "Name": "Number of Populated String Cells",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Memory Used for Feeders",
-			"type": "Numeric"
+		  "Name": "Number of Stored Calculated Cells",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Memory Used for Input Data",
-			"type": "Numeric"
+		  "Name": "Number of Stored Views",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Steps of Average Calculation",
-			"type": "Numeric"
+		  "Name": "Rule calculation cache miss rate",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Rule calculation cache miss rate",
-			"type": "Numeric"
+		  "Name": "Steps of Average Calculation",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Total Memory Used",
-			"type": "Numeric"
+		  "Name": "Total Memory Used",
+		  "Type": "Numeric"
 		}
 	],
 	"Edges": [],

@@ -18,6 +18,17 @@
             // "args": ["export", "-s", "dev", "-o", "--filter", "${workspaceFolder}/tm1_git_py/filter.txt"]
             "args": ["filter", "--filter=examples/filter.txt",  "--model_output_folder=export2", "--overwrite"]
         },
+        {
+            "name": "Filter",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tm1_git_py/main.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": ["filter", "--filter=examples/filter.txt",  "--model_output_folder=export", "--overwrite"]
+        },
          {
             "name": "Export",
             "type": "debugpy",
@@ -27,7 +38,29 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
-            "args": ["export", "--server=local", "--model_output_folder=export", "--overwrite"]
+            "args": ["export", "--server=seederbpsp", "--model_output_folder=export2", "--filter=examples/filter.txt", "--overwrite"]
+        },
+        {
+            "name": "Compare",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tm1_git_py/main.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "compare",
+                "--source=export2",
+                "--target=export3",
+                "--output=changeset.yml",
+                "--mode=full",
+                "--format=yaml",
+                "--max-workers=8"
+            ]
         }
     ]
 }
+
+compare --source=export2 --target=export3 --output=changeset.yml --mode=full --format=yaml
+python tm1_git_py/main.py compare --source=export2 --target=export3 --output=changeset.yml --mode=full --format=yaml

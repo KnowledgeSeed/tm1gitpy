@@ -66,16 +66,20 @@ def serialize_model(model: Model, dir):
 def serialize_dimensions(dimensions: List[Dimension], dim_dir):
     logger.debug("Serializing %d dimension(s) into '%s'", len(dimensions), dim_dir)
     for dim in dimensions:
+        hierarchy_dir = dim_dir + '/' + dim.name + '.hierarchies'
         for _hierarchy in dim.hierarchies:
-            hierarchy_dir = dim_dir + '/' + dim.name + '.hierarchies'
             os.makedirs(hierarchy_dir, exist_ok=True)
             for _subset in _hierarchy.subsets:
                 subsets_dir = hierarchy_dir + '/' + _hierarchy.name + '.subsets'
                 os.makedirs(subsets_dir, exist_ok=True)
                 with open(subsets_dir + '/' + _subset.name + '.json', 'w', encoding='utf-8') as subset_file:
                     subset_file.write(_subset.as_json())
-            with open(hierarchy_dir + '/' + _hierarchy.name + '.json', 'w', encoding='utf-8') as hierarchy_file:
-                hierarchy_file.write(_hierarchy.as_json())
+            staged_final_path = _hierarchy.finalize()
+            target_hierarchy_path = os.path.join(hierarchy_dir, _hierarchy.name + '.json')
+            if staged_final_path and os.path.abspath(staged_final_path) == os.path.abspath(target_hierarchy_path):
+                continue
+            with open(target_hierarchy_path, 'w', encoding='utf-8') as hierarchy_file:
+                _hierarchy.write_json(hierarchy_file)
         with open(dim_dir + '/' + dim.name + '.json', 'w', encoding='utf-8') as dim_file:
             dim_file.write(dim.as_json())
 

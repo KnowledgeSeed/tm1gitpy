@@ -4,5 +4,7 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "xml.validation.enabled": false
+    "xml.validation.enabled": false,
+    "debugpy.debugJustMyCode": false
+
 }

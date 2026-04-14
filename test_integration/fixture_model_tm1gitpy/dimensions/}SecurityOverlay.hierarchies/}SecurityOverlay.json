@@ -3,8 +3,8 @@
 	"Name": "}SecurityOverlay",
 	"Elements": [
 		{
-			"name": "OverlayData",
-			"type": "String"
+		  "Name": "OverlayData",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

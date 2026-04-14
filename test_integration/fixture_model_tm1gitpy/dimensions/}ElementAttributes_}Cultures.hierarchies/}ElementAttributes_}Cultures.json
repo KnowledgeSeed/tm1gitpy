@@ -3,20 +3,20 @@
 	"Name": "}ElementAttributes_}Cultures",
 	"Elements": [
 		{
-			"name": "Region",
-			"type": "String"
+		  "Name": "BaseCulture",
+		  "Type": "String"
 		},
 		{
-			"name": "Language",
-			"type": "String"
+		  "Name": "LCID",
+		  "Type": "String"
 		},
 		{
-			"name": "LCID",
-			"type": "String"
+		  "Name": "Language",
+		  "Type": "String"
 		},
 		{
-			"name": "BaseCulture",
-			"type": "String"
+		  "Name": "Region",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

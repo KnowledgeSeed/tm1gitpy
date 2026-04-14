@@ -47,13 +47,21 @@ setup(
     install_requires=[
         "TM1py>=2.1,<3.0",
         "requests>=2.25",
-        "tm1_bedrock_py>=1.1.4",
+        "PyYAML>=6.0",
+        "orjson",
+        "ijson",
+        "cffi",
+        "tqdm",
     ],
     extras_require={
         "dev": [
             "pytest>=7.0",
             "pytest-mock",
             "testcontainers>=4.0.0",
+            "orjson",
+            "ijson",
+            "cffi",
+            "tqdm",
         ],
     },
     python_requires=">=3.10",

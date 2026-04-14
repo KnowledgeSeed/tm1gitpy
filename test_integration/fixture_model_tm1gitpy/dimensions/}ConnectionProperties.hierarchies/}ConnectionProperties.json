@@ -3,40 +3,40 @@
 	"Name": "}ConnectionProperties",
 	"Elements": [
 		{
-			"name": "USER",
-			"type": "String"
+		  "Name": "INTEGRATEDSECURITY",
+		  "Type": "String"
 		},
 		{
-			"name": "PASSWORD",
-			"type": "String"
+		  "Name": "LASTSYNC",
+		  "Type": "String"
 		},
 		{
-			"name": "LASTSYNC",
-			"type": "String"
+		  "Name": "LASTSYNCSTAR",
+		  "Type": "String"
 		},
 		{
-			"name": "SYNCSTAR",
-			"type": "String"
+		  "Name": "LASTSYNCSTARRECORD",
+		  "Type": "String"
 		},
 		{
-			"name": "SYNCPLANET",
-			"type": "String"
+		  "Name": "NAMESPACE",
+		  "Type": "String"
 		},
 		{
-			"name": "LASTSYNCSTAR",
-			"type": "String"
+		  "Name": "PASSWORD",
+		  "Type": "String"
 		},
 		{
-			"name": "INTEGRATEDSECURITY",
-			"type": "String"
+		  "Name": "SYNCPLANET",
+		  "Type": "String"
 		},
 		{
-			"name": "NAMESPACE",
-			"type": "String"
+		  "Name": "SYNCSTAR",
+		  "Type": "String"
 		},
 		{
-			"name": "LASTSYNCSTARRECORD",
-			"type": "String"
+		  "Name": "USER",
+		  "Type": "String"
 		}
 	],
 	"Edges": [],

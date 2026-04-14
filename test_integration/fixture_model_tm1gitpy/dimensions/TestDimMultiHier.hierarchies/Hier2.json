@@ -3,8 +3,8 @@
 	"Name": "Hier2",
 	"Elements": [
 		{
-			"name": "Hier2Elem1",
-			"type": "Numeric"
+		  "Name": "Hier2Elem1",
+		  "Type": "Numeric"
 		}
 	],
 	"Edges": [],

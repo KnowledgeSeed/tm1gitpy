@@ -1,7 +1,10 @@
+import filecmp
+import json
 import logging
 import os
 import socket
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -9,6 +12,7 @@ import pytest
 import requests
 from testcontainers.compose import DockerCompose
 
+from tm1_git_py import serialize_model
 from tm1_git_py.config import TM1ServerConfig, TM1ServersConfig
 from tm1_git_py.deserializer import deserialize_model
 from tm1_git_py.exporter import export
@@ -17,6 +21,82 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.filter import filter
 
 logger = logging.getLogger(__name__)
+
+# Directories under a serialized model root to compare in integration "no diff" checks.
+# Other paths (e.g. ``.internal`` internal artifacts) are ignored.
+MODEL_COMPARE_SUBDIRS = ("dimensions", "cubes", "chores", "processes")
+
+
+def _normalize_json_keys(value):
+    if isinstance(value, dict):
+        return {str(key).lower(): _normalize_json_keys(item) for key, item in value.items()}
+    if isinstance(value, list):
+        normalized_items = [_normalize_json_keys(item) for item in value]
+        return sorted(
+            normalized_items,
+            key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        )
+    return value
+
+
+def _json_files_equivalent(left_path: str, right_path: str) -> bool:
+    try:
+        with open(left_path, "r", encoding="utf-8") as fh:
+            left_payload = json.load(fh)
+        with open(right_path, "r", encoding="utf-8") as fh:
+            right_payload = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    return _normalize_json_keys(left_payload) == _normalize_json_keys(right_payload)
+
+
+def _assert_dircmp_trees_equal(left: str, right: str) -> None:
+    """Recursively assert two directories have identical file sets and contents."""
+    cmp = filecmp.dircmp(left, right)
+    assert not cmp.left_only, (
+        f"Files/dirs only in exported model under {left!r}: {sorted(cmp.left_only)}"
+    )
+    assert not cmp.right_only, (
+        f"Files/dirs only in expected under {right!r}: {sorted(cmp.right_only)}"
+    )
+    remaining_diff_files = []
+    for name in sorted(cmp.diff_files):
+        left_file = os.path.join(left, name)
+        right_file = os.path.join(right, name)
+        if name.endswith(".json") and _json_files_equivalent(left_file, right_file):
+            continue
+        remaining_diff_files.append(name)
+    assert not remaining_diff_files, (
+        f"Files that differ under {left!r} vs {right!r}: {remaining_diff_files}"
+    )
+    for name in sorted(cmp.common_dirs):
+        _assert_dircmp_trees_equal(
+            os.path.join(left, name),
+            os.path.join(right, name),
+        )
+
+
+def assert_export_matches_expected_subdirs(actual_root: str, expected_root: str) -> None:
+    """
+    Compare only model payload directories between two serialized model roots.
+
+    Ignores siblings such as ``.internal`` or any other top-level entries not listed
+    in ``MODEL_COMPARE_SUBDIRS``.
+    """
+    for sub in MODEL_COMPARE_SUBDIRS:
+        left_p = Path(actual_root) / sub
+        right_p = Path(expected_root) / sub
+        left_ex = left_p.is_dir()
+        right_ex = right_p.is_dir()
+        if not left_ex and not right_ex:
+            continue
+        assert left_ex and right_ex, (
+            f"Subdirectory {sub!r} must exist on both sides when comparing "
+            f"(left exists={left_ex}, right exists={right_ex}, "
+            f"actual_root={actual_root!r}, expected_root={expected_root!r})"
+        )
+        _assert_dircmp_trees_equal(str(left_p), str(right_p))
 
 
 @pytest.fixture(scope="class")
@@ -128,13 +208,21 @@ def export_check_no_errors(
     self,
     filter_rules: list[str] = None,
     *,
-    exporter_filter_rules: list[str] = None,
+    internal_model_dir: Optional[str] = None,
 ) -> Model:
     model, errors = export(
         self.tm1_service,
-        filter_rules=exporter_filter_rules,
+        filter_rules_list=filter_rules,
+        internal_model_dir=internal_model_dir,
     )
     assert isinstance(model, Model)
     for category, category_errors in errors.items():
         assert not category_errors, f"Found errors in {category}: {category_errors}"
     return filter(model, filter_rules) if filter_rules else model
+
+
+def check_no_diff(expected_dir, model: Model):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        export_dir = str(Path(temp_dir) / "exported_model")
+        serialize_model(model, export_dir)
+        assert_export_matches_expected_subdirs(export_dir, expected_dir)

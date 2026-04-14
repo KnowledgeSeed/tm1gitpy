@@ -3,19 +3,19 @@
 	"Name": "}PerfClients",
 	"Elements": [
 		{
-			"name": "Admin",
-			"type": "Numeric"
+		  "Name": "Admin",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Clients Total",
-			"type": "Consolidated"
+		  "Name": "Clients Total",
+		  "Type": "Consolidated"
 		}
 	],
 	"Edges": [
 		{
-			"parent": "Clients Total",
-			"name": "Admin",
-			"weight": 1
+		  "ParentName": "Clients Total",
+		  "ComponentName": "Admin",
+		  "Weight": 1
 		}
 	],
 	"Subsets@Code.links": []

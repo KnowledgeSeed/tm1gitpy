@@ -3,32 +3,32 @@
 	"Name": "}RuleStats",
 	"Elements": [
 		{
-			"name": "Rule Text",
-			"type": "String"
+		  "Name": "Avg Time (ms)",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Total Run Count",
-			"type": "Numeric"
+		  "Name": "Last Run Time",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Min Time (ms)",
-			"type": "Numeric"
+		  "Name": "Max Time (ms)",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Max Time (ms)",
-			"type": "Numeric"
+		  "Name": "Min Time (ms)",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Avg Time (ms)",
-			"type": "Numeric"
+		  "Name": "Rule Text",
+		  "Type": "String"
 		},
 		{
-			"name": "Total Time (ms)",
-			"type": "Numeric"
+		  "Name": "Total Run Count",
+		  "Type": "Numeric"
 		},
 		{
-			"name": "Last Run Time",
-			"type": "Numeric"
+		  "Name": "Total Time (ms)",
+		  "Type": "Numeric"
 		}
 	],
 	"Edges": [],
