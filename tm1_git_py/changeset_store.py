@@ -244,9 +244,37 @@ class ChangesetStore:
         return 0 if rules.should_exclude(uri) else 1
 
     @staticmethod
-    def _desired_apply(uri: str, rules_json: str) -> int:
-        # apply=True for items that are not excluded by effective rules.
-        return int(ChangesetStore._is_uri_selected(uri, rules_json))
+    def _desired_apply(uri: str, rules_json: str, current_apply: int) -> int:
+        """Return next apply state for changeset-filter.
+
+        Semantics:
+        - ignored by effective rules => apply = 0
+        - unignored/force-included by effective rules => apply = 1
+        - not matched by aggregated filter rules => preserve prior apply
+        """
+        from tm1_git_py.filter import FilterRules, _parse_object_selector
+        import orjson
+
+        try:
+            parsed = orjson.loads(rules_json) if rules_json else []
+        except Exception:
+            parsed = []
+        if not isinstance(parsed, list):
+            parsed = []
+        rules = FilterRules([str(rule) for rule in parsed])
+        current = 1 if int(current_apply) else 0
+
+        if not rules.has_rules:
+            return current
+
+        if rules.should_exclude(uri):
+            return 0
+
+        context = _parse_object_selector(uri)
+        if context and rules._is_force_include_related_to_target(context):
+            return 1
+
+        return current
 
     def _where_for_rules(
         self,
@@ -301,22 +329,18 @@ class ChangesetStore:
 
     def toggle_apply(self, *, filter_rules: Optional[list[str]] = None) -> int:
         if not filter_rules:
-            # With no rules, everything should end up apply=true.
-            cursor = self._conn.execute(
-                "UPDATE changes SET apply = 1 WHERE apply != 1"
-            )
-            self._conn.commit()
-            return int(cursor.rowcount or 0)
+            # No filters means no state transition: preserve existing apply flags.
+            return 0
 
         import orjson
 
         rules_json = orjson.dumps([str(rule) for rule in filter_rules]).decode("utf-8")
-        self._conn.create_function("desired_apply", 2, self._desired_apply)
+        self._conn.create_function("desired_apply", 3, self._desired_apply)
         cursor = self._conn.execute(
             """
             UPDATE changes
-            SET apply = desired_apply(uri, ?)
-            WHERE apply != desired_apply(uri, ?)
+            SET apply = desired_apply(uri, ?, apply)
+            WHERE apply != desired_apply(uri, ?, apply)
             """,
             (rules_json, rules_json),
         )

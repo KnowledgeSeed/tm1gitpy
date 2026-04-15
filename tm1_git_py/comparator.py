@@ -460,7 +460,6 @@ class Comparator:
 
             cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
             changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
-            changeset.sort()
             summary = {"add": 0, "remove": 0, "modify": 0}
             for change in changeset.changes:
                 key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)

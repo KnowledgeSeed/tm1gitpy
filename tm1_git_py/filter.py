@@ -289,18 +289,23 @@ class FilterRules:
         ]
 
     @staticmethod
-    def _concrete_matches_rule_prefix(
-        concrete_path: list[tuple[EntityType, str]],
+    def _paths_overlap_by_rule_prefix(
+        target_path: list[tuple[EntityType, str]],
         rule_path: list[tuple[EntityType, str]],
     ) -> bool:
-        if len(concrete_path) > len(rule_path):
+        """Return True when target and rule share a matching prefix.
+
+        Rule path identifiers are patterns, target path identifiers are concrete.
+        """
+        overlap_len = min(len(target_path), len(rule_path))
+        if overlap_len == 0:
             return False
-        for (concrete_type, concrete_name), (rule_type, rule_pattern) in zip(
-            concrete_path, rule_path
-        ):
-            if concrete_type != rule_type:
+        for index in range(overlap_len):
+            target_type, target_name = target_path[index]
+            rule_type, rule_pattern = rule_path[index]
+            if target_type != rule_type:
                 return False
-            if not _identifier_pattern_matches(concrete_name, rule_pattern):
+            if not _identifier_pattern_matches(target_name, rule_pattern):
                 return False
         return True
 
@@ -312,9 +317,7 @@ class FilterRules:
             rule_path = list(rule.get("ancestor_chain", [])) + [
                 (rule["entity_type"], rule["identifier_pattern"])
             ]
-            if self._concrete_matches_rule_prefix(target_path, rule_path):
-                return True
-            if self._concrete_matches_rule_prefix(rule_path, target_path):
+            if self._paths_overlap_by_rule_prefix(target_path, rule_path):
                 return True
         return False
 

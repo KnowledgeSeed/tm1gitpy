@@ -2160,22 +2160,122 @@ class TestChangeset:
         )
         assert [change.body.name for change in page] == ["Proc2", "Proc3"]
 
-    def test_changeset_filter_sets_apply_from_effective_rules(self):
+    def test_changeset_filter_preserves_apply_when_rule_does_not_match(self):
         changeset = Changeset(changeset_id="20260413000006")
         p0 = make_process(name="Proc0")
         p1 = make_process(name="Proc1")
         changeset.changes = [
-            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p0.uri(), body=p0, apply=True),
-            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p1.uri(), body=p1, apply=False),
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p0.uri(), body=p0, apply=False),
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p1.uri(), body=p1, apply=True),
         ]
 
         updated = changeset.filter(["Processes('Proc1')"])
 
+        assert updated == 1
+        queried = changeset.query(from_=0, to=10)
+        by_name = {change.body.name: change.apply for change in queried}
+        assert by_name["Proc0"] is False
+        assert by_name["Proc1"] is False
+
+    def test_changeset_filter_unignores_only_matching_rules(self):
+        changeset = Changeset(changeset_id="20260413000008")
+        p0 = make_process(name="Proc0")
+        p1 = make_process(name="Proc1")
+        changeset.changes = [
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p0.uri(), body=p0, apply=False),
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p1.uri(), body=p1, apply=False),
+        ]
+
+        updated = changeset.filter(["!Processes('Proc1')"])
+
+        assert updated == 1
+        queried = changeset.query(from_=0, to=10)
+        by_name = {change.body.name: change.apply for change in queried}
+        assert by_name["Proc0"] is False
+        assert by_name["Proc1"] is True
+
+    def test_changeset_filter_with_no_rules_preserves_existing_apply_state(self):
+        changeset = Changeset(changeset_id="20260413000009")
+        p0 = make_process(name="Proc0")
+        p1 = make_process(name="Proc1")
+        changeset.changes = [
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p0.uri(), body=p0, apply=False),
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p1.uri(), body=p1, apply=True),
+        ]
+
+        updated = changeset.filter([])
+
         assert updated == 0
         queried = changeset.query(from_=0, to=10)
         by_name = {change.body.name: change.apply for change in queried}
-        assert by_name["Proc0"] is True
-        assert by_name["Proc1"] is False
+        assert by_name["Proc0"] is False
+        assert by_name["Proc1"] is True
+
+    def test_changeset_filter_force_include_dimension_cascades_to_descendants(self):
+        changeset = Changeset(changeset_id="20260413000010")
+        hierarchy_obj = Hierarchy(name="Main", elements=[], edges=[], subsets=[])
+        dimension_obj = Dimension(
+            name="Sales",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+        subset_obj = make_subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([Sales].[Main])}",
+            dimension_name="Sales",
+            hierarchy_name="Main",
+        )
+        element_obj = make_element("Leaf1")
+        edge_obj = Edge(parent="Total", component_name="Leaf1", weight=1)
+
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.DIMENSION,
+                uri=dimension_obj.uri(),
+                body=dimension_obj,
+                apply=False,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.HIERARCHY,
+                uri=hierarchy_obj.uri("Sales"),
+                body=hierarchy_obj,
+                apply=False,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.SUBSET,
+                uri=subset_obj.uri("Sales", "Main"),
+                body=subset_obj,
+                apply=False,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.ELEMENT,
+                uri=element_obj.uri("Sales", "Main"),
+                body=element_obj,
+                apply=False,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.EDGE,
+                uri=edge_obj.uri("Sales", "Main"),
+                body=edge_obj,
+                apply=False,
+            ),
+        ]
+
+        updated = changeset.filter(["!Dimensions('*')"])
+
+        assert updated == 5
+        queried = changeset.query(from_=0, to=20)
+        by_uri = {change.uri: change.apply for change in queried}
+        assert by_uri[dimension_obj.uri()] is True
+        assert by_uri[hierarchy_obj.uri("Sales")] is True
+        assert by_uri[subset_obj.uri("Sales", "Main")] is True
+        assert by_uri[element_obj.uri("Sales", "Main")] is True
+        assert by_uri[edge_obj.uri("Sales", "Main")] is True
 
     def test_changeset_can_be_loaded_by_changeset_id(self):
         changeset = Changeset(changeset_id="20260413000007")
@@ -2359,9 +2459,6 @@ class TestChangeset:
         changeset_imported = import_changeset(
             changeset_file=str(export_path)
         )
-
-        changeset_compared.sort()
-        changeset_imported.sort()
 
         for expected, actual in zip(changeset_compared.changes, changeset_imported.changes):
             assert expected.change_type == actual.change_type
