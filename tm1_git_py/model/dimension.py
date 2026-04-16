@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import List, Any, Dict, Union, Optional
 
 import TM1py
@@ -35,7 +36,13 @@ class Dimension:
             "@type": self.type,
             "Name": self.name,
             "Hierarchies@Code.links": [format_url("{}.hierarchies/{}.json", self.name, h.name) for h in self.hierarchies],
-            "DefaultHierarchy": format_url("Dimensions('{}')/Hierarchies('{}')", self.name, self.defaultHierarchy.name)
+            "DefaultHierarchy": {
+                "@id": format_url(
+                    "Dimensions('{}')/Hierarchies('{}')",
+                    self.name,
+                    self.defaultHierarchy.name,
+                )
+            }
         }, indent='\t')
     
     def __eq__(self, other: Any) -> bool:
@@ -81,12 +88,26 @@ class Dimension:
         hierarchies = [Hierarchy.from_dict(payload) for payload in hierarchy_payloads]
 
         default_payload = data.get("defaultHierarchy") or data.get("DefaultHierarchy") or {}
-        default_name = default_payload.get("name") or default_payload.get("Name")
+        default_name = None
+        if isinstance(default_payload, str):
+            pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
+            match = re.search(pattern, default_payload)
+            if match:
+                _, default_name = match.groups()
+        elif isinstance(default_payload, dict):
+            default_name = default_payload.get("name") or default_payload.get("Name")
+            if not default_name:
+                default_id = default_payload.get("@id") or default_payload.get("id")
+                if isinstance(default_id, str):
+                    pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
+                    match = re.search(pattern, default_id)
+                    if match:
+                        _, default_name = match.groups()
 
         default_hierarchy = None
         if default_name:
             default_hierarchy = next((hier for hier in hierarchies if hier.name == default_name), None)
-        if default_hierarchy is None and default_payload:
+        if default_hierarchy is None and isinstance(default_payload, dict) and default_payload:
             default_hierarchy = Hierarchy.from_dict(default_payload)
             hierarchies.append(default_hierarchy)
         if default_hierarchy is None and hierarchies:

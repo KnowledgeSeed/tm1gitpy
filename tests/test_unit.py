@@ -29,7 +29,13 @@ from tm1_git_py.exporter import export
 from tm1_git_py.serializer import serialize_model, serialize_dimensions
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.changeset import Change, ChangeType, Changeset, ObjectType, import_changeset
-from tm1_git_py.filter import EntityType, FilterRules, filter_changeset, should_exclude_path
+from tm1_git_py.filter import (
+    EntityType,
+    FilterRules,
+    filter_changeset,
+    should_exclude_path,
+    with_default_leaves_ignore,
+)
 from tm1_git_py import filter as filter_module
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
@@ -43,7 +49,6 @@ from tm1_git_py.progress_reporting import (
     ProgressUnit,
     TqdmProgressSink,
 )
-from tests.utility import tm1_uri_from_path
 from tm1_git_py.tm1py_ext import subset_service_ext, process_service_ext, cube_service_ext, view_service_ext
 
 T = TypeVar('T', Cube, Dimension, Process, Chore)
@@ -262,6 +267,27 @@ class TestDeserializer:
         payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
         assert payload["Name"] == "MyHier"
 
+    def test_serialize_dimensions_writes_default_hierarchy_as_id_object(self, tmp_path):
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[],
+            subsets=[],
+        )
+        dimension_obj = Dimension(
+            name="MyDim",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+
+        serialize_dimensions([dimension_obj], str(tmp_path))
+
+        dimension_file = tmp_path / "MyDim.json"
+        payload = json.loads(dimension_file.read_text(encoding="utf-8"))
+        assert payload["DefaultHierarchy"] == {
+            "@id": "Dimensions('MyDim')/Hierarchies('MyHier')"
+        }
+
     def test_serialize_dimensions_skips_rewrite_for_staged_hierarchy(self, tmp_path, monkeypatch):
         hierarchy_obj = Hierarchy(
             name="MyHier",
@@ -293,6 +319,27 @@ class TestDeserializer:
         dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
         assert "testbenchVersion" in dimensions
         assert not any("inprogress" in key for key in errors.keys())
+
+    def test_deserialize_dimensions_accepts_default_hierarchy_id_object(self, tmp_path):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        dimension_file = dimensions_dir / "testbenchVersion.json"
+        payload = json.loads(dimension_file.read_text(encoding="utf-8"))
+        payload["DefaultHierarchy"] = {
+            "@id": "Dimensions('testbenchVersion')/Hierarchies('testbenchVersion')"
+        }
+        dimension_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
+        assert "testbenchVersion" in dimensions
+        assert dimensions["testbenchVersion"].defaultHierarchy.name == "testbenchVersion"
+        assert (
+            "Dimensions('testbenchVersion')" not in errors
+            and "Dimensions('testbenchVersion')/Hierarchies('testbenchVersion')"
+            not in errors
+        )
 
     def test_get_subsets_uses_collector(self, monkeypatch):
         tm1_conn = mock.Mock()
@@ -1020,7 +1067,7 @@ class TestComparator:
         assert len(changeset.changes) == 0
         assert "Skipping Element streaming compare: count+hash match" in caplog.text
 
-    def test_comparator_compares_leaf_hierarchy_elements_by_default(self):
+    def test_comparator_ignores_leaf_hierarchy_elements_by_default(self):
         model1 = build_mock_model()
         model2 = build_mock_model()
 
@@ -1047,11 +1094,9 @@ class TestComparator:
             change for change in changeset.changes
             if change.object_type == ObjectType.ELEMENT and "Hierarchies('Leaves')" in change.uri
         ]
-        assert len(leaf_element_changes) == 1
-        assert leaf_element_changes[0].change_type == ChangeType.ADD
-        assert leaf_element_changes[0].body.name == "LeafB"
+        assert not leaf_element_changes
 
-    def test_comparator_can_ignore_leaf_hierarchy_elements_via_filter_rules(self):
+    def test_comparator_can_force_include_leaves_hierarchy_via_filter_rules(self):
         model1 = build_mock_model()
         model2 = build_mock_model()
 
@@ -1077,7 +1122,7 @@ class TestComparator:
             model1,
             model2,
             mode="full",
-            filter_rules=["Dimensions('MockDim')/Hierarchies('Leaves')/Elements('*')"],
+            filter_rules=["!Dimensions('*')/Hierarchies('Leaves')"],
         )
         leaf_element_changes = [
             change
@@ -1085,7 +1130,9 @@ class TestComparator:
             if change.object_type == ObjectType.ELEMENT
             and "Hierarchies('Leaves')" in change.uri
         ]
-        assert not leaf_element_changes
+        assert len(leaf_element_changes) == 1
+        assert leaf_element_changes[0].change_type == ChangeType.ADD
+        assert leaf_element_changes[0].body.name == "LeafB"
 
     def test_comparator_streaming_store_backed_elements_and_edges(self, tmp_path):
         """StoreBackedSequence merge compare should match in-memory list compare."""
@@ -1627,7 +1674,7 @@ class TestExporter:
         assert errors == {"dim": {}, "cube": {}, "process": {}, "chore": {}}
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
-        assert kwargs["filter_rules"]._normalized_rules == []
+        assert kwargs["filter_rules"]._normalized_rules == with_default_leaves_ignore([])
 
     def test_export_non_technical_filter_rules_keep_skip_control_disabled(self, mocker):
         tm1_service = mocker.Mock()
@@ -1639,7 +1686,7 @@ class TestExporter:
 
         export(tm1_service, filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(filter_rules)
+        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1660,7 +1707,7 @@ class TestExporter:
 
         export(tm1_service, filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(filter_rules)
+        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1681,7 +1728,7 @@ class TestExporter:
 
         export(tm1_service, filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(filter_rules)
+        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1694,6 +1741,22 @@ class TestExporter:
             tm1_service,
             filter_rules=mocker.ANY,
         )
+
+    def test_export_force_include_leaves_does_not_inject_default_leaves_exclude(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["!Dimensions('*')/Hierarchies('Leaves')"]
+        mock_dimensions = mocker.patch(
+            "tm1_git_py.exporter.dimensions_to_model",
+            return_value=({}, {}),
+        )
+        mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, filter_rules_list=filter_rules)
+
+        _, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == filter_rules
 
     def test_should_exclude_path_supports_tm1project_filter_format(self):
         filter_rules = [
@@ -2389,6 +2452,57 @@ class TestChangeset:
         cubes_filtered = filter_module.filter(model, ["Cubes('MockCube')"])
         assert len(cubes_filtered.cubes) == 0
 
+    def test_model_filter_excludes_leaves_hierarchy_by_default(self):
+        main_hierarchy = Hierarchy(
+            name="Main",
+            elements=[],
+            edges=[],
+            subsets=[],
+        )
+        leaves_hierarchy = Hierarchy(
+            name="Leaves",
+            elements=[],
+            edges=[],
+            subsets=[],
+        )
+        dimension = Dimension(
+            name="MockDim",
+            hierarchies=[main_hierarchy, leaves_hierarchy],
+            defaultHierarchy=main_hierarchy,
+        )
+        model = Model(cubes=[], dimensions=[dimension], processes=[], chores=[])
+
+        filtered = filter_module.filter(model, [])
+
+        assert [hier.name for hier in filtered.dimensions[0].hierarchies] == ["Main"]
+
+    def test_model_filter_force_include_leaves_hierarchy_overrides_default_exclude(self):
+        main_hierarchy = Hierarchy(
+            name="Main",
+            elements=[],
+            edges=[],
+            subsets=[],
+        )
+        leaves_hierarchy = Hierarchy(
+            name="Leaves",
+            elements=[],
+            edges=[],
+            subsets=[],
+        )
+        dimension = Dimension(
+            name="MockDim",
+            hierarchies=[main_hierarchy, leaves_hierarchy],
+            defaultHierarchy=main_hierarchy,
+        )
+        model = Model(cubes=[], dimensions=[dimension], processes=[], chores=[])
+
+        filtered = filter_module.filter(model, ["!Dimensions('*')/Hierarchies('Leaves')"])
+
+        assert [hier.name for hier in filtered.dimensions[0].hierarchies] == [
+            "Main",
+            "Leaves",
+        ]
+
 
     def test_export_persists_expected_payload(self, tmp_path):
         changes = Changeset(changeset_id="20260413000000")
@@ -2414,19 +2528,19 @@ class TestChangeset:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json"),
+                uri=Subset.uri_for("Dim_New", "Hier_New", "Subset_Create"),
                 body=created_subset,
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.DIMENSION,
-                uri=tm1_uri_from_path("dimensions/Dim_Update.json"),
+                uri=Dimension.uri_for("Dim_Update"),
                 body=new_dimension,
             ),
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.MDX_VIEW,
-                uri=tm1_uri_from_path("cubes/Cube_One.views/View_To_Delete.json"),
+                uri=MDXView.uri_for("Cube_One", "View_To_Delete"),
                 body=removed_view,
             ),
         ]
@@ -2447,7 +2561,7 @@ class TestChangeset:
                 {
                     "change_type": "remove",
                     "object_type": "MDXView",
-                    "uri": tm1_uri_from_path("cubes/Cube_One.views/View_To_Delete.json"),
+                    "uri": MDXView.uri_for("Cube_One", "View_To_Delete"),
                     "apply": True,
                     "body": {
                         "Name": "View_To_Delete",
@@ -2456,7 +2570,7 @@ class TestChangeset:
                 {
                     "change_type": "add",
                     "object_type": "Subset",
-                    "uri": tm1_uri_from_path("dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json"),
+                    "uri": Subset.uri_for("Dim_New", "Hier_New", "Subset_Create"),
                     "apply": True,
                     "body": {
                         "Name": "Subset_Create",
@@ -2466,7 +2580,7 @@ class TestChangeset:
                 {
                     "change_type": "modify",
                     "object_type": "Dimension",
-                    "uri": tm1_uri_from_path("dimensions/Dim_Update.json"),
+                    "uri": Dimension.uri_for("Dim_Update"),
                     "apply": True,
                     "body": {
                         "Name": "Dim_Update",
@@ -2601,7 +2715,7 @@ class TestChangeset:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/Dim.hierarchies/Hier.subsets/Subset_Día.json"),
+                uri=Subset.uri_for("Dim", "Hier", "Subset_Día"),
                 body=subset,
             )
         ]
@@ -2640,31 +2754,31 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.DIMENSION,
-                uri=tm1_uri_from_path("dimensions/MockDim.json"),
+                uri=Dimension.uri_for("MockDim"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.HIERARCHY,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json"),
+                uri=Hierarchy.uri_for("MockDim", "MockHier"),
                 body=hier_new
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"),
+                uri=Subset.uri_for("MockDim", "MockHier", "SubsetMod"),
                 body=subset_mod_new
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
+                uri=Subset.uri_for("MockDim", "MockHier", "SubsetA"),
                 body=subset
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path("processes/KeepProcess.json"),
+                uri=Process.uri_for("KeepProcess"),
                 body=process_obj
             ),
         ]
@@ -2673,9 +2787,9 @@ class TestChangesetFiltering:
             changeset,
             {
                 "add": [],
-                "remove": [tm1_uri_from_path("dimensions/MockDim.json")],
+                "remove": [Dimension.uri_for("MockDim")],
                 "modify": [
-                    tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json")
+                    Hierarchy.uri_for("MockDim", "MockHier")
                 ],
             },
             filter_children=True
@@ -2697,13 +2811,13 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.DIMENSION,
-                uri=tm1_uri_from_path("dimensions/MockDim.json"),
+                uri=Dimension.uri_for("MockDim"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
+                uri=Subset.uri_for("MockDim", "MockHier", "SubsetA"),
                 body=subset
             ),
         ]
@@ -2711,7 +2825,7 @@ class TestChangesetFiltering:
         filtered = filter_changeset(
             changeset,
             {
-                "add": [tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json")],
+                "add": [Subset.uri_for("MockDim", "MockHier", "SubsetA")],
                 "remove": [],
                 "modify": [],
             }
@@ -2736,25 +2850,25 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.DIMENSION,
-                uri=tm1_uri_from_path("dimensions/MockDim.json"),
+                uri=Dimension.uri_for("MockDim"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.HIERARCHY,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json"),
+                uri=Hierarchy.uri_for("MockDim", "MockHier"),
                 body=hier_new
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
+                uri=Subset.uri_for("MockDim", "MockHier", "SubsetA"),
                 body=subset
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path("processes/KeepProcess.json"),
+                uri=Process.uri_for("KeepProcess"),
                 body=process_obj
             ),
         ]
@@ -2763,7 +2877,7 @@ class TestChangesetFiltering:
             changeset,
             {
                 "add": [],
-                "remove": [tm1_uri_from_path("dimensions/MockDim.json")],
+                "remove": [Dimension.uri_for("MockDim")],
                 "modify": [],
             },
             filter_children=False
@@ -2797,7 +2911,7 @@ class TestSubsetCRUD:
         result = subset.create_subset(
             tm1_service,
             subset_mock,
-            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json"),
+            uri=Subset.uri_for("Dim_A", "Hier_A", "Subset_A"),
         )
 
         tm1py_subset_cls.assert_called_once_with(
@@ -2823,7 +2937,7 @@ class TestSubsetCRUD:
         result = subset.delete_subset(
             tm1_service,
             subset_mock,
-            uri=tm1_uri_from_path("dimensions/Dim_Del.hierarchies/Hier_Del.subsets/Subset_Delete.json"),
+            uri=Subset.uri_for("Dim_Del", "Hier_Del", "Subset_Delete"),
         )
 
         tm1_service.subsets.delete.assert_called_once_with(
@@ -2853,7 +2967,7 @@ class TestSubsetCRUD:
         result = subset.update_subset(
             tm1_service,
             subset_new,
-            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json"),
+            uri=Subset.uri_for("Dim_A", "Hier_A", "Subset_A"),
         )
 
         tm1_service.subsets.get.assert_called_once_with(
@@ -2882,7 +2996,7 @@ class TestEdgeCRUD:
         result = edge.create_edge(
             tm1_service,
             edge_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.json/Parent_A:Child_A"),
+            uri=Edge.uri_for("Dim_A", "Hier_A", "Parent_A", "Child_A"),
         )
 
         tm1_service.elements.add_edges.assert_called_once_with(
@@ -2908,7 +3022,7 @@ class TestEdgeCRUD:
         result = edge.update_edge(
             tm1_service,
             edge_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_B.hierarchies/Hier_B.json/Parent_B:Child_B"),
+            uri=Edge.uri_for("Dim_B", "Hier_B", "Parent_B", "Child_B"),
         )
 
         tm1_service.hierarchies.get.assert_called_once_with(
@@ -2936,7 +3050,7 @@ class TestEdgeCRUD:
         result = edge.delete_edge(
             tm1_service,
             edge_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_C.hierarchies/Hier_C.json/Parent_C:Child_C"),
+            uri=Edge.uri_for("Dim_C", "Hier_C", "Parent_C", "Child_C"),
         )
 
         tm1_service.elements.remove_edge.assert_called_once_with(
@@ -2965,7 +3079,7 @@ class TestElementCRUD:
         result = element.create_element(
             tm1_service,
             element_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.json/Elem_A"),
+            uri=Element.uri_for("Dim_A", "Hier_A", "Elem_A"),
         )
 
         tm1py_element_cls.assert_called_once_with(name="Elem_A", element_type="Numeric")
@@ -2988,7 +3102,7 @@ class TestElementCRUD:
         result = element.delete_element(
             tm1_service,
             element_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_B.hierarchies/Hier_B.json/Elem_B"),
+            uri=Element.uri_for("Dim_B", "Hier_B", "Elem_B"),
         )
 
         tm1_service.elements.delete.assert_called_once_with(
@@ -3026,7 +3140,7 @@ class TestHierarchyCRUD:
         result = hierarchy.create_hierarchy(
             tm1_service,
             hierarchy_mock,
-            uri=tm1_uri_from_path("dimensions/Dimension_A.hierarchies/Hierarchy_A.json"),
+            uri=Hierarchy.uri_for("Dimension_A", "Hierarchy_A"),
         )
 
         # Assert: TM1py.Hierarchy constructed with correct name + dimension
@@ -3058,7 +3172,7 @@ class TestHierarchyCRUD:
         result = hierarchy.delete_hierarchy(
             tm1_service,
             hierarchy_mock,
-            uri=tm1_uri_from_path("dimensions/Dimension_X.hierarchies/Hierarchy_Delete.json"),
+            uri=Hierarchy.uri_for("Dimension_X", "Hierarchy_Delete"),
         )
 
         tm1_service.hierarchies.delete.assert_called_once_with(
@@ -3116,7 +3230,7 @@ class TestMDXViewCRUD:
         result = mdxview.create_mdxview(
             tm1_service,
             mdx_view,
-            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
+            uri=MDXView.uri_for("Cube_A", "View_A"),
         )
 
         tm1py_mdxview_cls.assert_called_once_with(
@@ -3139,7 +3253,7 @@ class TestMDXViewCRUD:
         result = mdxview.delete_mdxview(
             tm1_service,
             mdx_view,
-            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
+            uri=MDXView.uri_for("Cube_A", "View_A"),
         )
 
         tm1_service.views.delete.assert_called_once_with(view_name=mdx_view.name, cube_name="Cube_A")
@@ -3163,7 +3277,7 @@ class TestMDXViewCRUD:
         result = mdxview.update_mdxview(
             tm1_service,
             mdx_view_new,
-            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
+            uri=MDXView.uri_for("Cube_A", "View_A"),
         )
 
         # Assert: we got the existing MDX view from TM1

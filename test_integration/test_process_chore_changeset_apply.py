@@ -11,20 +11,19 @@ from test_integration.test_base import (
     load_fixture_model_tm1gitpy,
     tm1_service,
 )
-from tests.utility import tm1_uri_from_path
 from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.comparator import Comparator
-from tm1_git_py.filter import DEFAULT_TM1_TECHNICAL_OBJECTS_AND_LEAVES
+from tm1_git_py.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
 from tm1_git_py.model import process as process_model, Model
-from tm1_git_py.model.chore import Chore as GitChore
-from tm1_git_py.model.process import Process as GitProcess
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.process import Process
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 
 
 @pytest.mark.usefixtures("tm1_service")
 class TestProcessChoreChangesetApply:
-    _f_no_meta = DEFAULT_TM1_TECHNICAL_OBJECTS_AND_LEAVES
+    _f_no_meta = DEFAULT_TM1_TECHNICAL_OBJECTS
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
@@ -70,7 +69,7 @@ class TestProcessChoreChangesetApply:
         if process_name in all_names:
             process_obj = self.tm1_service.processes.get(process_name)
             # Normalize existing process to the expected schema using existing process update helpers.
-            desired = GitProcess(
+            desired = Process(
                 name=process_name,
                 hasSecurityAccess=getattr(process_obj, "has_security_access", False),
                 code_link=f"{process_name}.ti",
@@ -142,8 +141,8 @@ class TestProcessChoreChangesetApply:
         execution_mode: str = "SingleCommit",
         frequency: str = "P01DT00H00M00S",
         tasks: list[Task] | None = None,
-    ) -> GitChore:
-        return GitChore(
+    ) -> Chore:
+        return Chore(
             name=name,
             start_time=start_time,
             dst_sensitive=dst_sensitive,
@@ -268,15 +267,14 @@ class TestProcessChoreChangesetApply:
         fixture_process = next(
             p for p in fixture_model.processes if p.name == process_name
         )
-        source_path = f"processes/{process_name}.json"
 
         changeset = Changeset("modify_process_datasource_dict")
         changeset.changes = [
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path(source_path),
-                body=GitProcess(
+                uri=Process.uri_for(process_name),
+                body=Process(
                     name=fixture_process.name,
                     hasSecurityAccess=fixture_process.hasSecurityAccess,
                     code_link=fixture_process.code_link,
@@ -330,7 +328,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -345,7 +343,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(chore_name),
             )
         ]
@@ -369,7 +367,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="2026-03-05T00:00:00+00:00",
@@ -388,7 +386,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="2026-03-06T10:30:00+01:00",
@@ -415,7 +413,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="2026-03-07T00:00:00+00:00",
@@ -445,7 +443,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     tasks=[
@@ -468,7 +466,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     tasks=[
@@ -503,7 +501,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="2026-03-05",
@@ -520,7 +518,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="invalid-date",
@@ -550,7 +548,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{keep_extra}.json"),
+                uri=Chore.uri_for(keep_extra),
                 body=self._git_chore(
                     keep_extra, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -598,8 +596,8 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path(f"processes/{process_name}.json"),
-                body=GitProcess(
+                uri=Process.uri_for(process_name),
+                body=Process(
                     name=process_name,
                     hasSecurityAccess=False,
                     code_link=f"{process_name}.ti",
@@ -612,7 +610,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_a}.json"),
+                uri=Chore.uri_for(chore_a),
                 body=self._git_chore(
                     chore_a, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -620,7 +618,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_b}.json"),
+                uri=Chore.uri_for(chore_b),
                 body=self._git_chore(
                     chore_b, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -658,7 +656,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -684,7 +682,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name, tasks=[Task(process_name=missing_proc, parameters=[])]
                 ),
@@ -709,7 +707,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     tasks=[

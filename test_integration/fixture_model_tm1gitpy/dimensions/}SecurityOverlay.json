@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}SecurityOverlay.hierarchies/}SecurityOverlay.json"
 	],
-	"DefaultHierarchy": "Dimensions('}SecurityOverlay')/Hierarchies('}SecurityOverlay')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}SecurityOverlay')/Hierarchies('}SecurityOverlay')"
+	}
 }

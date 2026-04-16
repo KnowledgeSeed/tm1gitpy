@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}StatsStatsByCubeByClient.hierarchies/}StatsStatsByCubeByClient.json"
 	],
-	"DefaultHierarchy": "Dimensions('}StatsStatsByCubeByClient')/Hierarchies('}StatsStatsByCubeByClient')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}StatsStatsByCubeByClient')/Hierarchies('}StatsStatsByCubeByClient')"
+	}
 }

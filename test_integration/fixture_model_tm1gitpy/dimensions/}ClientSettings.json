@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}ClientSettings.hierarchies/}ClientSettings.json"
 	],
-	"DefaultHierarchy": "Dimensions('}ClientSettings')/Hierarchies('}ClientSettings')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}ClientSettings')/Hierarchies('}ClientSettings')"
+	}
 }

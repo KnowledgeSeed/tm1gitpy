@@ -17,7 +17,7 @@ except Exception:  # pragma: no cover - optional runtime fallback
 from functools import reduce
 
 from tm1_git_py import filter as filter_module
-from tm1_git_py.filter import EntityType, FilterRules
+from tm1_git_py.filter import EntityType, FilterRules, with_default_leaves_ignore
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -156,7 +156,7 @@ def export(
     include_progress_kwarg = progress_sink is not None
 
     logger.info("TM1 export started")
-    effective_rules = list(filter_rules_list or [])
+    effective_rules = with_default_leaves_ignore(filter_rules_list)
     filter_rules = FilterRules(effective_rules)
     logger.info(
         "Export filters configured additional_rules=%d effective_rules=%d",

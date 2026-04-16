@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}ElementProperties.hierarchies/}ElementProperties.json"
 	],
-	"DefaultHierarchy": "Dimensions('}ElementProperties')/Hierarchies('}ElementProperties')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}ElementProperties')/Hierarchies('}ElementProperties')"
+	}
 }

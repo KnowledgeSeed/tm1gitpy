@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"TestDim1.hierarchies/TestDim1.json"
 	],
-	"DefaultHierarchy": "Dimensions('TestDim1')/Hierarchies('TestDim1')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('TestDim1')/Hierarchies('TestDim1')"
+	}
 }

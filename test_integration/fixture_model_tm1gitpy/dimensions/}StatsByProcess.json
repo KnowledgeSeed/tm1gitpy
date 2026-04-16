@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}StatsByProcess.hierarchies/}StatsByProcess.json"
 	],
-	"DefaultHierarchy": "Dimensions('}StatsByProcess')/Hierarchies('}StatsByProcess')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}StatsByProcess')/Hierarchies('}StatsByProcess')"
+	}
 }

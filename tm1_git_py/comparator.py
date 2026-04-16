@@ -15,7 +15,7 @@ from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.process import Process
-from tm1_git_py.filter import filter
+from tm1_git_py.filter import filter, with_default_leaves_ignore
 from tm1_git_py.progress_reporting import (
     NoopProgressSink,
     ProgressEvent,
@@ -427,18 +427,25 @@ class Comparator:
                 len(model2.chores),
             )
 
-            if filter_rules:
-                if isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules):
-                    filter_rule = _normalize_filter(filter_rules)
-                    logger.debug("Applying comparator filter rules: %s", filter_rule)
-                    model1 = filter(model1, filter_rule)
-                    model2 = filter(model2, filter_rule)
-                else:
-                    for filter_rule in filter_rules:
-                        filter_rule = _normalize_filter(filter_rule)
-                        logger.debug("Applying comparator filter rules: %s", filter_rule)
-                        model1 = filter(model1, filter_rule)
-                        model2 = filter(model2, filter_rule)
+            if filter_rules and not (
+                isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules)
+            ):
+                for filter_rule in filter_rules:
+                    normalized_rule_set = with_default_leaves_ignore(
+                        _normalize_filter(filter_rule)
+                    )
+                    logger.debug(
+                        "Applying comparator filter rules: %s", normalized_rule_set
+                    )
+                    model1 = filter(model1, normalized_rule_set)
+                    model2 = filter(model2, normalized_rule_set)
+            else:
+                normalized_rule_set = with_default_leaves_ignore(
+                    _normalize_filter(filter_rules or [])
+                )
+                logger.debug("Applying comparator filter rules: %s", normalized_rule_set)
+                model1 = filter(model1, normalized_rule_set)
+                model2 = filter(model2, normalized_rule_set)
 
             phase_rows = [
                 ("Cube", model1.cubes, model2.cubes, Cube),

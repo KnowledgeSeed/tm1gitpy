@@ -8,17 +8,16 @@ from test_integration.test_base import (
     tm1_service,
     check_no_diff,
 )
-from tests.utility import tm1_uri_from_path
 from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.comparator import Comparator
-from tm1_git_py.filter import DEFAULT_TM1_TECHNICAL_OBJECTS_AND_LEAVES
+from tm1_git_py.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
 from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.element import Element
 from tm1_git_py.model.hierarchy import Hierarchy as GitHierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.nativeview import NativeView
-from tm1_git_py.model.process import Process as GitProcess
+from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
 from tm1_git_py.model.subset import Subset as GitSubset
 from tm1_git_py.model.ti import TI
@@ -27,7 +26,8 @@ from tm1_git_py.model.ti import TI
 @pytest.mark.usefixtures("tm1_service")
 class TestChangesetApply:
 
-    _f_no_meta = DEFAULT_TM1_TECHNICAL_OBJECTS_AND_LEAVES
+    _f_no_meta = DEFAULT_TM1_TECHNICAL_OBJECTS
+
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
@@ -272,7 +272,6 @@ class TestChangesetApply:
         )
         cube_name = "TestCube3WithView"
         view_name = "zz_temp_mdx_view_add"
-        source_path = f"cubes/{cube_name}.views/{view_name}.json"
         try:
             self.tm1_service.views.delete(cube_name=cube_name, view_name=view_name)
         except Exception:
@@ -283,7 +282,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.MDX_VIEW,
-                uri=tm1_uri_from_path(source_path),
+                uri=MDXView.uri_for(cube_name, view_name),
                 body=MDXView(
                     name=view_name,
                     mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
@@ -299,7 +298,6 @@ class TestChangesetApply:
         )
         cube_name = "TestCube3WithView"
         view_name = "zz_temp_mdx_view_remove"
-        source_path = f"cubes/{cube_name}.views/{view_name}.json"
         self.tm1_service.views.create(
             TM1py.MDXView(
                 cube_name=cube_name,
@@ -313,7 +311,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.MDX_VIEW,
-                uri=tm1_uri_from_path(source_path),
+                uri=MDXView.uri_for(cube_name, view_name),
                 body=MDXView(name=view_name, mdx=""),
             )
         ]
@@ -329,7 +327,6 @@ class TestChangesetApply:
         )
         cube_name = "TestCube3WithView"
         view_name = "zz_temp_native_view_remove"
-        source_path = f"cubes/{cube_name}.views/{view_name}.json"
         nv = TM1py.NativeView.from_dict(
             view_as_dict={
                 "Name": view_name,
@@ -363,7 +360,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.NATIVE_VIEW,
-                uri=tm1_uri_from_path(source_path),
+                uri=NativeView.uri_for(cube_name, view_name),
                 body=NativeView(
                     name=view_name,
                     columns=[],
@@ -387,14 +384,13 @@ class TestChangesetApply:
         )
         cube_name = "TestCube3WithView"
         view_name = "TestCube3WithView_view2"
-        source_path = f"cubes/{cube_name}.views/{view_name}.json"
 
         changeset = Changeset("modify_nativeview_case")
         changeset.changes = [
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.NATIVE_VIEW,
-                uri=tm1_uri_from_path(source_path),
+                uri=NativeView.uri_for(cube_name, view_name),
                 body=NativeView(
                     name=view_name,
                     columns=[
@@ -659,9 +655,6 @@ class TestChangesetApply:
     def test_apply_add_subset(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self)
         subset_name = "zz_temp_subset_add"
-        source_path = (
-            f"dimensions/TestDim1.hierarchies/TestDim1.subsets/{subset_name}.json"
-        )
         self.tm1_service.subsets.delete(
             subset_name=subset_name,
             dimension_name="TestDim1",
@@ -672,7 +665,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path(source_path),
+                uri=GitSubset.uri_for("TestDim1", "TestDim1", subset_name),
                 body=GitSubset(
                     name=subset_name, expression="{[TestDim1].[TestDim1].Members}"
                 ),
@@ -713,9 +706,6 @@ class TestChangesetApply:
             self, self._f_no_meta
         )
         subset_name = "zz_temp_subset_modify"
-        source_path = (
-            f"dimensions/TestDim1.hierarchies/TestDim1.subsets/{subset_name}.json"
-        )
         subset_obj = TM1py.Subset(
             subset_name=subset_name,
             dimension_name="TestDim1",
@@ -729,7 +719,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path(source_path),
+                uri=GitSubset.uri_for("TestDim1", "TestDim1", subset_name),
                 body=GitSubset(
                     name=subset_name,
                     expression="{[TestDim1].[TestDim1].[TestDim1Elem1]}",
@@ -864,7 +854,6 @@ class TestChangesetApply:
             self, self._f_no_meta
         )
         cube_name = "TestCube2WithRule"
-        source_path = f"cubes/{cube_name}.rules"
 
         cube_object = self.tm1_service.cubes.get(cube_name)
         cube_object.rules = TM1py.Rules("")
@@ -875,7 +864,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.RULE,
-                uri=tm1_uri_from_path(source_path),
+                uri=Rule.uri_for(cube_name),
                 body=Rule(name="default", area="[default]", full_statement=""),
             )
         ]
@@ -980,9 +969,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.ELEMENT,
-                uri=tm1_uri_from_path(
-                    "dimensions/TestDimMultiHier.hierarchies/Leaves.json/b"
-                ),
+                uri=Element.uri_for("TestDimMultiHier", "Leaves", "b"),
                 body=Element(
                     name="b",
                     type="Numeric",
@@ -991,8 +978,11 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.EDGE,
-                uri=tm1_uri_from_path(
-                    "dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:DimElem1"
+                uri=Edge.uri_for(
+                    "TestDimMultiHier",
+                    "TestDimMultiHier",
+                    "DimElemC",
+                    "DimElem1",
                 ),
                 body=Edge(
                     parent="DimElemC",
@@ -1003,9 +993,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.HIERARCHY,
-                uri=tm1_uri_from_path(
-                    f"dimensions/TestDim1.hierarchies/{temp_hierarchy_name}.json"
-                ),
+                uri=GitHierarchy.uri_for("TestDim1", temp_hierarchy_name),
                 body=GitHierarchy(
                     name=temp_hierarchy_name,
                     elements=[],
@@ -1016,7 +1004,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.MDX_VIEW,
-                uri=tm1_uri_from_path(f"cubes/{cube_name}.views/{view_name}.json"),
+                uri=MDXView.uri_for(cube_name, view_name),
                 body=MDXView(
                     name=view_name,
                     mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
@@ -1025,7 +1013,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.RULE,
-                uri=tm1_uri_from_path(f"cubes/{rule_cube_name}.rules"),
+                uri=Rule.uri_for(rule_cube_name),
                 body=Rule(
                     name="default",
                     area="[default]",
@@ -1035,9 +1023,7 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.NATIVE_VIEW,
-                uri=tm1_uri_from_path(
-                    f"cubes/{cube_name}.views/{native_view_name}.json"
-                ),
+                uri=NativeView.uri_for(cube_name, native_view_name),
                 body=NativeView(
                     name=native_view_name,
                     columns=[
@@ -1069,8 +1055,8 @@ class TestChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path(f"processes/{process_name}.json"),
-                body=GitProcess(
+                uri=Process.uri_for(process_name),
+                body=Process(
                     name=process_name,
                     hasSecurityAccess=False,
                     code_link=f"{process_name}.ti",
