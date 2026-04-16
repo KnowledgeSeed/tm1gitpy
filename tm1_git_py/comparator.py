@@ -185,10 +185,6 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
         return False
 
 
-def _is_leaf_hierarchy(hierarchy_obj: Any) -> bool:
-    return getattr(hierarchy_obj, "name", "").strip().lower() == "leaves"
-
-
 def _uri_from_object(obj: Any, context: Optional[dict[str, str]] = None) -> str:
     context = context or {}
     try:
@@ -536,9 +532,6 @@ class Comparator:
         if child_relations and parent_pairs:
             for old_obj, new_obj in parent_pairs.values():
                 for child_attr, child_cls in child_relations:
-                    # "Leaves" hierarchy elements are auto-managed by TM1 and should not be diffed.
-                    if isinstance(new_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(new_obj):
-                        continue
                     slot_old = getattr(old_obj, child_attr, None) or []
                     slot_new = getattr(new_obj, child_attr, None) or []
                     if isinstance(slot_old, StoreBackedSequence) and isinstance(slot_new, StoreBackedSequence):
@@ -575,8 +568,6 @@ class Comparator:
         if child_relations and compare_result.added_items:
             for new_obj in compare_result.added_items:
                 for child_attr, child_cls in child_relations:
-                    if isinstance(new_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(new_obj):
-                        continue
                     slot_new = getattr(new_obj, child_attr, None) or []
                     if isinstance(slot_new, StoreBackedSequence):
                         new_children = slot_new
@@ -597,8 +588,6 @@ class Comparator:
         if mode == "full" and child_relations and compare_result.removed_items:
             for old_obj in compare_result.removed_items:
                 for child_attr, child_cls in child_relations:
-                    if isinstance(old_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(old_obj):
-                        continue
                     slot_old = getattr(old_obj, child_attr, None) or []
                     if isinstance(slot_old, StoreBackedSequence):
                         old_children = slot_old

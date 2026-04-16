@@ -1020,7 +1020,7 @@ class TestComparator:
         assert len(changeset.changes) == 0
         assert "Skipping Element streaming compare: count+hash match" in caplog.text
 
-    def test_comparator_ignores_leaf_hierarchy_elements(self):
+    def test_comparator_compares_leaf_hierarchy_elements_by_default(self):
         model1 = build_mock_model()
         model2 = build_mock_model()
 
@@ -1046,6 +1046,44 @@ class TestComparator:
         leaf_element_changes = [
             change for change in changeset.changes
             if change.object_type == ObjectType.ELEMENT and "Hierarchies('Leaves')" in change.uri
+        ]
+        assert len(leaf_element_changes) == 1
+        assert leaf_element_changes[0].change_type == ChangeType.ADD
+        assert leaf_element_changes[0].body.name == "LeafB"
+
+    def test_comparator_can_ignore_leaf_hierarchy_elements_via_filter_rules(self):
+        model1 = build_mock_model()
+        model2 = build_mock_model()
+
+        leaf_hierarchy_old = Hierarchy(
+            name="Leaves",
+            elements=[Element(name="LeafA", type="Numeric")],
+            edges=[],
+            subsets=[],
+        )
+        leaf_hierarchy_new = Hierarchy(
+            name="Leaves",
+            elements=[
+                Element(name="LeafA", type="Numeric"),
+                Element(name="LeafB", type="Numeric"),
+            ],
+            edges=[],
+            subsets=[],
+        )
+        model1.dimensions[0].hierarchies.append(leaf_hierarchy_old)
+        model2.dimensions[0].hierarchies.append(leaf_hierarchy_new)
+
+        changeset = Comparator().compare(
+            model1,
+            model2,
+            mode="full",
+            filter_rules=["Dimensions('MockDim')/Hierarchies('Leaves')/Elements('*')"],
+        )
+        leaf_element_changes = [
+            change
+            for change in changeset.changes
+            if change.object_type == ObjectType.ELEMENT
+            and "Hierarchies('Leaves')" in change.uri
         ]
         assert not leaf_element_changes
 
@@ -2412,7 +2450,7 @@ class TestChangeset:
                     "uri": tm1_uri_from_path("cubes/Cube_One.views/View_To_Delete.json"),
                     "apply": True,
                     "body": {
-                        "name": "View_To_Delete",
+                        "Name": "View_To_Delete",
                     },
                 },
                 {
@@ -2421,8 +2459,8 @@ class TestChangeset:
                     "uri": tm1_uri_from_path("dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json"),
                     "apply": True,
                     "body": {
-                        "name": "Subset_Create",
-                        "expression": "{[Dim_New].[Hier_New].Members}",
+                        "Name": "Subset_Create",
+                        "Expression": "{[Dim_New].[Hier_New].Members}",
                     },
                 },
                 {
@@ -2431,12 +2469,12 @@ class TestChangeset:
                     "uri": tm1_uri_from_path("dimensions/Dim_Update.json"),
                     "apply": True,
                     "body": {
-                        "name": "Dim_Update",
-                        "hierarchies": [
+                        "Name": "Dim_Update",
+                        "Hierarchies": [
                             "dimensions/Dim_Update.hierarchies/Base.json",
                             "dimensions/Dim_Update.hierarchies/Added.json",
                         ],
-                        "default_hierarchy": "dimensions/Dim_Update.hierarchies/Base.json",
+                        "DefaultHierarchy": "dimensions/Dim_Update.hierarchies/Base.json",
                     },
                 },
             ],
@@ -2507,6 +2545,49 @@ class TestChangeset:
         assert imported.changeset_id == "20260413000005"
         assert len(imported.changes) == 1
         assert imported.changes[0].apply is False
+
+    def test_export_remove_edge_body_uses_parent_component_weight(self, tmp_path):
+        changeset = Changeset(changeset_id="20260416000003")
+        edge = Edge(parent="DimElemC", component_name="DimElem1", weight=1)
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.EDGE,
+                uri="Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')/Edges('DimElemC'/'DimElem1')",
+                body=edge,
+            )
+        ]
+
+        export_path = tmp_path / "remove_edge_payload.yml"
+        changeset.export(export_path)
+        payload = yaml.safe_load(export_path.read_text(encoding="utf-8"))
+        body = payload["changes"][0]["body"]
+        assert body == {
+            "ParentName": "DimElemC",
+            "ComponentName": "DimElem1",
+            "Weight": 1,
+        }
+
+    def test_import_rejects_edge_body_legacy_name_format(self, tmp_path):
+        changeset = Changeset(changeset_id="20260416000001")
+        edge = Edge(parent="DimElemC", component_name="DimElem1", weight=1)
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.EDGE,
+                uri="Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')/Edges('DimElemC'/'DimElem1')",
+                body=edge,
+            )
+        ]
+        path = tmp_path / "edge_remove_legacy_name.yml"
+        changeset.export(path)
+        raw = path.read_text(encoding="utf-8")
+        raw = raw.replace("ParentName: DimElemC\n", "")
+        raw = raw.replace("ComponentName: DimElem1\n", "name: DimElemC:DimElem1\n")
+        path.write_text(raw, encoding="utf-8")
+
+        imported = import_changeset(path)
+        assert len(imported.changes) == 0
 
     def test_export_changeset_preserves_unicode_characters(self, tmp_path):
         changes = Changeset()

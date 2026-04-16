@@ -12,8 +12,19 @@ import orjson
 import yaml
 
 from tm1_git_py.changeset_store import ChangesetStore
-from tm1_git_py.model import Chore, Cube, Dimension, Hierarchy, MDXView, NativeView, Process, Subset, hierarchy, subset, \
-    mdxview, Element, Rule, Edge
+from tm1_git_py.model import (
+    Chore,
+    Cube,
+    Dimension,
+    Edge,
+    Element,
+    Hierarchy,
+    MDXView,
+    NativeView,
+    Process,
+    Rule,
+    Subset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +66,10 @@ _URI_PATTERNS = {
     "hierarchy": re.compile(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)$", flags=re.IGNORECASE),
     "element": re.compile(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Elements\('([^']+)'\)$", flags=re.IGNORECASE),
     "subset": re.compile(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Subsets\('([^']+)'\)$", flags=re.IGNORECASE),
-    "edge": re.compile(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Edges\('([^']+)'\)$", flags=re.IGNORECASE),
+    "edge": re.compile(
+        r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)/Edges\('([^']+)'/'([^']+)'\)$",
+        flags=re.IGNORECASE,
+    ),
     "cube": re.compile(r"^Cubes\('([^']+)'\)$", flags=re.IGNORECASE),
     "view": re.compile(r"^Cubes\('([^']+)'\)/Views\('([^']+)'\)$", flags=re.IGNORECASE),
     "rule": re.compile(r"^Cubes\('([^']+)'\)/Rules\('([^']+)'\)$", flags=re.IGNORECASE),
@@ -176,7 +190,7 @@ def _extract_uri_index_fields(uri: str) -> dict[str, Optional[str]]:
         elif key == "edge":
             fields["dim_name"] = groups[0]
             fields["hier_name"] = groups[1]
-            fields["object_name"] = groups[2]
+            fields["object_name"] = f"{groups[2]}:{groups[3]}"
         elif key in {"cube", "view", "rule"}:
             fields["cube_name"] = groups[0]
             fields["object_name"] = groups[0] if key == "cube" else groups[1]
@@ -477,9 +491,23 @@ class Changeset:
             fail_fast=fail_fast
         )
 
+    def __str__(self) -> str:
+        preview_limit = 10
+        preview_changes = self.query(from_=0, to=preview_limit)
+        preview_lines = [
+            f"{idx + 1}. {change.change_type.value} {change.object_type.value} apply={change.apply} uri={change.uri}"
+            for idx, change in enumerate(preview_changes)
+        ]
+        if len(self.changes) > preview_limit:
+            preview_lines.append(f"... ({len(self.changes) - preview_limit} more change(s))")
+        preview = "\n  ".join(preview_lines) if preview_lines else "<no changes>"
+        return (
+            f"Changeset(changeset_id='{self.changeset_id}', total_changes={len(self.changes)})\n"
+            f"  {preview}"
+        )
 
-    def sort(self):
-        logger.debug("Changeset.sort() is a no-op; ordering is SQL-backed.")
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
     def export(self, file_path: Union[str, Path]) -> None:
@@ -523,7 +551,6 @@ class Changeset:
     def to_json(self) -> dict[str, Any]:
         """Build a fixture-compatible changeset payload as a JSON-serializable dict."""
 
-        self.sort()
         logger.info(
             "Serializing changeset '%s' to payload (changes=%d)",
             self.changeset_id,
@@ -616,69 +643,54 @@ def _compose_rule_text_from_changes(changes: list[Change]) -> str:
 def _remove_body_name(body: Any) -> str:
     if isinstance(body, Rule):
         return getattr(body, "name", None) or _rule_name_from_area(body.area)
-    if isinstance(body, Edge):
-        return f"{body.parent}:{body.name}"
     return getattr(body, "name", "")
 
 
 def _serialize_change_body(change: Change) -> dict[str, Any]:
     body = change.body
+    if isinstance(body, Edge):
+        return body.to_dict()
+
     if change.change_type == ChangeType.REMOVE:
-        return {"name": _remove_body_name(body)}
+        return {"Name": _remove_body_name(body)}
 
     if isinstance(body, MDXView):
-        return {
-            "name": body.name,
-            "mdx": body.mdx
-        }
+        return body.to_dict()
 
     if isinstance(body, Rule):
         return {
-            "name": body.name,
-            "rule": body.full_statement,
-            "area": body.area,
-            "comment": body.comment,
+            "Name": body.name,
+            "Rule": body.full_statement,
+            "Area": body.area,
+            "Comment": body.comment,
         }
 
     if isinstance(body, Cube):
         return {
-            "name": body.name,
-            "dimensions": [_resolve_change_body_reference_path(d) or f"dimensions/{d.name}.json" for d in body.dimensions]
+            "Name": body.name,
+            "Dimensions": [_resolve_change_body_reference_path(d) or f"dimensions/{d.name}.json" for d in body.dimensions]
         }
 
     if isinstance(body, Subset):
-        return {
-            "name": body.name,
-            "expression": body.expression
-        }
-
-    if isinstance(body, Edge):
-        return {
-            "ParentName": body.parent,
-            "ComponentName": body.name,
-            "Weight": body.weight,
-        }
+        return body.to_dict()
 
     if isinstance(body, Element):
-        return {
-            "Name": body.name,
-            "Type": body.type,
-        }
+        return body.to_dict()
 
     if isinstance(body, Hierarchy):
         return {
-            "name": body.name
+            "Name": body.name
         }
 
     if isinstance(body, Dimension):
         return {
-            "name": body.name,
-            "hierarchies": [
+            "Name": body.name,
+            "Hierarchies": [
                 _resolve_change_body_reference_path(h, dimension_name=body.name)
                 or f"dimensions/{body.name}.hierarchies/{h.name}.json"
                 for h in body.hierarchies
             ],
-            "default_hierarchy": (
+            "DefaultHierarchy": (
                 _resolve_change_body_reference_path(body.defaultHierarchy, dimension_name=body.name)
                 or f"dimensions/{body.name}.hierarchies/{body.defaultHierarchy.name}.json"
             )
@@ -687,27 +699,27 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
     if isinstance(body, Process):
         ti = getattr(body, "ti", None)
         return {
-            "name": body.name,
-            "has_security_access": body.hasSecurityAccess,
-            "data_source": body.datasource if isinstance(body.datasource, dict) else {"type": body.datasource or "None"},
-            "parameters": body.parameters,
-            "variables": body.variables,
-            "prolog": getattr(ti, "prolog_procedure", ""),
-            "data": getattr(ti, "data_procedure", ""),
-            "metadata": getattr(ti, "metadata_procedure", ""),
-            "epilog": getattr(ti, "epilog_procedure", ""),
+            "Name": body.name,
+            "HasSecurityAccess": body.hasSecurityAccess,
+            "DataSource": body.datasource if isinstance(body.datasource, dict) else {"type": body.datasource or "None"},
+            "Parameters": body.parameters,
+            "Variables": body.variables,
+            "Prolog": getattr(ti, "prolog_procedure", ""),
+            "Data": getattr(ti, "data_procedure", ""),
+            "Metadata": getattr(ti, "metadata_procedure", ""),
+            "Epilog": getattr(ti, "epilog_procedure", ""),
         }
 
     if isinstance(body, Chore):
         start_date = body.start_time.split("T")[0] if isinstance(body.start_time, str) and "T" in body.start_time else body.start_time
         return {
-            "name": body.name,
-            "active": body.active,
-            "start_date": start_date,
-            "dst_sensitive": body.dst_sensitive,
-            "execution_mode": body.execution_mode,
-            "frequency": body.frequency,
-            "tasks": [f"processes/{task.process_name}.json" for task in body.tasks]
+            "Name": body.name,
+            "Active": body.active,
+            "StartDate": start_date,
+            "DSTSensitive": body.dst_sensitive,
+            "ExecutionMode": body.execution_mode,
+            "Frequency": body.frequency,
+            "Tasks": [f"processes/{task.process_name}.json" for task in body.tasks]
         }
 
     if hasattr(body, "to_dict"):
@@ -722,64 +734,62 @@ def _normalize_body_payload(
 ) -> dict[str, Any]:
     normalized = copy.deepcopy(payload or {})
 
-    if object_type == ObjectType.EDGE:
-        if "ParentName" not in normalized:
-            if "parent_name" in normalized:
-                normalized["ParentName"] = normalized["parent_name"]
-            elif "parentName" in normalized:
-                normalized["ParentName"] = normalized["parentName"]
-        if "ComponentName" not in normalized:
-            if "component_name" in normalized:
-                normalized["ComponentName"] = normalized["component_name"]
-            elif "componentName" in normalized:
-                normalized["ComponentName"] = normalized["componentName"]
-        if "Weight" not in normalized and "weight" in normalized:
-            normalized["Weight"] = normalized["weight"]
-
     if object_type == ObjectType.RULE:
         if "rule" in normalized and "statement" not in normalized and "full_statement" not in normalized:
             normalized["statement"] = normalized["rule"]
+        if "Rule" in normalized and "statement" not in normalized and "full_statement" not in normalized:
+            normalized["statement"] = normalized["Rule"]
         if "area" not in normalized and "Area" not in normalized:
-            rule_name = normalized.get("name") or "default"
+            rule_name = normalized.get("name") or normalized.get("Name") or "default"
             normalized["area"] = f"[{rule_name}]"
 
     if object_type == ObjectType.DIMENSION:
-        hierarchies = normalized.get("hierarchies")
+        hierarchies = normalized.get("hierarchies") or normalized.get("Hierarchies")
         if isinstance(hierarchies, list) and hierarchies and isinstance(hierarchies[0], str):
             normalized["hierarchies"] = [{"name": _path_stem(path)} for path in hierarchies]
-        default_hierarchy = normalized.get("default_hierarchy") or normalized.get("defaultHierarchy")
+        default_hierarchy = (
+            normalized.get("default_hierarchy")
+            or normalized.get("defaultHierarchy")
+            or normalized.get("DefaultHierarchy")
+        )
         if isinstance(default_hierarchy, str):
             normalized["defaultHierarchy"] = {"name": _path_stem(default_hierarchy)}
 
     if object_type == ObjectType.CUBE:
-        dimensions = normalized.get("dimensions")
+        dimensions = normalized.get("dimensions") or normalized.get("Dimensions")
         if isinstance(dimensions, list) and dimensions and isinstance(dimensions[0], str):
             normalized["dimensions"] = [{"name": _path_stem(path)} for path in dimensions]
 
     if object_type == ObjectType.PROCESS:
-        data_source = normalized.get("data_source")
+        data_source = normalized.get("data_source") or normalized.get("DataSource")
         if data_source is not None and "datasource" not in normalized:
             normalized["datasource"] = data_source
 
         if "ti" not in normalized:
             normalized["ti"] = {
-                "prolog_procedure": normalized.get("prolog", ""),
-                "metadata_procedure": normalized.get("metadata", ""),
-                "data_procedure": normalized.get("data", ""),
-                "epilog_procedure": normalized.get("epilog", ""),
+                "prolog_procedure": normalized.get("prolog") or normalized.get("Prolog") or "",
+                "metadata_procedure": normalized.get("metadata") or normalized.get("Metadata") or "",
+                "data_procedure": normalized.get("data") or normalized.get("Data") or "",
+                "epilog_procedure": normalized.get("epilog") or normalized.get("Epilog") or "",
             }
         if "code_link" not in normalized:
-            process_name = normalized.get("name") or _path_stem(reference_path) or "process"
+            process_name = normalized.get("name") or normalized.get("Name") or _path_stem(reference_path) or "process"
             normalized["code_link"] = f"{process_name}.ti"
 
     if object_type == ObjectType.CHORE:
         if "start_time" not in normalized:
-            normalized["start_time"] = normalized.get("start_date")
-        if "dst_sensitive" in normalized:
-            normalized["dst_sensitive"] = _as_bool(normalized.get("dst_sensitive"))
-        if "active" in normalized:
-            normalized["active"] = _as_bool(normalized.get("active"))
-        tasks = normalized.get("tasks")
+            normalized["start_time"] = normalized.get("start_date") or normalized.get("StartDate")
+        if "dst_sensitive" in normalized or "DSTSensitive" in normalized:
+            normalized["dst_sensitive"] = _as_bool(
+                normalized.get("dst_sensitive")
+                if "dst_sensitive" in normalized
+                else normalized.get("DSTSensitive")
+            )
+        if "active" in normalized or "Active" in normalized:
+            normalized["active"] = _as_bool(
+                normalized.get("active") if "active" in normalized else normalized.get("Active")
+            )
+        tasks = normalized.get("tasks") or normalized.get("Tasks")
         if isinstance(tasks, list) and tasks and isinstance(tasks[0], str):
             normalized["tasks"] = [
                 {"process_name": _path_stem(task_path), "parameters": []}
@@ -1019,61 +1029,55 @@ def _append_import_entry(changeset: Changeset, entry: Any) -> None:
         })
 
 
-def _build_dimension_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Dimension:
+def _build_dimension_from_payload(payload: dict[str, Any]) -> Dimension:
     return Dimension.from_dict(payload)
 
 
-def _build_hierarchy_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Hierarchy:
-    dimension_name, _ = hierarchy._hierarchy_context_from_uri(reference_path)
-    if not dimension_name:
-        raise ValueError("Hierarchy payload missing dimension context.")
+def _build_hierarchy_from_payload(payload: dict[str, Any]) -> Hierarchy:
     return Hierarchy.from_dict(payload)
 
 
-def _build_subset_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Subset:
-    dimension_name, hierarchy_name = subset._subset_context_from_uri(reference_path)
-    if not dimension_name or not hierarchy_name:
-        raise ValueError("Subset payload missing dimension or hierarchy context.")
+def _build_subset_from_payload(payload: dict[str, Any]) -> Subset:
     return Subset.from_dict(payload)
 
 
-def _build_cube_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Cube:
+def _build_cube_from_payload(payload: dict[str, Any]) -> Cube:
     return Cube.from_dict(payload)
 
 
-def _build_mdx_view_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> MDXView:
-    if not reference_path:
-        raise ValueError("MDXView payload missing cube context.")
+def _build_mdx_view_from_payload(payload: dict[str, Any]) -> MDXView:
     return MDXView.from_dict(payload)
 
 
-def _build_native_view_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> NativeView:
-    if not reference_path:
-        raise ValueError("NativeView payload missing cube context.")
+def _build_native_view_from_payload(payload: dict[str, Any]) -> NativeView:
     return NativeView.from_dict(payload)
 
 
-def _build_process_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Process:
+def _build_process_from_payload(payload: dict[str, Any]) -> Process:
     return Process.from_dict(payload)
 
 
-def _build_chore_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Chore:
+def _build_chore_from_payload(payload: dict[str, Any]) -> Chore:
     return Chore.from_dict(payload)
 
-def _build_element_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Element:
+def _build_element_from_payload(payload: dict[str, Any]) -> Element:
     return Element.from_dict(payload)
 
 
-def _build_edge_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Edge:
+def _build_edge_from_payload(payload: dict[str, Any]) -> Edge:
     return Edge.from_dict(payload)
 
 
-def _build_rule_from_payload(payload: dict[str, Any], reference_path: Optional[str]) -> Rule:
+def _build_rule_from_payload(payload: dict[str, Any]) -> Rule:
     normalized_payload = dict(payload)
     if "rule" in normalized_payload and "statement" not in normalized_payload and "full_statement" not in normalized_payload:
         normalized_payload["statement"] = normalized_payload["rule"]
-    if "name" not in normalized_payload:
-        normalized_payload["name"] = _rule_name_from_area(normalized_payload.get("area", ""))
+    if "Rule" in normalized_payload and "statement" not in normalized_payload and "full_statement" not in normalized_payload:
+        normalized_payload["statement"] = normalized_payload["Rule"]
+    if "name" not in normalized_payload and "Name" not in normalized_payload:
+        normalized_payload["name"] = _rule_name_from_area(
+            normalized_payload.get("area") or normalized_payload.get("Area") or ""
+        )
     return Rule.from_dict(normalized_payload)
 
 
@@ -1101,7 +1105,7 @@ def _deserialize_object_from_payload(object_type: Optional[str],
     builder = _OBJECT_BUILDERS.get(object_type)
     if builder is None:
         raise ValueError(f"Unsupported object type '{object_type}' in changeset import.")
-    return builder(payload, reference_path)
+    return builder(payload)
 
 
 def _resolve_change_body_reference_path(body: Any, **context: Any) -> str:

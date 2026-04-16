@@ -583,10 +583,11 @@ def _top_level_prefix(path_or_pattern: str) -> str:
     return ""
 
 
-DEFAULT_TM1_TECHNICAL_OBJECTS = [
+DEFAULT_TM1_TECHNICAL_OBJECTS_AND_LEAVES = [
     "Cubes('}*')",
     "Dimensions('}*')",
     "Processes('}*')",
+    "Dimensions('*')/Hierarchies('Leaves')",
 ]
 
 logger = logging.getLogger(__name__)
@@ -1069,7 +1070,6 @@ def filter_changeset(
     ]
     filtered_changeset.errors = dict(changeset.errors)
     filtered_changeset.last_execution_id = changeset.last_execution_id
-    filtered_changeset.sort()
     logger.info(
         "Filtered changeset from %d to %d change(s) (filter_children=%s)",
         len(changeset.changes),

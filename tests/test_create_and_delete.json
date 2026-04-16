@@ -1,10 +1,10 @@
 {
   "execution_id": "test_create_and_delete",
-  "changeset_id": null,
+  "changeset_id": "chore_param_schema_normalization",
   "state": "SUCCEEDED",
-  "started_at": 1775025878.4477708,
-  "finished_at": 1775025878.456482,
-  "updated_at": 1775025878.456482,
+  "started_at": 1776331948.552941,
+  "finished_at": 1776331948.563141,
+  "updated_at": 1776331948.5631418,
   "total_operations": 1,
   "completed_operations": 1,
   "current_operation": null,
@@ -14,14 +14,14 @@
       "action": "add",
       "object_type": "Chore",
       "object_name": "zz_chore_param_schema",
-      "source_path": "chores/zz_chore_param_schema.json",
+      "uri": "Chores('zz_chore_param_schema')",
       "before_state": null,
       "ok": true,
       "status_code": 201,
-      "url": "http://localhost:61798/api/v1/Chores",
+      "url": "http://localhost:50837/api/v1/Chores",
       "error": null,
-      "started_at": 1775025878.448149,
-      "finished_at": 1775025878.456099
+      "started_at": 1776331948.5532851,
+      "finished_at": 1776331948.5626922
     }
   ],
   "failure_action": null,

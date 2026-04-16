@@ -14,6 +14,7 @@ from test_integration.test_base import (
 from tests.utility import tm1_uri_from_path
 from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.comparator import Comparator
+from tm1_git_py.filter import DEFAULT_TM1_TECHNICAL_OBJECTS_AND_LEAVES
 from tm1_git_py.model import process as process_model, Model
 from tm1_git_py.model.chore import Chore as GitChore
 from tm1_git_py.model.process import Process as GitProcess
@@ -23,8 +24,7 @@ from tm1_git_py.model.ti import TI
 
 @pytest.mark.usefixtures("tm1_service")
 class TestProcessChoreChangesetApply:
-    _f_no_meta_obj = ["Cubes('}*')", "Dimensions('}*')"]
-    _f_no_meta = ["Cubes('}*')", "Dimensions('}*')", "Processes('}*')"]
+    _f_no_meta = DEFAULT_TM1_TECHNICAL_OBJECTS_AND_LEAVES
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
@@ -38,16 +38,6 @@ class TestProcessChoreChangesetApply:
             if change.change_type == change_type
             and change.body.__class__.__name__ == class_name
         ]
-
-    def _restore_fixture_no_meta(self, fixture_dir: str, fixture_model: Model):
-        current_model = export_check_no_errors(self, self._f_no_meta)
-        restore_changeset = self.compare(
-            current_model, fixture_model, filter_rules=self._f_no_meta
-        )
-        if restore_changeset.has_changes():
-            self.apply(restore_changeset)
-        restored_model = export_check_no_errors(self)
-        check_no_diff(fixture_dir, restored_model)
 
     def _chore_exists(self, chore_name: str) -> bool:
         return chore_name in self.tm1_service.chores.get_all_names()
@@ -232,7 +222,6 @@ class TestProcessChoreChangesetApply:
 
         assert not self._changes_by(changeset, ChangeType.REMOVE, "Process")
         assert self.tm1_service.processes.exists("TestExtraProcess2")
-        self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
     def test_modify_process_no_meta_objects(self):
         """Changeset should restore a modified process back to fixture definition."""
@@ -254,7 +243,6 @@ class TestProcessChoreChangesetApply:
         modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
         assert any(p.name == process_name for p in modified_processes)
         assert self.tm1_service.processes.exists(process_name)
-        self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
     def test_modify_process_add_only_no_meta_objects(self):
         """In add_only mode, process modify changes should still be applied."""
@@ -272,7 +260,6 @@ class TestProcessChoreChangesetApply:
         modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
         assert any(p.name == process_name for p in modified_processes)
         assert self.tm1_service.processes.exists(process_name)
-        self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
     def test_apply_modify_process_with_datasource_dict_payload(self):
         """Direct process MODIFY apply should accept datasource payloads shaped as dict."""
@@ -301,12 +288,9 @@ class TestProcessChoreChangesetApply:
             )
         ]
 
-        try:
-            self.apply(changeset)
-            live_process = self.tm1_service.processes.get(process_name)
-            assert str(getattr(live_process, "datasource_type", "")).lower() == "none"
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        self.apply(changeset)
+        live_process = self.tm1_service.processes.get(process_name)
+        assert str(getattr(live_process, "datasource_type", "")).lower() == "none"
 
     def test_modify_process_ti_code_no_meta_objects(self):
         """Changeset apply should restore modified TI procedures."""
@@ -368,7 +352,6 @@ class TestProcessChoreChangesetApply:
         self.apply(remove_changeset)
         assert not self._chore_exists(chore_name)
         assert not self.tm1_service.chores.exists(chore_name)
-        self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
     def test_apply_modify_chore_metadata_and_active_transitions(self):
         """Scenarios 3 + 4 + 9: metadata updates, activate/deactivate, timezone-preserving timestamp."""
@@ -574,7 +557,7 @@ class TestProcessChoreChangesetApply:
             )
         ]
         self.apply(seed_extra)
-        source_model = export_check_no_errors(self, self._f_no_meta_obj)
+        source_model = export_check_no_errors(self, self._f_no_meta)
 
         # target model asks to create missing chore and has no "extra" chore
         target_model = copy.deepcopy(source_model)
@@ -654,7 +637,7 @@ class TestProcessChoreChangesetApply:
         assert self.tm1_service.chores.exists(chore_b)
 
         # idempotency by compare/apply no-op cycle
-        current = export_check_no_errors(self, self._f_no_meta_obj)
+        current = export_check_no_errors(self, self._f_no_meta)
         no_op = self.compare(current, copy.deepcopy(current))
         assert not no_op.has_changes()
         self.apply(no_op)
@@ -765,7 +748,6 @@ class TestProcessChoreChangesetApply:
         return comparator.compare(source, target, mode=mode, filter_rules=filter_rules)
 
     def apply(self, changeset: Changeset):
-        changeset.sort()
         status_dir = "tests"
         exec_id = "test_create_and_delete"
         success, _errors = changeset.apply(

@@ -96,10 +96,6 @@ class Model:
 
         return all_objects
 
-    @staticmethod
-    def _is_leaf_hierarchy(hierarchy_obj: Any) -> bool:
-        return getattr(hierarchy_obj, "name", "").strip().lower() == "leaves"
-
     @classmethod
     def _count_collection_objects(cls, items: Iterable[Any], object_cls: type) -> int:
         child_relations: dict[type, list[tuple[str, type]]] = {
@@ -113,8 +109,6 @@ class Model:
                 continue
             total += 1
             for child_attr, child_cls in child_relations.get(object_cls, []):
-                if isinstance(obj, Hierarchy) and child_attr == "elements" and cls._is_leaf_hierarchy(obj):
-                    continue
                 slot_items = getattr(obj, child_attr, None) or []
                 if isinstance(slot_items, StoreBackedSequence):
                     total += len(slot_items)
