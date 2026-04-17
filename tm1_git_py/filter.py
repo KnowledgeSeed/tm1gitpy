@@ -620,6 +620,10 @@ def with_default_leaves_ignore(filter_rules: Optional[List[str]]) -> List[str]:
     return deduped_rules
 
 
+def _is_default_leaves_only_rules(filter_rules: List[str]) -> bool:
+    return len(filter_rules) == 1 and _rule_compare_key(filter_rules[0]) == DEFAULT_LEAVES_HIERARCHY_RULE
+
+
 def _normalize_match_text(text: str) -> str:
     return (text or "").replace("\\", "/").lstrip("/").lower()
 
@@ -908,6 +912,25 @@ def _expand_removed_paths(paths_to_remove: set[str], all_paths: List[str]) -> se
 
 def filter(model: Model, filter_rules: List[str]) -> Model:
     effective_rules = with_default_leaves_ignore(filter_rules)
+
+    if _is_default_leaves_only_rules(effective_rules):
+        # Fast-path the implicit/default leaves exclusion without traversing all
+        # hierarchy children. This keeps compare startup responsive on large models.
+        for dim in model.dimensions:
+            dim.hierarchies = [
+                hierarchy
+                for hierarchy in dim.hierarchies
+                if (getattr(hierarchy, "name", "") or "").lower() != "leaves"
+            ]
+            if dim.hierarchies and (
+                not getattr(dim, "defaultHierarchy", None)
+                or all(
+                    h.name != getattr(dim.defaultHierarchy, "name", None)
+                    for h in dim.hierarchies
+                )
+            ):
+                dim.defaultHierarchy = dim.hierarchies[0]
+        return model
 
     logger.info(
         "Applying model filter rules (rules=%d dimensions=%d cubes=%d processes=%d chores=%d)",
