@@ -1,6 +1,6 @@
-# tm1_gi_tpy
+# tm1_git_py
 
-**tm1_gi_tpy** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
+**tm1_git_py** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
 
 - It understands `tm1project.json` and the same filtering rules used by TM1 Git workflows.
 - It is **not** embedded in TM1, which keeps deployment flexible—ideal for CI/CD, agents, and pipelines that run outside the TM1 server. It talks to TM1 over the REST API **via TM1py**.
@@ -8,7 +8,7 @@
 
 ## Features
 
-`tm1_gi_tpy` allows you to:
+`tm1_git_py` allows you to:
 - Export TM1 models (cubes, dimensions, processes, chores) to a structured folder format compatible with TM1 Git
 - Filter exports to include only specific objects
 - Compare models (either file-based schema or TM1 servers) and collect differences to changesets.
