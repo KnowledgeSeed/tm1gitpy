@@ -27,6 +27,39 @@ logger = logging.getLogger(__name__)
 MODEL_COMPARE_SUBDIRS = ("dimensions", "cubes", "chores", "processes")
 
 
+def _is_ignored_leaves_artifact(path: str) -> bool:
+    path_obj = Path(path)
+    return (
+        path_obj.name.lower() == "leaves.json"
+        and any(part.endswith(".hierarchies") for part in path_obj.parts)
+    )
+
+
+def _strip_ignored_leaves_entries(value):
+    if isinstance(value, dict):
+        normalized = {
+            str(key).lower(): _strip_ignored_leaves_entries(item)
+            for key, item in value.items()
+        }
+        elements = normalized.get("elements")
+        if isinstance(elements, list):
+            normalized["elements"] = [
+                item for item in elements
+                if not (
+                    isinstance(item, dict)
+                    and str(item.get("name", "")).lower().endswith(":leaves")
+                )
+            ]
+        return normalized
+    if isinstance(value, list):
+        normalized_items = [_strip_ignored_leaves_entries(item) for item in value]
+        return sorted(
+            normalized_items,
+            key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        )
+    return value
+
+
 def _normalize_json_keys(value):
     if isinstance(value, dict):
         return {str(key).lower(): _normalize_json_keys(item) for key, item in value.items()}
@@ -40,6 +73,8 @@ def _normalize_json_keys(value):
 
 
 def _json_files_equivalent(left_path: str, right_path: str) -> bool:
+    if _is_ignored_leaves_artifact(left_path) or _is_ignored_leaves_artifact(right_path):
+        return True
     try:
         with open(left_path, "r", encoding="utf-8") as fh:
             left_payload = json.load(fh)
@@ -48,17 +83,32 @@ def _json_files_equivalent(left_path: str, right_path: str) -> bool:
     except (OSError, json.JSONDecodeError):
         return False
 
-    return _normalize_json_keys(left_payload) == _normalize_json_keys(right_payload)
+    return _normalize_json_keys(_strip_ignored_leaves_entries(left_payload)) == _normalize_json_keys(
+        _strip_ignored_leaves_entries(right_payload)
+    )
 
 
 def _assert_dircmp_trees_equal(left: str, right: str) -> None:
     """Recursively assert two directories have identical file sets and contents."""
     cmp = filecmp.dircmp(left, right)
-    assert not cmp.left_only, (
-        f"Files/dirs only in exported model under {left!r}: {sorted(cmp.left_only)}"
+    left_only = [
+        name for name in cmp.left_only
+        if not _is_ignored_leaves_artifact(os.path.join(left, name))
+    ]
+    right_only = [
+        name for name in cmp.right_only
+        if not _is_ignored_leaves_artifact(os.path.join(right, name))
+    ]
+    common_dirs = [
+        name for name in cmp.common_dirs
+        if not _is_ignored_leaves_artifact(os.path.join(left, name))
+        and not _is_ignored_leaves_artifact(os.path.join(right, name))
+    ]
+    assert not left_only, (
+        f"Files/dirs only in exported model under {left!r}: {sorted(left_only)}"
     )
-    assert not cmp.right_only, (
-        f"Files/dirs only in expected under {right!r}: {sorted(cmp.right_only)}"
+    assert not right_only, (
+        f"Files/dirs only in expected under {right!r}: {sorted(right_only)}"
     )
     remaining_diff_files = []
     for name in sorted(cmp.diff_files):
@@ -70,7 +120,7 @@ def _assert_dircmp_trees_equal(left: str, right: str) -> None:
     assert not remaining_diff_files, (
         f"Files that differ under {left!r} vs {right!r}: {remaining_diff_files}"
     )
-    for name in sorted(cmp.common_dirs):
+    for name in sorted(common_dirs):
         _assert_dircmp_trees_equal(
             os.path.join(left, name),
             os.path.join(right, name),

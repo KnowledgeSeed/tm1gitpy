@@ -2041,8 +2041,8 @@ class TestChangeset:
         ]
 
         # For updates, precedence is:
-        # subsets -> cubes (including synthesized rule updates) -> mdx_views -> processes -> chores
-        assert updated_types == [Subset, Cube, MDXView, Process, Chore]
+        # subsets -> mdx_views -> unified rules -> processes -> chores
+        assert updated_types == [Subset, MDXView, Rule, Process, Chore]
 
 
     def test_models_expose_canonical_urls(self):
