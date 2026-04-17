@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}ApplicationEntries.hierarchies/}ApplicationEntries.json"
 	],
-	"DefaultHierarchy": "Dimensions('}ApplicationEntries')/Hierarchies('}ApplicationEntries')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}ApplicationEntries')/Hierarchies('}ApplicationEntries')"
+	}
 }

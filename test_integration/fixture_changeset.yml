@@ -1,4 +1,4 @@
-changeset_name: null
+changeset_id: null
 summary:
   add: 11
   remove: 10
@@ -100,9 +100,9 @@ changes:
     object_type: Edge
     source_path: dimensions/mydim.hierarchies/myhier.json/myelem1:myelem2
     body:
-      parent_name: myelem1
-      component_name: myelem2
-      weight: 1
+      ParentName: myelem1
+      ComponentName: myelem2
+      Weight: 1
 
   - change_type: add
     object_type: Subset
@@ -141,9 +141,9 @@ changes:
     object_type: Edge
     source_path: dimensions/mydim.hierarchies/myhier.json/myelem1:myelem2
     body:
-      parent_name: myelem1
-      component_name: myelem2
-      weight: 0
+      ParentName: myelem1
+      ComponentName: myelem2
+      Weight: 0
 
   - change_type: modify
     object_type: Subset

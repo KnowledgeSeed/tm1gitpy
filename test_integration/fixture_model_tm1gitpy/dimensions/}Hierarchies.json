@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}Hierarchies.hierarchies/}Hierarchies.json"
 	],
-	"DefaultHierarchy": "Dimensions('}Hierarchies')/Hierarchies('}Hierarchies')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}Hierarchies')/Hierarchies('}Hierarchies')"
+	}
 }

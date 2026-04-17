@@ -1,5 +1,4 @@
 import argparse
-import json
 import logging
 import os
 import queue
@@ -303,17 +302,34 @@ def _prepare_model_folder(model_folder: str, overwrite: bool = False):
 def _load_filter_rules(filter_file: str | None) -> list[str]:
     if not filter_file:
         return []
-    filter_path = Path(filter_file)
-    if not filter_path.exists():
-        logger.error("Filter file '%s' not found.", filter_file)
-        sys.exit(1)
-    try:
-        filter_rules = import_filter(str(filter_path))
-        logger.info("Loaded %d filter rule(s) from: %s", len(filter_rules), filter_file)
-        return filter_rules
-    except Exception:
-        logger.exception("Error loading filter from: %s", filter_file)
-        sys.exit(1)
+    raw = str(filter_file).strip()
+
+    def _load_from_file(path_str: str) -> list[str]:
+        filter_path = Path(path_str).expanduser().resolve()
+        if not filter_path.exists():
+            logger.error("Filter file '%s' not found.", path_str)
+            sys.exit(1)
+        try:
+            filter_rules = import_filter(str(filter_path))
+            logger.info("Loaded %d filter rule(s) from: %s", len(filter_rules), filter_path)
+            return filter_rules
+        except Exception:
+            logger.exception("Error loading filter from: %s", filter_path)
+            sys.exit(1)
+
+    # Explicit file URI form: file://examples/filter.txt
+    if raw.startswith("file://"):
+        file_uri_path = raw[len("file://"):].strip()
+        return _load_from_file(file_uri_path)
+
+    # Inline comma-separated rules form.
+    if "," in raw:
+        rules = [part.strip() for part in raw.split(",") if part.strip()]
+        logger.info("Loaded %d inline filter rule(s)", len(rules))
+        return rules
+
+    # Default existing behavior: treat as file path.
+    return _load_from_file(raw)
 
 
 def _filter(model, filter_rules: list[str]) -> Model:
@@ -416,7 +432,7 @@ def _cmd_filter(args: argparse.Namespace) -> None:
     if errors:
         logger.warning("Deserialization completed with %d error(s)", len(errors))
 
-    filter_rules = _load_filter_rules(args.filter)
+    filter_rules = _load_filter_rules(args.filter_rules)
     filtered_model = _filter(model, filter_rules)
 
     serialize_model(filtered_model, model_output_folder)
@@ -497,7 +513,7 @@ def _cmd_compare(args: argparse.Namespace) -> None:
     if err_target:
         logger.warning("Target deserialization reported %d error(s)", len(err_target))
 
-    extra_filter = _load_filter_rules(args.filter) if args.filter else None
+    extra_filter = _load_filter_rules(args.filter_rules) if args.filter_rules else None
 
     comparator = Comparator()
     compare_tqdm = TqdmComparatorProgressSink(
@@ -527,15 +543,10 @@ def _cmd_compare(args: argparse.Namespace) -> None:
     output_path = Path(out).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    changeset.export(output_path)
     if args.format == "json":
-        payload = changeset.to_json()
-        output_path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
         logger.info("Wrote JSON changeset (%d change(s)) to %s", len(changeset.changes), output_path)
     else:
-        changeset.export(output_path)
         logger.info("Wrote YAML changeset (%d change(s)) to %s", len(changeset.changes), output_path)
 
 
@@ -562,6 +573,23 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _cmd_changeset_filter(args: argparse.Namespace) -> None:
+    changeset_path = Path(args.changeset_path).expanduser().resolve()
+    if not changeset_path.is_file():
+        logger.error("Changeset file not found: %s", changeset_path)
+        sys.exit(1)
+
+    filter_rules = _load_filter_rules(args.filter_rules)
+    changeset = import_changeset(changeset_path)
+    toggled_count = changeset.filter(filter_rules)
+    changeset.export(changeset_path)
+    logger.info(
+        "Applied changeset filter rules and toggled apply for %d change(s): %s",
+        toggled_count,
+        changeset_path,
+    )
+
+
 def main():
     tracemalloc.start()
     parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 model export, filter, compare, and apply")
@@ -571,7 +599,7 @@ def main():
     _add_log_level(p_export)
     p_export.add_argument("-s", "--server", type=str, required=True, help="TM1 server name from tm1servers config")
     p_export.add_argument(
-        "-mo", "--model_output_folder",
+        "-mo", "--model-output-folder",
         type=str,
         default="export",
         help="Folder to write the serialized model",
@@ -586,17 +614,26 @@ def main():
     )
     p_export.set_defaults(handler=_cmd_export)
 
-    p_filter = sub.add_parser("filter", help="Load a model folder, apply filter rules, write output folder")
+    p_filter = sub.add_parser(
+        "model-filter",
+        aliases=["filter"],
+        help="Load a model folder, apply filter rules, write output folder",
+    )
     _add_log_level(p_filter)
-    p_filter.add_argument("-m", "--model_folder", type=str, default="export", help="Input model folder")
+    p_filter.add_argument("-m", "--model-folder", type=str, default="export", help="Input model folder")
     p_filter.add_argument(
-        "-mo", "--model_output_folder",
+        "-mo", "--model-output-folder",
         type=str,
         default="export",
         help="Output folder for filtered model",
     )
     p_filter.add_argument("-o", "--overwrite", action="store_true", help="Clear output folder if it already exists")
-    p_filter.add_argument("-f", "--filter", type=str, help="Path to filter rules file")
+    p_filter.add_argument(
+        "-f",
+        "--filter-rules",
+        type=str,
+        help="Filter rules as file path, file:// URI, or comma-separated rules",
+    )
     p_filter.set_defaults(handler=_cmd_filter)
 
     p_compare = sub.add_parser("compare", help="Compare two model folders and write a changeset file")
@@ -627,9 +664,10 @@ def main():
         help="full: add/remove/modify; add_only: add/modify only",
     )
     p_compare.add_argument(
-        "-f", "--filter",
+        "-f",
+        "--filter-rules",
         type=str,
-        help="Optional filter rules file; rules are passed to the comparator for both models",
+        help="Optional filter rules as file path, file:// URI, or comma-separated rules",
     )
     p_compare.add_argument(
         "--format",
@@ -671,6 +709,26 @@ def main():
         help="Continue applying after a failed change",
     )
     p_apply.set_defaults(handler=_cmd_apply)
+
+    p_changeset_filter = sub.add_parser(
+        "changset-filter",
+        aliases=["changeset-filter"],
+        help="Toggle apply flags in a changeset using filter rules",
+    )
+    _add_log_level(p_changeset_filter)
+    p_changeset_filter.add_argument(
+        "--changeset-path",
+        type=str,
+        required=True,
+        help="Path to changeset YAML or JSON file",
+    )
+    p_changeset_filter.add_argument(
+        "--filter-rules",
+        type=str,
+        required=True,
+        help="Filter rules as file path, file:// URI, or comma-separated rules",
+    )
+    p_changeset_filter.set_defaults(handler=_cmd_changeset_filter)
 
     args = parser.parse_args()
     setup_logging(

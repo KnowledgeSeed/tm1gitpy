@@ -28,7 +28,7 @@ class ChangeSetOperationLog:
 @dataclass
 class ChangeSetExecutionStatus:
     execution_id: str
-    changeset_name: Optional[str] = None
+    changeset_id: Optional[str] = None
 
     state: str = "PENDING"
     started_at: Optional[float] = None
@@ -54,7 +54,7 @@ class ChangeSetStatusStore:
         <status_dir>/<execution_id>.json
     """
 
-    def __init__(self, status_dir: Union[str, Path], execution_id: Optional[str] = None, changeset_name: Optional[str] = None):
+    def __init__(self, status_dir: Union[str, Path], execution_id: Optional[str] = None, changeset_id: Optional[str] = None):
         self.status_dir = Path(status_dir).expanduser().resolve()
         self.status_dir.mkdir(parents=True, exist_ok=True)
 
@@ -63,7 +63,7 @@ class ChangeSetStatusStore:
 
         self.status = ChangeSetExecutionStatus(
             execution_id=self.execution_id,
-            changeset_name=changeset_name,
+            changeset_id=changeset_id,
             operations=[],
         )
 
@@ -158,6 +158,8 @@ class ChangeSetStatusStore:
     def load(status_dir: Union[str, Path], execution_id: str) -> ChangeSetExecutionStatus:
         path = Path(status_dir).expanduser().resolve() / f"{execution_id}.json"
         raw = json.loads(path.read_text(encoding="utf-8"))
+        if "changeset_id" not in raw and "changeset_name" in raw:
+            raw["changeset_id"] = raw.pop("changeset_name")
         operations_raw = []
         for op in raw.get("operations", []):
             if not isinstance(op, dict):

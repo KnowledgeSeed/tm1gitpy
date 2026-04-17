@@ -11,20 +11,19 @@ from test_integration.test_base import (
     load_fixture_model_tm1gitpy,
     tm1_service,
 )
-from tests.utility import tm1_uri_from_path
 from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.comparator import Comparator
+from tm1_git_py.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
 from tm1_git_py.model import process as process_model, Model
-from tm1_git_py.model.chore import Chore as GitChore
-from tm1_git_py.model.process import Process as GitProcess
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.process import Process
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 
 
 @pytest.mark.usefixtures("tm1_service")
 class TestProcessChoreChangesetApply:
-    _f_no_meta_obj = ["Cubes('}*')", "Dimensions('}*')"]
-    _f_no_meta = ["Cubes('}*')", "Dimensions('}*')", "Processes('}*')"]
+    _f_no_meta = DEFAULT_TM1_TECHNICAL_OBJECTS
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
@@ -38,16 +37,6 @@ class TestProcessChoreChangesetApply:
             if change.change_type == change_type
             and change.body.__class__.__name__ == class_name
         ]
-
-    def _restore_fixture_no_meta(self, fixture_dir: str, fixture_model: Model):
-        current_model = export_check_no_errors(self, self._f_no_meta)
-        restore_changeset = self.compare(
-            current_model, fixture_model, filter_rules=self._f_no_meta
-        )
-        if restore_changeset.has_changes():
-            self.apply(restore_changeset)
-        restored_model = export_check_no_errors(self)
-        check_no_diff(fixture_dir, restored_model)
 
     def _chore_exists(self, chore_name: str) -> bool:
         return chore_name in self.tm1_service.chores.get_all_names()
@@ -80,7 +69,7 @@ class TestProcessChoreChangesetApply:
         if process_name in all_names:
             process_obj = self.tm1_service.processes.get(process_name)
             # Normalize existing process to the expected schema using existing process update helpers.
-            desired = GitProcess(
+            desired = Process(
                 name=process_name,
                 hasSecurityAccess=getattr(process_obj, "has_security_access", False),
                 code_link=f"{process_name}.ti",
@@ -152,8 +141,8 @@ class TestProcessChoreChangesetApply:
         execution_mode: str = "SingleCommit",
         frequency: str = "P01DT00H00M00S",
         tasks: list[Task] | None = None,
-    ) -> GitChore:
-        return GitChore(
+    ) -> Chore:
+        return Chore(
             name=name,
             start_time=start_time,
             dst_sensitive=dst_sensitive,
@@ -232,7 +221,6 @@ class TestProcessChoreChangesetApply:
 
         assert not self._changes_by(changeset, ChangeType.REMOVE, "Process")
         assert self.tm1_service.processes.exists("TestExtraProcess2")
-        self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
     def test_modify_process_no_meta_objects(self):
         """Changeset should restore a modified process back to fixture definition."""
@@ -254,7 +242,6 @@ class TestProcessChoreChangesetApply:
         modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
         assert any(p.name == process_name for p in modified_processes)
         assert self.tm1_service.processes.exists(process_name)
-        self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
     def test_modify_process_add_only_no_meta_objects(self):
         """In add_only mode, process modify changes should still be applied."""
@@ -272,7 +259,6 @@ class TestProcessChoreChangesetApply:
         modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
         assert any(p.name == process_name for p in modified_processes)
         assert self.tm1_service.processes.exists(process_name)
-        self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
     def test_apply_modify_process_with_datasource_dict_payload(self):
         """Direct process MODIFY apply should accept datasource payloads shaped as dict."""
@@ -281,15 +267,14 @@ class TestProcessChoreChangesetApply:
         fixture_process = next(
             p for p in fixture_model.processes if p.name == process_name
         )
-        source_path = f"processes/{process_name}.json"
 
         changeset = Changeset("modify_process_datasource_dict")
         changeset.changes = [
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path(source_path),
-                body=GitProcess(
+                uri=Process.uri_for(process_name),
+                body=Process(
                     name=fixture_process.name,
                     hasSecurityAccess=fixture_process.hasSecurityAccess,
                     code_link=fixture_process.code_link,
@@ -301,12 +286,9 @@ class TestProcessChoreChangesetApply:
             )
         ]
 
-        try:
-            self.apply(changeset)
-            live_process = self.tm1_service.processes.get(process_name)
-            assert str(getattr(live_process, "datasource_type", "")).lower() == "none"
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        self.apply(changeset)
+        live_process = self.tm1_service.processes.get(process_name)
+        assert str(getattr(live_process, "datasource_type", "")).lower() == "none"
 
     def test_modify_process_ti_code_no_meta_objects(self):
         """Changeset apply should restore modified TI procedures."""
@@ -346,7 +328,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -361,14 +343,13 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(chore_name),
             )
         ]
         self.apply(remove_changeset)
         assert not self._chore_exists(chore_name)
         assert not self.tm1_service.chores.exists(chore_name)
-        self._restore_fixture_no_meta(fixture_dir, fixture_model)
 
     def test_apply_modify_chore_metadata_and_active_transitions(self):
         """Scenarios 3 + 4 + 9: metadata updates, activate/deactivate, timezone-preserving timestamp."""
@@ -386,7 +367,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="2026-03-05T00:00:00+00:00",
@@ -405,7 +386,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="2026-03-06T10:30:00+01:00",
@@ -432,7 +413,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="2026-03-07T00:00:00+00:00",
@@ -462,7 +443,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     tasks=[
@@ -485,7 +466,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     tasks=[
@@ -520,7 +501,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="2026-03-05",
@@ -537,7 +518,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     start_time="invalid-date",
@@ -567,14 +548,14 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{keep_extra}.json"),
+                uri=Chore.uri_for(keep_extra),
                 body=self._git_chore(
                     keep_extra, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
             )
         ]
         self.apply(seed_extra)
-        source_model = export_check_no_errors(self, self._f_no_meta_obj)
+        source_model = export_check_no_errors(self, self._f_no_meta)
 
         # target model asks to create missing chore and has no "extra" chore
         target_model = copy.deepcopy(source_model)
@@ -615,8 +596,8 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path(f"processes/{process_name}.json"),
-                body=GitProcess(
+                uri=Process.uri_for(process_name),
+                body=Process(
                     name=process_name,
                     hasSecurityAccess=False,
                     code_link=f"{process_name}.ti",
@@ -629,7 +610,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_a}.json"),
+                uri=Chore.uri_for(chore_a),
                 body=self._git_chore(
                     chore_a, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -637,7 +618,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_b}.json"),
+                uri=Chore.uri_for(chore_b),
                 body=self._git_chore(
                     chore_b, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -654,7 +635,7 @@ class TestProcessChoreChangesetApply:
         assert self.tm1_service.chores.exists(chore_b)
 
         # idempotency by compare/apply no-op cycle
-        current = export_check_no_errors(self, self._f_no_meta_obj)
+        current = export_check_no_errors(self, self._f_no_meta)
         no_op = self.compare(current, copy.deepcopy(current))
         assert not no_op.has_changes()
         self.apply(no_op)
@@ -675,7 +656,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name, tasks=[Task(process_name=process_name, parameters=[])]
                 ),
@@ -701,7 +682,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name, tasks=[Task(process_name=missing_proc, parameters=[])]
                 ),
@@ -726,7 +707,7 @@ class TestProcessChoreChangesetApply:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.CHORE,
-                uri=tm1_uri_from_path(f"chores/{chore_name}.json"),
+                uri=Chore.uri_for(chore_name),
                 body=self._git_chore(
                     chore_name,
                     tasks=[
@@ -765,7 +746,6 @@ class TestProcessChoreChangesetApply:
         return comparator.compare(source, target, mode=mode, filter_rules=filter_rules)
 
     def apply(self, changeset: Changeset):
-        changeset.sort()
         status_dir = "tests"
         exec_id = "test_create_and_delete"
         success, _errors = changeset.apply(

@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}Hierarchies_TestDimElemAttrib.hierarchies/}Hierarchies_TestDimElemAttrib.json"
 	],
-	"DefaultHierarchy": "Dimensions('}Hierarchies_TestDimElemAttrib')/Hierarchies('}Hierarchies_TestDimElemAttrib')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}Hierarchies_TestDimElemAttrib')/Hierarchies('}Hierarchies_TestDimElemAttrib')"
+	}
 }

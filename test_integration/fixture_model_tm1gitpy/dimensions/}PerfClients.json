@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}PerfClients.hierarchies/}PerfClients.json"
 	],
-	"DefaultHierarchy": "Dimensions('}PerfClients')/Hierarchies('}PerfClients')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}PerfClients')/Hierarchies('}PerfClients')"
+	}
 }

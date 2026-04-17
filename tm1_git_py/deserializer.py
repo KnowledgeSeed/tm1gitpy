@@ -1107,7 +1107,14 @@ def deserialize_dimensions(
             _dimension.hierarchies.append(parsed_hierarchies[hierarchy_name])
 
         pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
-        match = re.search(pattern, dim_json['DefaultHierarchy'])
+        default_hierarchy_payload = dim_json.get("DefaultHierarchy")
+        default_hierarchy_ref = default_hierarchy_payload
+        if isinstance(default_hierarchy_payload, dict):
+            default_hierarchy_ref = (
+                default_hierarchy_payload.get("@id")
+                or default_hierarchy_payload.get("id")
+            )
+        match = re.search(pattern, default_hierarchy_ref or "")
         if match:
             _, default_hierarchy_name = match.groups()
             _dimension.defaultHierarchy = parsed_hierarchies.get(default_hierarchy_name)

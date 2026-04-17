@@ -289,18 +289,23 @@ class FilterRules:
         ]
 
     @staticmethod
-    def _concrete_matches_rule_prefix(
-        concrete_path: list[tuple[EntityType, str]],
+    def _paths_overlap_by_rule_prefix(
+        target_path: list[tuple[EntityType, str]],
         rule_path: list[tuple[EntityType, str]],
     ) -> bool:
-        if len(concrete_path) > len(rule_path):
+        """Return True when target and rule share a matching prefix.
+
+        Rule path identifiers are patterns, target path identifiers are concrete.
+        """
+        overlap_len = min(len(target_path), len(rule_path))
+        if overlap_len == 0:
             return False
-        for (concrete_type, concrete_name), (rule_type, rule_pattern) in zip(
-            concrete_path, rule_path
-        ):
-            if concrete_type != rule_type:
+        for index in range(overlap_len):
+            target_type, target_name = target_path[index]
+            rule_type, rule_pattern = rule_path[index]
+            if target_type != rule_type:
                 return False
-            if not _identifier_pattern_matches(concrete_name, rule_pattern):
+            if not _identifier_pattern_matches(target_name, rule_pattern):
                 return False
         return True
 
@@ -312,9 +317,7 @@ class FilterRules:
             rule_path = list(rule.get("ancestor_chain", [])) + [
                 (rule["entity_type"], rule["identifier_pattern"])
             ]
-            if self._concrete_matches_rule_prefix(target_path, rule_path):
-                return True
-            if self._concrete_matches_rule_prefix(rule_path, target_path):
+            if self._paths_overlap_by_rule_prefix(target_path, rule_path):
                 return True
         return False
 
@@ -587,6 +590,34 @@ DEFAULT_TM1_TECHNICAL_OBJECTS = [
 ]
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_LEAVES_HIERARCHY_RULE = "Dimensions('*')/Hierarchies('Leaves')"
+FORCE_INCLUDE_LEAVES_HIERARCHY_RULE = f"!{DEFAULT_LEAVES_HIERARCHY_RULE}"
+
+
+def _rule_compare_key(rule: str) -> str:
+    return (rule or "").strip().lstrip("/")
+
+
+def with_default_leaves_ignore(filter_rules: Optional[List[str]]) -> List[str]:
+    """Apply default Leaves exclusion unless explicitly force-included."""
+    effective_rules = [rule for rule in (filter_rules or []) if rule]
+    force_include_leaves = any(
+        _rule_compare_key(rule) == FORCE_INCLUDE_LEAVES_HIERARCHY_RULE
+        for rule in effective_rules
+    )
+    if not force_include_leaves:
+        effective_rules.append(DEFAULT_LEAVES_HIERARCHY_RULE)
+
+    deduped_rules: List[str] = []
+    seen_keys: set[str] = set()
+    for rule in effective_rules:
+        key = _rule_compare_key(rule)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped_rules.append(rule)
+    return deduped_rules
 
 
 def _normalize_match_text(text: str) -> str:
@@ -876,19 +907,17 @@ def _expand_removed_paths(paths_to_remove: set[str], all_paths: List[str]) -> se
 
 
 def filter(model: Model, filter_rules: List[str]) -> Model:
-    if not filter_rules:
-        logger.debug("No filter rules provided, returning original model")
-        return model
+    effective_rules = with_default_leaves_ignore(filter_rules)
 
     logger.info(
         "Applying model filter rules (rules=%d dimensions=%d cubes=%d processes=%d chores=%d)",
-        len(filter_rules),
+        len(effective_rules),
         len(model.dimensions),
         len(model.cubes),
         len(model.processes),
         len(model.chores),
     )
-    rules = FilterRules(filter_rules)
+    rules = FilterRules(effective_rules)
     removed_parent_paths: set[str] = set()
 
     def _is_descendant_of_removed(path: str) -> bool:
@@ -1066,7 +1095,6 @@ def filter_changeset(
     ]
     filtered_changeset.errors = dict(changeset.errors)
     filtered_changeset.last_execution_id = changeset.last_execution_id
-    filtered_changeset.sort()
     logger.info(
         "Filtered changeset from %d to %d change(s) (filter_children=%s)",
         len(changeset.changes),

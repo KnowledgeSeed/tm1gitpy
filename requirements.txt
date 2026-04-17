@@ -2,6 +2,6 @@ TM1py>=2.1,<3.0
 requests>=2.25
 PyYAML>=6.0
 orjson
-ijson[yajl2]
+ijson
 cffi
 tqdm

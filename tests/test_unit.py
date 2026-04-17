@@ -1,6 +1,7 @@
 import json
 import os.path
 import shutil
+import sqlite3
 import types
 from unittest import mock
 from pathlib import Path
@@ -28,7 +29,13 @@ from tm1_git_py.exporter import export
 from tm1_git_py.serializer import serialize_model, serialize_dimensions
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.changeset import Change, ChangeType, Changeset, ObjectType, import_changeset
-from tm1_git_py.filter import EntityType, FilterRules, filter_changeset, should_exclude_path
+from tm1_git_py.filter import (
+    EntityType,
+    FilterRules,
+    filter_changeset,
+    should_exclude_path,
+    with_default_leaves_ignore,
+)
 from tm1_git_py import filter as filter_module
 from tm1_git_py.deserializer import *
 from tm1_git_py.model import *
@@ -42,7 +49,6 @@ from tm1_git_py.progress_reporting import (
     ProgressUnit,
     TqdmProgressSink,
 )
-from tests.utility import tm1_uri_from_path
 from tm1_git_py.tm1py_ext import subset_service_ext, process_service_ext, cube_service_ext, view_service_ext
 
 T = TypeVar('T', Cube, Dimension, Process, Chore)
@@ -261,6 +267,27 @@ class TestDeserializer:
         payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
         assert payload["Name"] == "MyHier"
 
+    def test_serialize_dimensions_writes_default_hierarchy_as_id_object(self, tmp_path):
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[],
+            subsets=[],
+        )
+        dimension_obj = Dimension(
+            name="MyDim",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+
+        serialize_dimensions([dimension_obj], str(tmp_path))
+
+        dimension_file = tmp_path / "MyDim.json"
+        payload = json.loads(dimension_file.read_text(encoding="utf-8"))
+        assert payload["DefaultHierarchy"] == {
+            "@id": "Dimensions('MyDim')/Hierarchies('MyHier')"
+        }
+
     def test_serialize_dimensions_skips_rewrite_for_staged_hierarchy(self, tmp_path, monkeypatch):
         hierarchy_obj = Hierarchy(
             name="MyHier",
@@ -292,6 +319,27 @@ class TestDeserializer:
         dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
         assert "testbenchVersion" in dimensions
         assert not any("inprogress" in key for key in errors.keys())
+
+    def test_deserialize_dimensions_accepts_default_hierarchy_id_object(self, tmp_path):
+        src_dimensions = test_model_dir_base / "dimensions"
+        dimensions_dir = tmp_path / "dimensions"
+        shutil.copytree(src_dimensions, dimensions_dir)
+
+        dimension_file = dimensions_dir / "testbenchVersion.json"
+        payload = json.loads(dimension_file.read_text(encoding="utf-8"))
+        payload["DefaultHierarchy"] = {
+            "@id": "Dimensions('testbenchVersion')/Hierarchies('testbenchVersion')"
+        }
+        dimension_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
+        assert "testbenchVersion" in dimensions
+        assert dimensions["testbenchVersion"].defaultHierarchy.name == "testbenchVersion"
+        assert (
+            "Dimensions('testbenchVersion')" not in errors
+            and "Dimensions('testbenchVersion')/Hierarchies('testbenchVersion')"
+            not in errors
+        )
 
     def test_get_subsets_uses_collector(self, monkeypatch):
         tm1_conn = mock.Mock()
@@ -1019,7 +1067,7 @@ class TestComparator:
         assert len(changeset.changes) == 0
         assert "Skipping Element streaming compare: count+hash match" in caplog.text
 
-    def test_comparator_ignores_leaf_hierarchy_elements(self):
+    def test_comparator_ignores_leaf_hierarchy_elements_by_default(self):
         model1 = build_mock_model()
         model2 = build_mock_model()
 
@@ -1047,6 +1095,44 @@ class TestComparator:
             if change.object_type == ObjectType.ELEMENT and "Hierarchies('Leaves')" in change.uri
         ]
         assert not leaf_element_changes
+
+    def test_comparator_can_force_include_leaves_hierarchy_via_filter_rules(self):
+        model1 = build_mock_model()
+        model2 = build_mock_model()
+
+        leaf_hierarchy_old = Hierarchy(
+            name="Leaves",
+            elements=[Element(name="LeafA", type="Numeric")],
+            edges=[],
+            subsets=[],
+        )
+        leaf_hierarchy_new = Hierarchy(
+            name="Leaves",
+            elements=[
+                Element(name="LeafA", type="Numeric"),
+                Element(name="LeafB", type="Numeric"),
+            ],
+            edges=[],
+            subsets=[],
+        )
+        model1.dimensions[0].hierarchies.append(leaf_hierarchy_old)
+        model2.dimensions[0].hierarchies.append(leaf_hierarchy_new)
+
+        changeset = Comparator().compare(
+            model1,
+            model2,
+            mode="full",
+            filter_rules=["!Dimensions('*')/Hierarchies('Leaves')"],
+        )
+        leaf_element_changes = [
+            change
+            for change in changeset.changes
+            if change.object_type == ObjectType.ELEMENT
+            and "Hierarchies('Leaves')" in change.uri
+        ]
+        assert len(leaf_element_changes) == 1
+        assert leaf_element_changes[0].change_type == ChangeType.ADD
+        assert leaf_element_changes[0].body.name == "LeafB"
 
     def test_comparator_streaming_store_backed_elements_and_edges(self, tmp_path):
         """StoreBackedSequence merge compare should match in-memory list compare."""
@@ -1588,7 +1674,7 @@ class TestExporter:
         assert errors == {"dim": {}, "cube": {}, "process": {}, "chore": {}}
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
-        assert kwargs["filter_rules"]._normalized_rules == []
+        assert kwargs["filter_rules"]._normalized_rules == with_default_leaves_ignore([])
 
     def test_export_non_technical_filter_rules_keep_skip_control_disabled(self, mocker):
         tm1_service = mocker.Mock()
@@ -1600,7 +1686,7 @@ class TestExporter:
 
         export(tm1_service, filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(filter_rules)
+        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1621,7 +1707,7 @@ class TestExporter:
 
         export(tm1_service, filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(filter_rules)
+        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1642,7 +1728,7 @@ class TestExporter:
 
         export(tm1_service, filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(filter_rules)
+        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1655,6 +1741,22 @@ class TestExporter:
             tm1_service,
             filter_rules=mocker.ANY,
         )
+
+    def test_export_force_include_leaves_does_not_inject_default_leaves_exclude(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["!Dimensions('*')/Hierarchies('Leaves')"]
+        mock_dimensions = mocker.patch(
+            "tm1_git_py.exporter.dimensions_to_model",
+            return_value=({}, {}),
+        )
+        mocker.patch("tm1_git_py.exporter.cubes_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, filter_rules_list=filter_rules)
+
+        _, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == filter_rules
 
     def test_should_exclude_path_supports_tm1project_filter_format(self):
         filter_rules = [
@@ -2044,6 +2146,257 @@ class TestChangeset:
         # subsets -> mdx_views -> unified rules -> processes -> chores
         assert updated_types == [Subset, MDXView, Rule, Process, Chore]
 
+    def test_apply_skips_changes_marked_apply_false(self, mocker):
+        changeset = Changeset(changeset_id="20260413000001")
+        process_a = make_process(name="ProcApply")
+        process_b = make_process(name="ProcSkip")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_a.uri(),
+                body=process_a,
+                apply=True,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_b.uri(),
+                body=process_b,
+                apply=False,
+            ),
+        ]
+
+        mock_create = mocker.patch("tm1_git_py.apply.create_object")
+        mocker.patch("tm1_git_py.apply.delete_object")
+        mocker.patch("tm1_git_py.apply.update_object")
+        mock_create.return_value = types.SimpleNamespace(url="ok", status_code=200, ok=True)
+
+        success, _ = apply(tm1_service=mocker.Mock(), changeset=changeset, fail_fast=False)
+
+        assert success
+        assert mock_create.call_count == 1
+        assert mock_create.call_args.kwargs["object_instance"].name == "ProcApply"
+
+    def test_changeset_persist_creates_sqlite_with_expected_name(self):
+        changeset = Changeset(changeset_id="20260413000002")
+        process_obj = make_process(name="ProcPersist")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+            )
+        ]
+
+        sqlite_path = changeset.sqlite_path
+        assert sqlite_path.name == "changeset-20260413000002.sqlite"
+        assert sqlite_path.exists()
+
+        conn = sqlite3.connect(sqlite_path)
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM changes").fetchone()
+            assert int(row[0]) == 1
+        finally:
+            conn.close()
+
+    def test_changeset_filter_uses_readme_rules_and_preserves_parent_exclude(self):
+        changeset = Changeset(changeset_id="20260413000003")
+        dim = make_dimension(name="Sales", hierarchy_names=["Main"])
+        subset_obj = make_subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([Sales].[Main])}",
+            dimension_name="Sales",
+            hierarchy_name="Main",
+        )
+        process_obj = make_process(name="KeepProcess")
+
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.DIMENSION,
+                uri=dim.uri(),
+                body=dim,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.SUBSET,
+                uri=subset_obj.uri("Sales", "Main"),
+                body=subset_obj,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+            ),
+        ]
+
+        toggled = changeset.filter(["Dimensions('Sales')"])
+        assert toggled == 2
+        changes = changeset.query(from_=0, to=10)
+        by_uri = {change.uri: change.apply for change in changes}
+        assert by_uri[dim.uri()] is False
+        assert by_uri[subset_obj.uri("Sales", "Main")] is False
+        assert by_uri[process_obj.uri()] is True
+
+    def test_changeset_query_supports_filter_and_paging(self):
+        changeset = Changeset(changeset_id="20260413000004")
+        processes = [make_process(name=f"Proc{i}") for i in range(6)]
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+            )
+            for process_obj in processes
+        ]
+
+        page = changeset.query(
+            rules=["Processes('Proc0')", "Processes('Proc4')"],
+            offset=1,
+            limit=2,
+        )
+        assert [change.body.name for change in page] == ["Proc2", "Proc3"]
+
+    def test_changeset_filter_preserves_apply_when_rule_does_not_match(self):
+        changeset = Changeset(changeset_id="20260413000006")
+        p0 = make_process(name="Proc0")
+        p1 = make_process(name="Proc1")
+        changeset.changes = [
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p0.uri(), body=p0, apply=False),
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p1.uri(), body=p1, apply=True),
+        ]
+
+        updated = changeset.filter(["Processes('Proc1')"])
+
+        assert updated == 1
+        queried = changeset.query(from_=0, to=10)
+        by_name = {change.body.name: change.apply for change in queried}
+        assert by_name["Proc0"] is False
+        assert by_name["Proc1"] is False
+
+    def test_changeset_filter_unignores_only_matching_rules(self):
+        changeset = Changeset(changeset_id="20260413000008")
+        p0 = make_process(name="Proc0")
+        p1 = make_process(name="Proc1")
+        changeset.changes = [
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p0.uri(), body=p0, apply=False),
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p1.uri(), body=p1, apply=False),
+        ]
+
+        updated = changeset.filter(["!Processes('Proc1')"])
+
+        assert updated == 1
+        queried = changeset.query(from_=0, to=10)
+        by_name = {change.body.name: change.apply for change in queried}
+        assert by_name["Proc0"] is False
+        assert by_name["Proc1"] is True
+
+    def test_changeset_filter_with_no_rules_preserves_existing_apply_state(self):
+        changeset = Changeset(changeset_id="20260413000009")
+        p0 = make_process(name="Proc0")
+        p1 = make_process(name="Proc1")
+        changeset.changes = [
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p0.uri(), body=p0, apply=False),
+            Change(change_type=ChangeType.ADD, object_type=ObjectType.PROCESS, uri=p1.uri(), body=p1, apply=True),
+        ]
+
+        updated = changeset.filter([])
+
+        assert updated == 0
+        queried = changeset.query(from_=0, to=10)
+        by_name = {change.body.name: change.apply for change in queried}
+        assert by_name["Proc0"] is False
+        assert by_name["Proc1"] is True
+
+    def test_changeset_filter_force_include_dimension_cascades_to_descendants(self):
+        changeset = Changeset(changeset_id="20260413000010")
+        hierarchy_obj = Hierarchy(name="Main", elements=[], edges=[], subsets=[])
+        dimension_obj = Dimension(
+            name="Sales",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+        subset_obj = make_subset(
+            name="SubsetA",
+            expression="{TM1SUBSETALL([Sales].[Main])}",
+            dimension_name="Sales",
+            hierarchy_name="Main",
+        )
+        element_obj = make_element("Leaf1")
+        edge_obj = Edge(parent="Total", component_name="Leaf1", weight=1)
+
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.DIMENSION,
+                uri=dimension_obj.uri(),
+                body=dimension_obj,
+                apply=False,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.HIERARCHY,
+                uri=hierarchy_obj.uri("Sales"),
+                body=hierarchy_obj,
+                apply=False,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.SUBSET,
+                uri=subset_obj.uri("Sales", "Main"),
+                body=subset_obj,
+                apply=False,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.ELEMENT,
+                uri=element_obj.uri("Sales", "Main"),
+                body=element_obj,
+                apply=False,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.EDGE,
+                uri=edge_obj.uri("Sales", "Main"),
+                body=edge_obj,
+                apply=False,
+            ),
+        ]
+
+        updated = changeset.filter(["!Dimensions('*')"])
+
+        assert updated == 5
+        queried = changeset.query(from_=0, to=20)
+        by_uri = {change.uri: change.apply for change in queried}
+        assert by_uri[dimension_obj.uri()] is True
+        assert by_uri[hierarchy_obj.uri("Sales")] is True
+        assert by_uri[subset_obj.uri("Sales", "Main")] is True
+        assert by_uri[element_obj.uri("Sales", "Main")] is True
+        assert by_uri[edge_obj.uri("Sales", "Main")] is True
+
+    def test_changeset_can_be_loaded_by_changeset_id(self):
+        changeset = Changeset(changeset_id="20260413000007")
+        process_obj = make_process(name="ProcLoad")
+        changeset.changes.append(
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+            )
+        )
+        loaded = Changeset.from_changeset_id("20260413000007")
+        assert len(loaded.changes) == 1
+        assert loaded.changes[0].body.name == "ProcLoad"
+
+    def test_changeset_from_changeset_id_raises_when_missing(self):
+        with pytest.raises(FileNotFoundError):
+            Changeset.from_changeset_id("20990101000000")
+
 
     def test_models_expose_canonical_urls(self):
         hierarchy_obj = make_hierarchy(dimension_name="TestDim", hierarchy_name="TestHier")
@@ -2099,9 +2452,60 @@ class TestChangeset:
         cubes_filtered = filter_module.filter(model, ["Cubes('MockCube')"])
         assert len(cubes_filtered.cubes) == 0
 
+    def test_model_filter_excludes_leaves_hierarchy_by_default(self):
+        main_hierarchy = Hierarchy(
+            name="Main",
+            elements=[],
+            edges=[],
+            subsets=[],
+        )
+        leaves_hierarchy = Hierarchy(
+            name="Leaves",
+            elements=[],
+            edges=[],
+            subsets=[],
+        )
+        dimension = Dimension(
+            name="MockDim",
+            hierarchies=[main_hierarchy, leaves_hierarchy],
+            defaultHierarchy=main_hierarchy,
+        )
+        model = Model(cubes=[], dimensions=[dimension], processes=[], chores=[])
+
+        filtered = filter_module.filter(model, [])
+
+        assert [hier.name for hier in filtered.dimensions[0].hierarchies] == ["Main"]
+
+    def test_model_filter_force_include_leaves_hierarchy_overrides_default_exclude(self):
+        main_hierarchy = Hierarchy(
+            name="Main",
+            elements=[],
+            edges=[],
+            subsets=[],
+        )
+        leaves_hierarchy = Hierarchy(
+            name="Leaves",
+            elements=[],
+            edges=[],
+            subsets=[],
+        )
+        dimension = Dimension(
+            name="MockDim",
+            hierarchies=[main_hierarchy, leaves_hierarchy],
+            defaultHierarchy=main_hierarchy,
+        )
+        model = Model(cubes=[], dimensions=[dimension], processes=[], chores=[])
+
+        filtered = filter_module.filter(model, ["!Dimensions('*')/Hierarchies('Leaves')"])
+
+        assert [hier.name for hier in filtered.dimensions[0].hierarchies] == [
+            "Main",
+            "Leaves",
+        ]
+
 
     def test_export_persists_expected_payload(self, tmp_path):
-        changes = Changeset(changeset_name="mock_changes")
+        changes = Changeset(changeset_id="20260413000000")
 
         created_subset = make_subset(
             name="Subset_Create",
@@ -2124,19 +2528,19 @@ class TestChangeset:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json"),
+                uri=Subset.uri_for("Dim_New", "Hier_New", "Subset_Create"),
                 body=created_subset,
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.DIMENSION,
-                uri=tm1_uri_from_path("dimensions/Dim_Update.json"),
+                uri=Dimension.uri_for("Dim_Update"),
                 body=new_dimension,
             ),
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.MDX_VIEW,
-                uri=tm1_uri_from_path("cubes/Cube_One.views/View_To_Delete.json"),
+                uri=MDXView.uri_for("Cube_One", "View_To_Delete"),
                 body=removed_view,
             ),
         ]
@@ -2147,7 +2551,7 @@ class TestChangeset:
         exported_payload = yaml.safe_load(export_path.read_text(encoding="utf-8"))
 
         expected_payload = {
-            "changeset_name": "mock_changes",
+            "changeset_id": "20260413000000",
             "summary": {
                 "add": 1,
                 "remove": 1,
@@ -2157,31 +2561,34 @@ class TestChangeset:
                 {
                     "change_type": "remove",
                     "object_type": "MDXView",
-                    "uri": tm1_uri_from_path("cubes/Cube_One.views/View_To_Delete.json"),
+                    "uri": MDXView.uri_for("Cube_One", "View_To_Delete"),
+                    "apply": True,
                     "body": {
-                        "name": "View_To_Delete",
+                        "Name": "View_To_Delete",
                     },
                 },
                 {
                     "change_type": "add",
                     "object_type": "Subset",
-                    "uri": tm1_uri_from_path("dimensions/Dim_New.hierarchies/Hier_New.subsets/Subset_Create.json"),
+                    "uri": Subset.uri_for("Dim_New", "Hier_New", "Subset_Create"),
+                    "apply": True,
                     "body": {
-                        "name": "Subset_Create",
-                        "expression": "{[Dim_New].[Hier_New].Members}",
+                        "Name": "Subset_Create",
+                        "Expression": "{[Dim_New].[Hier_New].Members}",
                     },
                 },
                 {
                     "change_type": "modify",
                     "object_type": "Dimension",
-                    "uri": tm1_uri_from_path("dimensions/Dim_Update.json"),
+                    "uri": Dimension.uri_for("Dim_Update"),
+                    "apply": True,
                     "body": {
-                        "name": "Dim_Update",
-                        "hierarchies": [
+                        "Name": "Dim_Update",
+                        "Hierarchies": [
                             "dimensions/Dim_Update.hierarchies/Base.json",
                             "dimensions/Dim_Update.hierarchies/Added.json",
                         ],
-                        "default_hierarchy": "dimensions/Dim_Update.hierarchies/Base.json",
+                        "DefaultHierarchy": "dimensions/Dim_Update.hierarchies/Base.json",
                     },
                 },
             ],
@@ -2205,17 +2612,99 @@ class TestChangeset:
             changeset_file=str(export_path)
         )
 
-        changeset_compared.sort()
-        changeset_imported.sort()
-
         for expected, actual in zip(changeset_compared.changes, changeset_imported.changes):
             assert expected.change_type == actual.change_type
             assert expected.object_type == actual.object_type
             assert expected.uri == actual.uri
             assert expected.body.__class__ == actual.body.__class__
 
+    def test_changeset_class_import_alias_json_stream(self, tmp_path):
+        changeset = Changeset(changeset_id="20260413000008")
+        process_obj = make_process(name="ProcAlias")
+        changeset.changes.append(
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+                apply=False,
+            )
+        )
+        export_path = tmp_path / "alias_import.json"
+        changeset.export(export_path)
+
+        imported = import_changeset(export_path)
+        assert imported.changeset_id == "20260413000008"
+        assert len(imported.changes) == 1
+        assert imported.changes[0].apply is False
+
+    def test_export_import_roundtrip_preserves_changeset_id_and_apply(self, tmp_path):
+        changeset = Changeset(changeset_id="20260413000005")
+        process_obj = make_process(name="ProcRoundtrip")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+                apply=False,
+            )
+        ]
+
+        export_path = tmp_path / "roundtrip_changeset.yaml"
+        changeset.export(export_path)
+
+        imported = import_changeset(str(export_path))
+
+        assert imported.changeset_id == "20260413000005"
+        assert len(imported.changes) == 1
+        assert imported.changes[0].apply is False
+
+    def test_export_remove_edge_body_uses_parent_component_weight(self, tmp_path):
+        changeset = Changeset(changeset_id="20260416000003")
+        edge = Edge(parent="DimElemC", component_name="DimElem1", weight=1)
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.EDGE,
+                uri="Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')/Edges('DimElemC'/'DimElem1')",
+                body=edge,
+            )
+        ]
+
+        export_path = tmp_path / "remove_edge_payload.yml"
+        changeset.export(export_path)
+        payload = yaml.safe_load(export_path.read_text(encoding="utf-8"))
+        body = payload["changes"][0]["body"]
+        assert body == {
+            "ParentName": "DimElemC",
+            "ComponentName": "DimElem1",
+            "Weight": 1,
+        }
+
+    def test_import_rejects_edge_body_legacy_name_format(self, tmp_path):
+        changeset = Changeset(changeset_id="20260416000001")
+        edge = Edge(parent="DimElemC", component_name="DimElem1", weight=1)
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.EDGE,
+                uri="Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')/Edges('DimElemC'/'DimElem1')",
+                body=edge,
+            )
+        ]
+        path = tmp_path / "edge_remove_legacy_name.yml"
+        changeset.export(path)
+        raw = path.read_text(encoding="utf-8")
+        raw = raw.replace("ParentName: DimElemC\n", "")
+        raw = raw.replace("ComponentName: DimElem1\n", "name: DimElemC:DimElem1\n")
+        path.write_text(raw, encoding="utf-8")
+
+        imported = import_changeset(path)
+        assert len(imported.changes) == 0
+
     def test_export_changeset_preserves_unicode_characters(self, tmp_path):
-        changes = Changeset(changeset_name="unicode_changes")
+        changes = Changeset()
         subset = make_subset(
             name="Subset_Día",
             expression="{[Dim].[Hier].[café]}",
@@ -2226,7 +2715,7 @@ class TestChangeset:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/Dim.hierarchies/Hier.subsets/Subset_Día.json"),
+                uri=Subset.uri_for("Dim", "Hier", "Subset_Día"),
                 body=subset,
             )
         ]
@@ -2265,31 +2754,31 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.DIMENSION,
-                uri=tm1_uri_from_path("dimensions/MockDim.json"),
+                uri=Dimension.uri_for("MockDim"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.HIERARCHY,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json"),
+                uri=Hierarchy.uri_for("MockDim", "MockHier"),
                 body=hier_new
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetMod.json"),
+                uri=Subset.uri_for("MockDim", "MockHier", "SubsetMod"),
                 body=subset_mod_new
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
+                uri=Subset.uri_for("MockDim", "MockHier", "SubsetA"),
                 body=subset
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path("processes/KeepProcess.json"),
+                uri=Process.uri_for("KeepProcess"),
                 body=process_obj
             ),
         ]
@@ -2298,9 +2787,9 @@ class TestChangesetFiltering:
             changeset,
             {
                 "add": [],
-                "remove": [tm1_uri_from_path("dimensions/MockDim.json")],
+                "remove": [Dimension.uri_for("MockDim")],
                 "modify": [
-                    tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json")
+                    Hierarchy.uri_for("MockDim", "MockHier")
                 ],
             },
             filter_children=True
@@ -2322,13 +2811,13 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.DIMENSION,
-                uri=tm1_uri_from_path("dimensions/MockDim.json"),
+                uri=Dimension.uri_for("MockDim"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
+                uri=Subset.uri_for("MockDim", "MockHier", "SubsetA"),
                 body=subset
             ),
         ]
@@ -2336,7 +2825,7 @@ class TestChangesetFiltering:
         filtered = filter_changeset(
             changeset,
             {
-                "add": [tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json")],
+                "add": [Subset.uri_for("MockDim", "MockHier", "SubsetA")],
                 "remove": [],
                 "modify": [],
             }
@@ -2361,25 +2850,25 @@ class TestChangesetFiltering:
             Change(
                 change_type=ChangeType.REMOVE,
                 object_type=ObjectType.DIMENSION,
-                uri=tm1_uri_from_path("dimensions/MockDim.json"),
+                uri=Dimension.uri_for("MockDim"),
                 body=dim
             ),
             Change(
                 change_type=ChangeType.MODIFY,
                 object_type=ObjectType.HIERARCHY,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.json"),
+                uri=Hierarchy.uri_for("MockDim", "MockHier"),
                 body=hier_new
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.SUBSET,
-                uri=tm1_uri_from_path("dimensions/MockDim.hierarchies/MockHier.subsets/SubsetA.json"),
+                uri=Subset.uri_for("MockDim", "MockHier", "SubsetA"),
                 body=subset
             ),
             Change(
                 change_type=ChangeType.ADD,
                 object_type=ObjectType.PROCESS,
-                uri=tm1_uri_from_path("processes/KeepProcess.json"),
+                uri=Process.uri_for("KeepProcess"),
                 body=process_obj
             ),
         ]
@@ -2388,7 +2877,7 @@ class TestChangesetFiltering:
             changeset,
             {
                 "add": [],
-                "remove": [tm1_uri_from_path("dimensions/MockDim.json")],
+                "remove": [Dimension.uri_for("MockDim")],
                 "modify": [],
             },
             filter_children=False
@@ -2422,7 +2911,7 @@ class TestSubsetCRUD:
         result = subset.create_subset(
             tm1_service,
             subset_mock,
-            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json"),
+            uri=Subset.uri_for("Dim_A", "Hier_A", "Subset_A"),
         )
 
         tm1py_subset_cls.assert_called_once_with(
@@ -2448,7 +2937,7 @@ class TestSubsetCRUD:
         result = subset.delete_subset(
             tm1_service,
             subset_mock,
-            uri=tm1_uri_from_path("dimensions/Dim_Del.hierarchies/Hier_Del.subsets/Subset_Delete.json"),
+            uri=Subset.uri_for("Dim_Del", "Hier_Del", "Subset_Delete"),
         )
 
         tm1_service.subsets.delete.assert_called_once_with(
@@ -2478,7 +2967,7 @@ class TestSubsetCRUD:
         result = subset.update_subset(
             tm1_service,
             subset_new,
-            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.subsets/Subset_A.json"),
+            uri=Subset.uri_for("Dim_A", "Hier_A", "Subset_A"),
         )
 
         tm1_service.subsets.get.assert_called_once_with(
@@ -2507,7 +2996,7 @@ class TestEdgeCRUD:
         result = edge.create_edge(
             tm1_service,
             edge_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.json/Parent_A:Child_A"),
+            uri=Edge.uri_for("Dim_A", "Hier_A", "Parent_A", "Child_A"),
         )
 
         tm1_service.elements.add_edges.assert_called_once_with(
@@ -2533,7 +3022,7 @@ class TestEdgeCRUD:
         result = edge.update_edge(
             tm1_service,
             edge_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_B.hierarchies/Hier_B.json/Parent_B:Child_B"),
+            uri=Edge.uri_for("Dim_B", "Hier_B", "Parent_B", "Child_B"),
         )
 
         tm1_service.hierarchies.get.assert_called_once_with(
@@ -2561,7 +3050,7 @@ class TestEdgeCRUD:
         result = edge.delete_edge(
             tm1_service,
             edge_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_C.hierarchies/Hier_C.json/Parent_C:Child_C"),
+            uri=Edge.uri_for("Dim_C", "Hier_C", "Parent_C", "Child_C"),
         )
 
         tm1_service.elements.remove_edge.assert_called_once_with(
@@ -2590,7 +3079,7 @@ class TestElementCRUD:
         result = element.create_element(
             tm1_service,
             element_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_A.hierarchies/Hier_A.json/Elem_A"),
+            uri=Element.uri_for("Dim_A", "Hier_A", "Elem_A"),
         )
 
         tm1py_element_cls.assert_called_once_with(name="Elem_A", element_type="Numeric")
@@ -2613,7 +3102,7 @@ class TestElementCRUD:
         result = element.delete_element(
             tm1_service,
             element_obj,
-            uri=tm1_uri_from_path("dimensions/Dim_B.hierarchies/Hier_B.json/Elem_B"),
+            uri=Element.uri_for("Dim_B", "Hier_B", "Elem_B"),
         )
 
         tm1_service.elements.delete.assert_called_once_with(
@@ -2651,7 +3140,7 @@ class TestHierarchyCRUD:
         result = hierarchy.create_hierarchy(
             tm1_service,
             hierarchy_mock,
-            uri=tm1_uri_from_path("dimensions/Dimension_A.hierarchies/Hierarchy_A.json"),
+            uri=Hierarchy.uri_for("Dimension_A", "Hierarchy_A"),
         )
 
         # Assert: TM1py.Hierarchy constructed with correct name + dimension
@@ -2683,7 +3172,7 @@ class TestHierarchyCRUD:
         result = hierarchy.delete_hierarchy(
             tm1_service,
             hierarchy_mock,
-            uri=tm1_uri_from_path("dimensions/Dimension_X.hierarchies/Hierarchy_Delete.json"),
+            uri=Hierarchy.uri_for("Dimension_X", "Hierarchy_Delete"),
         )
 
         tm1_service.hierarchies.delete.assert_called_once_with(
@@ -2741,7 +3230,7 @@ class TestMDXViewCRUD:
         result = mdxview.create_mdxview(
             tm1_service,
             mdx_view,
-            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
+            uri=MDXView.uri_for("Cube_A", "View_A"),
         )
 
         tm1py_mdxview_cls.assert_called_once_with(
@@ -2764,7 +3253,7 @@ class TestMDXViewCRUD:
         result = mdxview.delete_mdxview(
             tm1_service,
             mdx_view,
-            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
+            uri=MDXView.uri_for("Cube_A", "View_A"),
         )
 
         tm1_service.views.delete.assert_called_once_with(view_name=mdx_view.name, cube_name="Cube_A")
@@ -2788,7 +3277,7 @@ class TestMDXViewCRUD:
         result = mdxview.update_mdxview(
             tm1_service,
             mdx_view_new,
-            uri=tm1_uri_from_path("cubes/Cube_A.views/View_A.json"),
+            uri=MDXView.uri_for("Cube_A", "View_A"),
         )
 
         # Assert: we got the existing MDX view from TM1

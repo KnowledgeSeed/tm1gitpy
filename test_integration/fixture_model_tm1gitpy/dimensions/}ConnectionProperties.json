@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}ConnectionProperties.hierarchies/}ConnectionProperties.json"
 	],
-	"DefaultHierarchy": "Dimensions('}ConnectionProperties')/Hierarchies('}ConnectionProperties')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}ConnectionProperties')/Hierarchies('}ConnectionProperties')"
+	}
 }

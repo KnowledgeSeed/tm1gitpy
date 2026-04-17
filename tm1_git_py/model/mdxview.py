@@ -60,8 +60,8 @@ class MDXView:
     
     def to_dict(self):
         return {
-            'name': self.name,
-            'mdx': self.mdx
+            "Name": self.name,
+            "MDX": self.mdx,
         }
 
     @classmethod

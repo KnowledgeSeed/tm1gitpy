@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}CubeSecurityProperties.hierarchies/}CubeSecurityProperties.json"
 	],
-	"DefaultHierarchy": "Dimensions('}CubeSecurityProperties')/Hierarchies('}CubeSecurityProperties')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}CubeSecurityProperties')/Hierarchies('}CubeSecurityProperties')"
+	}
 }

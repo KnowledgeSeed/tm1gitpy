@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}ElementAttributes_}Cultures.hierarchies/}ElementAttributes_}Cultures.json"
 	],
-	"DefaultHierarchy": "Dimensions('}ElementAttributes_}Cultures')/Hierarchies('}ElementAttributes_}Cultures')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}ElementAttributes_}Cultures')/Hierarchies('}ElementAttributes_}Cultures')"
+	}
 }

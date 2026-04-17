@@ -15,7 +15,7 @@ from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.process import Process
-from tm1_git_py.filter import filter
+from tm1_git_py.filter import filter, with_default_leaves_ignore
 from tm1_git_py.progress_reporting import (
     NoopProgressSink,
     ProgressEvent,
@@ -183,10 +183,6 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
     except AttributeError as exc:
         logger.error("Cube comparison failed due to missing attributes: %s", exc)
         return False
-
-
-def _is_leaf_hierarchy(hierarchy_obj: Any) -> bool:
-    return getattr(hierarchy_obj, "name", "").strip().lower() == "leaves"
 
 
 def _uri_from_object(obj: Any, context: Optional[dict[str, str]] = None) -> str:
@@ -431,18 +427,25 @@ class Comparator:
                 len(model2.chores),
             )
 
-            if filter_rules:
-                if isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules):
-                    filter_rule = _normalize_filter(filter_rules)
-                    logger.debug("Applying comparator filter rules: %s", filter_rule)
-                    model1 = filter(model1, filter_rule)
-                    model2 = filter(model2, filter_rule)
-                else:
-                    for filter_rule in filter_rules:
-                        filter_rule = _normalize_filter(filter_rule)
-                        logger.debug("Applying comparator filter rules: %s", filter_rule)
-                        model1 = filter(model1, filter_rule)
-                        model2 = filter(model2, filter_rule)
+            if filter_rules and not (
+                isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules)
+            ):
+                for filter_rule in filter_rules:
+                    normalized_rule_set = with_default_leaves_ignore(
+                        _normalize_filter(filter_rule)
+                    )
+                    logger.debug(
+                        "Applying comparator filter rules: %s", normalized_rule_set
+                    )
+                    model1 = filter(model1, normalized_rule_set)
+                    model2 = filter(model2, normalized_rule_set)
+            else:
+                normalized_rule_set = with_default_leaves_ignore(
+                    _normalize_filter(filter_rules or [])
+                )
+                logger.debug("Applying comparator filter rules: %s", normalized_rule_set)
+                model1 = filter(model1, normalized_rule_set)
+                model2 = filter(model2, normalized_rule_set)
 
             phase_rows = [
                 ("Cube", model1.cubes, model2.cubes, Cube),
@@ -460,7 +463,6 @@ class Comparator:
 
             cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
             changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
-            changeset.sort()
             summary = {"add": 0, "remove": 0, "modify": 0}
             for change in changeset.changes:
                 key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)
@@ -537,9 +539,6 @@ class Comparator:
         if child_relations and parent_pairs:
             for old_obj, new_obj in parent_pairs.values():
                 for child_attr, child_cls in child_relations:
-                    # "Leaves" hierarchy elements are auto-managed by TM1 and should not be diffed.
-                    if isinstance(new_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(new_obj):
-                        continue
                     slot_old = getattr(old_obj, child_attr, None) or []
                     slot_new = getattr(new_obj, child_attr, None) or []
                     if isinstance(slot_old, StoreBackedSequence) and isinstance(slot_new, StoreBackedSequence):
@@ -576,8 +575,6 @@ class Comparator:
         if child_relations and compare_result.added_items:
             for new_obj in compare_result.added_items:
                 for child_attr, child_cls in child_relations:
-                    if isinstance(new_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(new_obj):
-                        continue
                     slot_new = getattr(new_obj, child_attr, None) or []
                     if isinstance(slot_new, StoreBackedSequence):
                         new_children = slot_new
@@ -598,8 +595,6 @@ class Comparator:
         if mode == "full" and child_relations and compare_result.removed_items:
             for old_obj in compare_result.removed_items:
                 for child_attr, child_cls in child_relations:
-                    if isinstance(old_obj, Hierarchy) and child_attr == "elements" and _is_leaf_hierarchy(old_obj):
-                        continue
                     slot_old = getattr(old_obj, child_attr, None) or []
                     if isinstance(slot_old, StoreBackedSequence):
                         old_children = slot_old

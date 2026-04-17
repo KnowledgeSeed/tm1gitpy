@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}Processes.hierarchies/}Processes.json"
 	],
-	"DefaultHierarchy": "Dimensions('}Processes')/Hierarchies('}Processes')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}Processes')/Hierarchies('}Processes')"
+	}
 }

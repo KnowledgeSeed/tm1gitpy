@@ -42,8 +42,8 @@ class Subset:
 
     def to_dict(self):
         return {
-            'name': self.name,
-            'expression': self.expression
+            "Name": self.name,
+            "Expression": self.expression,
         }
 
     @classmethod

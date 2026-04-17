@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}Views_TestCube3WithView.hierarchies/}Views_testcube3withview.json"
 	],
-	"DefaultHierarchy": "Dimensions('}Views_TestCube3WithView')/Hierarchies('}Views_testcube3withview')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}Views_TestCube3WithView')/Hierarchies('}Views_testcube3withview')"
+	}
 }

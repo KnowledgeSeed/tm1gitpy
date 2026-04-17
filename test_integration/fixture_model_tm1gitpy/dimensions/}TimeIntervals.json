@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}TimeIntervals.hierarchies/}TimeIntervals.json"
 	],
-	"DefaultHierarchy": "Dimensions('}TimeIntervals')/Hierarchies('}TimeIntervals')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}TimeIntervals')/Hierarchies('}TimeIntervals')"
+	}
 }

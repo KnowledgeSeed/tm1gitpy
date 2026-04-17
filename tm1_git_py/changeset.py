@@ -1158,3 +1158,5 @@ def _resolve_change_body_reference_path(body: Any, **context: Any) -> str:
     except Exception:
         return ""
     return ""
+
+

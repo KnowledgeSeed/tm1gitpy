@@ -63,7 +63,7 @@ servers:
 Export a full TM1 model from a server:
 
 ```bash
-python tm1_git_py/main.py export --server dev --model_output_folder model_dir --overwrite
+python tm1_git_py/main.py export --server dev --model-output-folder model_dir --overwrite
 ```
 
 ### Filter Model
@@ -71,7 +71,13 @@ python tm1_git_py/main.py export --server dev --model_output_folder model_dir --
 Apply filters to include only specific objects:
 
 ```bash
-python tm1_git_py/main.py filter --filter examples/filter.txt --model_folder model_dir --model_output_folder model_dir_filtered --overwrite
+python tm1_git_py/main.py model-filter --filter-rules file://examples/filter.txt --model-folder model_dir --model-output-folder model_dir_filtered --overwrite
+```
+
+Toggle `apply` flags inside an existing changeset with the same filter rule language:
+
+```bash
+python tm1_git_py/main.py changset-filter --changeset-path changeset.yml --filter-rules file://examples/filter.txt
 ```
 
 Filter file format (one pattern per line, `#` for comments):
@@ -133,6 +139,15 @@ Chores('Daily*')/Tasks('LoadData')
 
 Use `!` prefix on any supported pattern to force-include matching objects.
 
+#### Filter Rule Input Formats (CLI)
+
+For CLI flags that accept filter rules (`--filter` or `--filter-rules`):
+
+- File path: `examples/filter.txt`
+- File URI: `file://examples/filter.txt`
+- Inline comma-separated rules:
+  `Dimensions('}*'),!Dimensions('BW*')`
+
 ### Command-Line Arguments
 
 ```
@@ -140,16 +155,19 @@ python tm1_git_py/main.py <command> [options]
 
 Commands:
   export    Export TM1 model from server
-  filter    Filter an existing model export
+  model-filter    Filter an existing model export
+  changset-filter Toggle changeset apply flags by filter rules
   compare   Compare two model versions and write a changeset file
   apply     Apply a changeset file to a TM1 server
 
 Options:
   -s, --server SERVER           TM1 server name from tm1servers.yaml
-  -m, --model_folder FOLDER     Input model folder (default: export)
-  -mo, --model_output_folder    Output model folder (default: export)
+  -m, --model-folder FOLDER     Input model folder (default: export)
+  -mo, --model-output-folder    Output model folder (default: export)
   -o, --overwrite              Overwrite existing folder
-  -f, --filter FILE            Filter file path
+  -f, --filter FILE            Filter rules for export (file path, file:// URI, or comma-separated rules)
+  -f, --filter-rules RULES     Filter rules for compare/model-filter/changset-filter
+  --changeset-path PATH         Changeset path for changset-filter
   --max-workers N              Worker budget for export/compare (default: cpu_count/2 + 1)
   --log-level LEVEL            Log level: DEBUG, INFO, WARNING, ERROR
 ```

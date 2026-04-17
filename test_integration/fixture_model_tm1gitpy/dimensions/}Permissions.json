@@ -4,5 +4,7 @@
 	"Hierarchies@Code.links": [
 		"}Permissions.hierarchies/}Permissions.json"
 	],
-	"DefaultHierarchy": "Dimensions('}Permissions')/Hierarchies('}Permissions')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('}Permissions')/Hierarchies('}Permissions')"
+	}
 }

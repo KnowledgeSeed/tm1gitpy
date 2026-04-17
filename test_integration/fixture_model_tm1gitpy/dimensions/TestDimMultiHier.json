@@ -4,8 +4,9 @@
 	"Hierarchies@Code.links": [
 		"TestDimMultiHier.hierarchies/TestDimMultiHier.json",
 		"TestDimMultiHier.hierarchies/Hier1.json",
-		"TestDimMultiHier.hierarchies/Hier2.json",
-		"TestDimMultiHier.hierarchies/Leaves.json"
+		"TestDimMultiHier.hierarchies/Hier2.json"
 	],
-	"DefaultHierarchy": "Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')"
+	"DefaultHierarchy": {
+		"@id": "Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')"
+	}
 }
