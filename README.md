@@ -1,14 +1,18 @@
-# tm1gitpy
+# tm1_gi_tpy
 
-A utility for exporting and comparing TM1 models in Git-friendly formats, enabling version control workflows for IBM Planning Analytics/TM1 models.
+**tm1_gi_tpy** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
 
-## Overview
+- It understands `tm1project.json` and the same filtering rules used by TM1 Git workflows.
+- It is **not** embedded in TM1, which keeps deployment flexible—ideal for CI/CD, agents, and pipelines that run outside the TM1 server. It talks to TM1 over the REST API **via TM1py**.
+- You can run it as a **stand-alone command-line tool** or **import it as a library** and embed it in a larger ecosystem (automation, CI/CD, custom apps).
 
-`tm1gitpy` allows you to:
-- Export TM1 models (cubes, dimensions, processes, chores) to a structured folder format
+## Features
+
+`tm1_gi_tpy` allows you to:
+- Export TM1 models (cubes, dimensions, processes, chores) to a structured folder format compatible with TM1 Git
 - Filter exports to include only specific objects
-- Serialize models to Git-friendly formats for version control
-- Compare model versions to track changes (Python API)
+- Compare models (either file-based schema or TM1 servers) and collect differences to changesets.
+- Apply changsets to target server
 
 ## Installation
 
