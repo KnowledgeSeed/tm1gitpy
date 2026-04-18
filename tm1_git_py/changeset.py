@@ -711,15 +711,14 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
         }
 
     if isinstance(body, Chore):
-        start_date = body.start_time.split("T")[0] if isinstance(body.start_time, str) and "T" in body.start_time else body.start_time
         return {
             "Name": body.name,
+            "StartTime": body.start_time,
             "Active": body.active,
-            "StartDate": start_date,
             "DSTSensitive": body.dst_sensitive,
             "ExecutionMode": body.execution_mode,
             "Frequency": body.frequency,
-            "Tasks": [f"processes/{task.process_name}.json" for task in body.tasks]
+            "Tasks": [task.to_dict() for task in body.tasks]
         }
 
     if hasattr(body, "to_dict"):
@@ -778,7 +777,12 @@ def _normalize_body_payload(
 
     if object_type == ObjectType.CHORE:
         if "start_time" not in normalized:
-            normalized["start_time"] = normalized.get("start_date") or normalized.get("StartDate")
+            normalized["start_time"] = (
+                normalized.get("startTime")
+                or normalized.get("StartTime")
+                or normalized.get("start_date")
+                or normalized.get("StartDate")
+            )
         if "dst_sensitive" in normalized or "DSTSensitive" in normalized:
             normalized["dst_sensitive"] = _as_bool(
                 normalized.get("dst_sensitive")
@@ -794,6 +798,18 @@ def _normalize_body_payload(
             normalized["tasks"] = [
                 {"process_name": _path_stem(task_path), "parameters": []}
                 for task_path in tasks
+            ]
+        elif isinstance(tasks, list):
+            normalized["tasks"] = [
+                {
+                    "process_name": (
+                        task_payload.get("process_name")
+                        or _path_stem(task_payload.get("process") or "")
+                    ),
+                    "parameters": task_payload.get("parameters") or task_payload.get("Parameters") or [],
+                }
+                for task_payload in tasks
+                if isinstance(task_payload, dict)
             ]
 
     return normalized

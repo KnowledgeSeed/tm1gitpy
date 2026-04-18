@@ -1,6 +1,9 @@
 import re
 from typing import Dict, Any, Optional
 
+from TM1py import TM1Service
+from requests import Response
+
 
 class Rule:
     def __init__(
@@ -81,3 +84,18 @@ class Rule:
         if not match:
             return ""
         return match.group(1).replace("''", "'")
+
+
+def create_rule(tm1_service: TM1Service, rule: Rule, uri: Optional[str] = None) -> Response:
+    cube_name = Rule.cube_name_from_uri(uri or "")
+    return tm1_service.cubes.update_or_create_rules(cube_name=cube_name, rules=rule.full_statement)
+
+
+def update_rule(tm1_service: TM1Service, rule: Rule, uri: Optional[str] = None) -> Response:
+    cube_name = Rule.cube_name_from_uri(uri or "")
+    return tm1_service.cubes.update_or_create_rules(cube_name=cube_name, rules=rule.full_statement)
+
+
+def delete_rule(tm1_service: TM1Service, rule: Rule, uri: Optional[str] = None) -> Response:
+    cube_name = Rule.cube_name_from_uri(uri or "")
+    return tm1_service.cubes.update_or_create_rules(cube_name=cube_name, rules="")

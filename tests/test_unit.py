@@ -2143,8 +2143,8 @@ class TestChangeset:
         ]
 
         # For updates, precedence is:
-        # subsets -> cubes (including synthesized rule updates) -> mdx_views -> processes -> chores
-        assert updated_types == [Subset, Cube, MDXView, Process, Chore]
+        # subsets -> mdx_views -> unified rules -> processes -> chores
+        assert updated_types == [Subset, MDXView, Rule, Process, Chore]
 
     def test_apply_skips_changes_marked_apply_false(self, mocker):
         changeset = Changeset(changeset_id="20260413000001")
