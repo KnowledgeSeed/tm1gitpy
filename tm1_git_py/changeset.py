@@ -25,6 +25,7 @@ from tm1_git_py.model import (
     Rule,
     Subset,
 )
+from tm1_git_py.progress_reporting import ProgressSink
 
 logger = logging.getLogger(__name__)
 
@@ -479,7 +480,8 @@ class Changeset:
             *,
             status_dir: Optional[Union[str, Path]] = None,
             execution_id: Optional[str] = None,
-            fail_fast: bool = True
+            fail_fast: bool = True,
+            progress_sink: Optional[ProgressSink] = None,
     ) -> tuple[bool, Union[list, None]]:
         from tm1_git_py.apply import apply as apply_changeset
 
@@ -488,7 +490,8 @@ class Changeset:
             tm1_service=tm1_service,
             status_dir=status_dir,
             execution_id=execution_id,
-            fail_fast=fail_fast
+            fail_fast=fail_fast,
+            progress_sink=progress_sink,
         )
 
     def __str__(self) -> str:

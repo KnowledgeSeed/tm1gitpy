@@ -560,12 +560,28 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     changeset = import_changeset(changeset_path)
 
     status_dir = Path(args.status_dir).expanduser().resolve() if args.status_dir else None
-    ok, errors = changeset.apply(
-        tm1_service,
-        status_dir=status_dir,
-        execution_id=args.execution_id,
-        fail_fast=not args.no_fail_fast,
+    apply_sinks: list[ProgressSink] = [
+        TqdmProgressSink(
+            base_position=0,
+            worker_count=1,
+            leave=False,
+        )
+    ]
+    if bool(args.log_file):
+        apply_sinks.append(LoggingProgressSink(logger))
+    apply_progress_sink: ProgressSink = (
+        apply_sinks[0] if len(apply_sinks) == 1 else CompositeProgressSink(apply_sinks)
     )
+    try:
+        ok, errors = changeset.apply(
+            tm1_service,
+            status_dir=status_dir,
+            execution_id=args.execution_id,
+            fail_fast=not args.no_fail_fast,
+            progress_sink=apply_progress_sink,
+        )
+    finally:
+        apply_progress_sink.close()
     if ok:
         logger.info("Apply finished successfully")
     else:
