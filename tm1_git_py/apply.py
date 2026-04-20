@@ -11,6 +11,14 @@ from tm1_git_py import Changeset
 from tm1_git_py.changeset import ChangeType, Change, ObjectType
 from tm1_git_py.changeset_status import ChangeSetStatusStore
 from tm1_git_py.model import Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule
+from tm1_git_py.progress_reporting import (
+    NoopProgressSink,
+    ProgressEvent,
+    ProgressKind,
+    ProgressScope,
+    ProgressSink,
+    ProgressUnit,
+)
 from tm1_git_py.validation import validate_changeset
 
 logger = logging.getLogger(__name__)
@@ -45,9 +53,10 @@ def apply(
         *,
         status_dir: Optional[Union[str, Path]] = None,
         execution_id: Optional[str] = None,
-        fail_fast: bool = True
+        fail_fast: bool = True,
+        progress_sink: Optional[ProgressSink] = None,
 ) -> tuple[bool, Union[list, None]]:
-
+    progress = progress_sink if progress_sink is not None else NoopProgressSink()
     changes = []
     logger.info(
         "Starting apply changeset_id=%s fail_fast=%s changes=%d",
@@ -64,6 +73,18 @@ def apply(
     if not execution_changes:
         logger.info("No executable changes after apply flag filtering.")
         return True, None
+    total_operations = len(execution_changes)
+    progress.on_event(
+        ProgressEvent.make(
+            kind=ProgressKind.START,
+            scope=ProgressScope.TOTAL,
+            unit=ProgressUnit.LINE,
+            current=0,
+            total=total_operations,
+            message="applying changeset",
+            path=changeset.changeset_id,
+        )
+    )
     """    
     validate_errors = validate_changeset(
         tm1_service=tm1_service,
@@ -91,6 +112,20 @@ def apply(
         obj_type = change.object_type.value
         obj_path = change.uri
         obj_name = getattr(obj, "name", "")
+        progress_path = obj_path or (f"{obj_type}:{obj_name}" if obj_name else obj_type)
+        progress_message = f"{action_name} {obj_type.lower()}"
+
+        progress.on_event(
+            ProgressEvent.make(
+                kind=ProgressKind.START,
+                scope=ProgressScope.WORKER,
+                unit=ProgressUnit.LINE,
+                current=0,
+                total=1,
+                message=progress_message,
+                path=progress_path,
+            )
+        )
 
         if store is not None:
             store.begin_operation(i, action_name, obj_type, obj_name, change.uri)
@@ -142,11 +177,45 @@ def apply(
             if store is not None:
                 store.end_operation_with_response(resp)
 
+            progress.on_event(
+                ProgressEvent.make(
+                    kind=ProgressKind.COMPLETE,
+                    scope=ProgressScope.WORKER,
+                    unit=ProgressUnit.LINE,
+                    current=1,
+                    total=1,
+                    message=progress_message,
+                    path=progress_path,
+                )
+            )
+            progress.on_event(
+                ProgressEvent.make(
+                    kind=ProgressKind.UPDATE,
+                    scope=ProgressScope.TOTAL,
+                    unit=ProgressUnit.LINE,
+                    current=i,
+                    total=total_operations,
+                    message="applying changeset",
+                    path=changeset.changeset_id,
+                )
+            )
+
             if not resp.ok:
                 ok_all = False
                 if fail_fast:
                     if store is not None:
                         store.fail()
+                    progress.on_event(
+                        ProgressEvent.make(
+                            kind=ProgressKind.COMPLETE,
+                            scope=ProgressScope.TOTAL,
+                            unit=ProgressUnit.LINE,
+                            current=i,
+                            total=total_operations,
+                            message="apply stopped on failure",
+                            path=changeset.changeset_id,
+                        )
+                    )
                     return False, changes
 
         except Exception as exc:
@@ -162,11 +231,45 @@ def apply(
             if store is not None:
                 store.end_operation_with_exception(exc)
                 store.fail()
+            progress.on_event(
+                ProgressEvent.make(
+                    kind=ProgressKind.COMPLETE,
+                    scope=ProgressScope.WORKER,
+                    unit=ProgressUnit.LINE,
+                    current=1,
+                    total=1,
+                    message=f"{progress_message} failed",
+                    path=progress_path,
+                )
+            )
+            progress.on_event(
+                ProgressEvent.make(
+                    kind=ProgressKind.COMPLETE,
+                    scope=ProgressScope.TOTAL,
+                    unit=ProgressUnit.LINE,
+                    current=i,
+                    total=total_operations,
+                    message="apply failed",
+                    path=changeset.changeset_id,
+                )
+            )
             logger.info("Apply finished success=%s applied=%d attempted=%d", False, len(changes), i)
             return False, changes
 
     if store is not None:
         store.succeed() if ok_all else store.fail()
+
+    progress.on_event(
+        ProgressEvent.make(
+            kind=ProgressKind.COMPLETE,
+            scope=ProgressScope.TOTAL,
+            unit=ProgressUnit.LINE,
+            current=len(execution_changes),
+            total=total_operations,
+            message="apply complete",
+            path=changeset.changeset_id,
+        )
+    )
 
     logger.info(
         "Apply finished success=%s applied=%d attempted=%d execution_id=%s",
