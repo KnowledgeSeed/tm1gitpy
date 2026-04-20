@@ -374,13 +374,13 @@ def recalculate_group_content_signature_parallel(
 
 def _recalculate_group_signature_task(
     *,
-    model_root: str,
+    model_id: str,
     group_id: int,
     progress: ProgressSink,
     progress_scope: str,
     process_pool: Optional[ProcessPoolExecutor] = None,
 ) -> tuple[int, str]:
-    store = ModelStore.for_main_dir(model_root)
+    store = ModelStore.for_model_id(model_id)
     total_lines = store.row_count(group_id)
     progress.on_event(
         ProgressEvent.make(
@@ -526,6 +526,8 @@ def _iter_hierarchy_array_payloads(
                 )
             )
     if not emitted and not _hierarchy_has_top_level_key(hierarchy_json_path, key):
+        if key == "Edges":
+            return
         raise ValueError(f"Malformed hierarchy json: key '{key}' not found")
 
 
@@ -576,7 +578,7 @@ def _subset_source_mtime_ns(subset_dir_path: str) -> int:
 def _ensure_hierarchy_store_groups(
     *,
     hierarchy_json_path: str,
-    model_root: str,
+    model_id: str,
     dimension_name: str,
     hierarchy_name: str,
     subset_dir_path: str,
@@ -585,8 +587,7 @@ def _ensure_hierarchy_store_groups(
     process_pool: Optional[ProcessPoolExecutor] = None,
     hash_slot_counter: Optional[count] = None,
 ) -> tuple[StoreBackedSequence[Element], StoreBackedSequence[Edge], StoreBackedSequence[Subset]]:
-    store = ModelStore.for_main_dir(model_root)
-    model_id = store.resolve_model_for_deserialize(model_root)
+    store = ModelStore.for_model_id(model_id)
     elements = StoreBackedSequence.for_elements_sink(
         store=store,
         model_id=model_id,
@@ -649,7 +650,7 @@ def _ensure_hierarchy_store_groups(
 
     def _enqueue_hash_recalc(group_id: int, scope: str) -> None:
         _recalculate_group_signature_task(
-            model_root=model_root,
+            model_id=model_id,
             group_id=group_id,
             progress=progress,
             progress_scope=scope,
@@ -742,12 +743,16 @@ def _handle_long_path(file_path) -> str:
 
 def deserialize_model(
     dir: str,
+    model_id: Optional[str] = None,
     *,
     progress_sink: Optional[ProgressSink] = None,
     max_workers: Optional[int] = None,
 ) -> tuple[Model, dict[str, str]]:
     logger.debug("Deserializing model from '%s'", dir)
     dir = _handle_long_path(dir)
+    resolved_model_id = (model_id or Path(dir).resolve().name).strip()
+    if not resolved_model_id:
+        raise ValueError("model_id must not be empty")
 
     dimensions_dir = dir + '/dimensions'
     cubes_dir = dir + '/cubes'
@@ -796,6 +801,7 @@ def deserialize_model(
 
         _dimensions, _dim_errors = deserialize_dimensions(
             dimensions_dir,
+            resolved_model_id,
             progress=progress,
             count_callback=_add_object_count,
             max_workers=effective_max_workers,
@@ -817,6 +823,7 @@ def deserialize_model(
                    dimensions=list(_dimensions.values()),
                    processes=list(_processes.values()),
                    chores=list(_chores.values()),
+                   model_id=resolved_model_id,
                    total_object_count=total_object_count)
     _errors = _dim_errors | _cube_errors | _process_errors | _chore_errors
     logger.debug(
@@ -961,7 +968,7 @@ def deserialize_processes(
 def _deserialize_single_hierarchy(
     *,
     hierarchy_json_path: str,
-    model_root: str,
+    model_id: str,
     dimension_name: str,
     hierarchy_name: str,
     subset_dir_path: str,
@@ -972,7 +979,7 @@ def _deserialize_single_hierarchy(
 ) -> Hierarchy:
     elements, edges, subsets = _ensure_hierarchy_store_groups(
         hierarchy_json_path=hierarchy_json_path,
-        model_root=model_root,
+        model_id=model_id,
         dimension_name=dimension_name,
         hierarchy_name=hierarchy_name,
         subset_dir_path=subset_dir_path,
@@ -991,6 +998,7 @@ def _deserialize_single_hierarchy(
 
 def deserialize_dimensions(
     dimension_dir,
+    model_id: str,
     *,
     progress: Optional[ProgressSink] = None,
     count_callback: Optional[Callable[[int], None]] = None,
@@ -998,12 +1006,14 @@ def deserialize_dimensions(
     process_pool: Optional[ProcessPoolExecutor] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
     progress = progress if progress is not None else NoopProgressSink()
+    model_id = model_id.strip()
+    if not model_id:
+        raise ValueError("model_id must not be empty")
     dimensions: Dict[str, Dimension] = {}
     dimension_errors: Dict[str, str] = {}
     logger.debug("Deserializing dimensions from '%s'", dimension_dir)
 
     files = directory_to_dict(dimension_dir)
-    model_root = os.path.dirname(dimension_dir)
     effective_max_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
     hash_slot_counter = count(start=0)
 
@@ -1078,7 +1088,7 @@ def deserialize_dimensions(
             try:
                 _hierarchy = _deserialize_single_hierarchy(
                     hierarchy_json_path=hierarchy_file_path,
-                    model_root=model_root,
+                    model_id=model_id,
                     dimension_name=file_name_base,
                     hierarchy_name=hier_file_name_base,
                     subset_dir_path=subset_dir_path,
@@ -1239,7 +1249,16 @@ def deserialize_cubes(
                         cube_errors[mdx_file_name] = 'mdx cannot be parsed'
                         continue
 
-                    _cube.views.append(MDXView(name=view['Name'], mdx=mdx))
+                    meta_raw = view.get("Meta")
+                    meta = dict(meta_raw) if isinstance(meta_raw, dict) else None
+                    _cube.views.append(
+                        MDXView(
+                            name=view["Name"],
+                            mdx=mdx,
+                            format_string=view.get("FormatString", "0.#########"),
+                            meta=meta,
+                        )
+                    )
                 elif view_type == 'nativeview':
                     _cube.views.append(
                         NativeView(

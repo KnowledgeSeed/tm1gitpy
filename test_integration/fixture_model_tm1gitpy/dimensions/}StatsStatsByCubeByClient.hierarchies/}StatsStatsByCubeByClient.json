@@ -1,16 +1,16 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}StatsStatsByCubeByClient",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}StatsStatsByCubeByClient",
+	"Elements":
+	[
 		{
-		  "Name": "Count",
-		  "Type": "Numeric"
+			"Name":"Count",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Elapse Time (ms)",
-		  "Type": "Numeric"
+			"Name":"Elapse Time (ms)",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

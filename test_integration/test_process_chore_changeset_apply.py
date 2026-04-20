@@ -1,4 +1,3 @@
-import copy
 import re
 
 import TM1py
@@ -557,8 +556,9 @@ class TestProcessChoreChangesetApply:
         self.apply(seed_extra)
         source_model = export_check_no_errors(self, self._f_no_meta)
 
-        # target model asks to create missing chore and has no "extra" chore
-        target_model = copy.deepcopy(source_model)
+        # target model asks to create missing chore and has no "extra" chore.
+        # Avoid deepcopy: store-backed model objects hold sqlite connections.
+        target_model = export_check_no_errors(self, self._f_no_meta)
         target_model.chores = [
             chore for chore in target_model.chores if chore.name != keep_extra
         ]
@@ -635,8 +635,11 @@ class TestProcessChoreChangesetApply:
         assert self.tm1_service.chores.exists(chore_b)
 
         # idempotency by compare/apply no-op cycle
+        # NOTE: Model now contains store-backed collections with sqlite handles,
+        # so deepcopy is not safe here; use a fresh export snapshot instead.
         current = export_check_no_errors(self, self._f_no_meta)
-        no_op = self.compare(current, copy.deepcopy(current))
+        current_snapshot = export_check_no_errors(self, self._f_no_meta)
+        no_op = self.compare(current, current_snapshot)
         assert not no_op.has_changes()
         self.apply(no_op)
 

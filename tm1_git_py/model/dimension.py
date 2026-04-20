@@ -1,4 +1,4 @@
-import json
+import io
 import logging
 import re
 from typing import List, Any, Dict, Union, Optional
@@ -9,6 +9,10 @@ from TM1py.Utils import format_url
 from requests import Response
 
 from tm1_git_py.model.hierarchy import Hierarchy
+from tm1_git_py.model.tm1git_json import dump_as_tm1git
+
+# Keys (at any object depth) that use ``"key" : value``; dimension export uses compact colons throughout.
+DIMENSION_JSON_SPACED_COLON_KEYS: frozenset[str] = frozenset()
 
 
 # {
@@ -32,26 +36,32 @@ class Dimension:
         self.defaultHierarchy = defaultHierarchy
 
     def as_json(self):
-        return json.dumps({
+        payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
-            "Hierarchies@Code.links": [format_url("{}.hierarchies/{}.json", self.name, h.name) for h in self.hierarchies],
+            "Hierarchies@Code.links": [
+                format_url("{}.hierarchies/{}.json", self.name, h.name)
+                for h in self.hierarchies
+            ],
             "DefaultHierarchy": {
                 "@id": format_url(
                     "Dimensions('{}')/Hierarchies('{}')",
                     self.name,
                     self.defaultHierarchy.name,
-                )
-            }
-        }, indent='\t')
-    
+                ),
+            },
+        }
+        buf = io.StringIO()
+        dump_as_tm1git(payload, buf, spaced_colon_keys=DIMENSION_JSON_SPACED_COLON_KEYS)
+        return buf.getvalue()
+
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Dimension):
             return NotImplemented
-        
+
         if self.name != other.name:
             return False
-        
+
         if self.defaultHierarchy.name != other.defaultHierarchy.name:
             return False
 
@@ -66,7 +76,7 @@ class Dimension:
             self.defaultHierarchy.name,
             frozenset(self.hierarchies)
         ))
-    
+
     def __repr__(self):
         return f"{self.type}('{self.name}')"
 

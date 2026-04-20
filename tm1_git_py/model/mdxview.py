@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 import re
@@ -6,6 +7,8 @@ from typing import Any, Dict, Optional, Tuple
 import TM1py
 from TM1py.Services import TM1Service
 from requests import Response
+
+from tm1_git_py.model.tm1git_json import MDX_VIEW_JSON_SPACED_COLON_KEYS, dump_as_tm1git
 
 
 # {
@@ -34,18 +37,25 @@ class MDXView:
         }
 
     def as_json(self):
-        return json.dumps({
+        payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
-            "MDX@Code.link": self.name + '.mdx',
+            "MDX@Code.link": self.name + ".mdx",
             "FormatString": self.format_string,
-            "Meta": self.meta
-        }, indent='\t')
+            "Meta": self.meta,
+        }
+        buf = io.StringIO()
+        dump_as_tm1git(payload, buf, spaced_colon_keys=MDX_VIEW_JSON_SPACED_COLON_KEYS)
+        return buf.getvalue()
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, MDXView):
             return NotImplemented
         if self.name != other.name:
+            return False
+        if self.format_string != other.format_string:
+            return False
+        if self.meta != other.meta:
             return False
         remove_newlines = str.maketrans(' ', ' ', '\r\n')
         if self.mdx.translate(remove_newlines) != other.mdx.translate(remove_newlines):
@@ -72,7 +82,10 @@ class MDXView:
 
         name = data.get("name") or data.get("Name")
         mdx = data.get("mdx") or data.get("MDX") or ""
-        return cls(name=name, mdx=mdx)
+        format_string = data.get("format_string") or data.get("FormatString") or "0.#########"
+        meta_raw = data.get("Meta")
+        meta = dict(meta_raw) if isinstance(meta_raw, dict) else None
+        return cls(name=name, mdx=mdx, format_string=format_string, meta=meta)
 
     @staticmethod
     def uri_for(cube_name: str, view_name: str) -> str:

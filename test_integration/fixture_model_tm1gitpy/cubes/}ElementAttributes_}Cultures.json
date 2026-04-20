@@ -1,14 +1,14 @@
 {
-	"@type": "Cube",
-	"Name": "}ElementAttributes_}Cultures",
-	"Dimensions": [
+	"@type":"Cube",
+	"Name":"}ElementAttributes_}Cultures",
+	"Dimensions":
+	[
 		{
-			"@id": "Dimensions('}Cultures')"
+			"@id":"Dimensions('}Cultures')"
 		},
 		{
-			"@id": "Dimensions('}ElementAttributes_}Cultures')"
+			"@id":"Dimensions('}ElementAttributes_}Cultures')"
 		}
 	],
-	"Rules@Code.link": [],
-	"Views@Code.links": []
+	"Views@Code.links":[]
 }

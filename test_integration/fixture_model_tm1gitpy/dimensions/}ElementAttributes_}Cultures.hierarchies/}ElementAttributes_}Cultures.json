@@ -1,24 +1,24 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}ElementAttributes_}Cultures",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}ElementAttributes_}Cultures",
+	"Elements":
+	[
 		{
-		  "Name": "BaseCulture",
-		  "Type": "String"
+			"Name":"BaseCulture",
+			"Type":"String"
 		},
 		{
-		  "Name": "LCID",
-		  "Type": "String"
+			"Name":"LCID",
+			"Type":"String"
 		},
 		{
-		  "Name": "Language",
-		  "Type": "String"
+			"Name":"Language",
+			"Type":"String"
 		},
 		{
-		  "Name": "Region",
-		  "Type": "String"
+			"Name":"Region",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

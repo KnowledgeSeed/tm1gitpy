@@ -15,6 +15,7 @@ from .edge import Edge
 from .subset import Subset
 from .model_store import ModelStore
 from .store_backed_sequence import StoreBackedSequence
+from .tm1git_json import dump_as_tm1git
 import orjson
 
 
@@ -25,20 +26,39 @@ def _loads_json(payload_json: str) -> dict:
     return dict(orjson.loads(payload_json))
 
 
-def _pretty_json(obj: dict) -> str:
-    return orjson.dumps(obj, option=orjson.OPT_INDENT_2).decode("utf-8")
-
-
 def _write_json_object_block(
     fh,
     obj: dict,
     *,
     item_line_prefix: str,
 ) -> None:
-    """Write one JSON object with inner pretty-printing and outer line prefix (for array items)."""
-    pretty = _pretty_json(obj)
-    fh.write(item_line_prefix)
-    fh.write(pretty.replace("\n", "\n" + item_line_prefix))
+    """Write one flat JSON object (array element) with tabs and compact ``\"Key\":value`` (tm1git-style)."""
+    if not obj:
+        fh.write(item_line_prefix + "{}")
+        return
+    inner = item_line_prefix + "\t"
+    fh.write(item_line_prefix + "{\n")
+    items = list(obj.items())
+    for i, (k, v) in enumerate(items):
+        if isinstance(v, (dict, list)):
+            raise TypeError(
+                f"Hierarchy JSON item must be flat; got {type(v).__name__} for key {k!r}"
+            )
+        kj = json.dumps(k, ensure_ascii=False)
+        fh.write(inner + kj + ":" + json.dumps(v, ensure_ascii=False))
+        if i != len(items) - 1:
+            fh.write(",\n")
+        else:
+            fh.write("\n")
+    fh.write(item_line_prefix + "}")
+
+
+def _write_hierarchy_subset_links_field(fh, subset_links: list[str]) -> None:
+    fh.write('\t"Subsets@Code.links":')
+    if subset_links:
+        fh.write("\n\t")
+    dump_as_tm1git(subset_links, fh, level=1)
+    fh.write("\n")
 
 
 class _HierarchyStagedWriter:
@@ -88,7 +108,7 @@ class _HierarchyStagedWriter:
         key: str,
         payload_json_iter: Iterator[str],
     ) -> int:
-        fh.write(f'\t"{key}": [')
+        fh.write(f'\t"{key}":\n\t[')
         first = True
         emitted = 0
         for payload_json in payload_json_iter:
@@ -173,34 +193,39 @@ class _HierarchyStagedWriter:
         self._sort_staged_jsonls()
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")
-            fh.write('\t"@type": "Hierarchy",\n')
-            fh.write(f'\t"Name": {json.dumps(self.hierarchy_name, ensure_ascii=False)},\n')
-            self._write_payload_array_from_json_strings(
-                fh,
-                "Elements",
-                self._sorted_element_payload_json_strings(
-                    self.elements_ref.iter_payload_json_strings(
+            fh.write('\t"@type":' + json.dumps("Hierarchy", ensure_ascii=False) + ",\n")
+            fh.write("\t\"Name\":" + json.dumps(self.hierarchy_name, ensure_ascii=False) + ",\n")
+            elements_empty = self.elements_ref is None or len(self.elements_ref) == 0
+            if elements_empty:
+                fh.write('\t"Elements":[],\n')
+            else:
+                self._write_payload_array_from_json_strings(
+                    fh,
+                    "Elements",
+                    self._sorted_element_payload_json_strings(
+                        self.elements_ref.iter_payload_json_strings(
+                            ordered_by_identity=True,
+                            progress_label=f"{self.hierarchy_name}:Elements",
+                            progress_every=self.JSON_DUMP_PROGRESS_EVERY,
+                        )
+                    ),
+                )
+                fh.write(",\n")
+            edges_nonempty = self.edges_ref is not None and len(self.edges_ref) > 0
+            if edges_nonempty:
+                self._write_payload_array_from_json_strings(
+                    fh,
+                    "Edges",
+                    self.edges_ref.iter_payload_json_strings(
                         ordered_by_identity=True,
-                        progress_label=f"{self.hierarchy_name}:Elements",
+                        progress_label=f"{self.hierarchy_name}:Edges",
                         progress_every=self.JSON_DUMP_PROGRESS_EVERY,
-                    )
-                ) if self.elements_ref is not None else iter(()),
-            )
-            fh.write(",\n")
-            self._write_payload_array_from_json_strings(
-                fh,
-                "Edges",
-                self.edges_ref.iter_payload_json_strings(
-                    ordered_by_identity=True,
-                    progress_label=f"{self.hierarchy_name}:Edges",
-                    progress_every=self.JSON_DUMP_PROGRESS_EVERY,
-                ) if self.edges_ref is not None else iter(()),
-            )
-            fh.write(",\n")
-            fh.write('\t"Subsets@Code.links": ')
+                    ),
+                )
+                fh.write(",\n")
             subset_links = self._build_subset_links()
-            fh.write(json.dumps(subset_links, ensure_ascii=False))
-            fh.write("\n}")
+            _write_hierarchy_subset_links_field(fh, subset_links)
+            fh.write("}")
         os.replace(self.inprogress_path, self.final_path)
         final_mtime_ns = int(os.stat(self.final_path).st_mtime_ns)
         if self.elements_ref is not None:
@@ -242,8 +267,9 @@ class Hierarchy:
         subsets: Optional[MutableSequence[Subset]] = None,
         *,
         dimension_name: Optional[str] = None,
-        internal_model_dir: Optional[str] = None,
-        internal_model_id: Optional[int] = None,
+        model_id: Optional[str] = None,
+        model_output_dir: Optional[str] = None,
+        serialize: bool = False,
         hierarchy_etag: Optional[str] = None,
         reuse_existing_store: bool = False,
         elements_filter_rules: Optional[list[str]] = None,
@@ -251,41 +277,29 @@ class Hierarchy:
         subsets_filter_rules: Optional[list[str]] = None,
     ):
         self._staged_writer: Optional[_HierarchyStagedWriter] = None
-        if internal_model_dir:
+        if model_id:
             if not dimension_name:
-                raise ValueError("Hierarchy with internal_model_dir requires dimension_name.")
+                raise ValueError("Hierarchy with model_id requires dimension_name.")
             if elements is not None or edges is not None or subsets is not None:
                 raise ValueError(
-                    "Hierarchy with internal_model_dir should not provide explicit elements/edges/subsets."
+                    "Hierarchy with model_id should not provide explicit elements/edges/subsets."
                 )
-            self._staged_writer = _HierarchyStagedWriter(
-                model_output_dir=internal_model_dir,
-                dimension_name=dimension_name,
-                hierarchy_name=name,
-                hierarchy_etag=hierarchy_etag,
-                elements_filter_rules=elements_filter_rules,
-                edges_filter_rules=edges_filter_rules,
-                subsets_filter_rules=subsets_filter_rules,
-            )
-            store = ModelStore.for_main_dir(internal_model_dir)
-            resolved_model_id = internal_model_id
-            if resolved_model_id is None:
-                resolved_model_id = store.resolve_model_for_deserialize(internal_model_dir)
+            store = ModelStore.for_model_id(model_id)
             elements = StoreBackedSequence.for_elements_sink(
                 store=store,
-                model_id=resolved_model_id,
+                model_id=model_id,
                 dimension_name=dimension_name,
                 hierarchy_name=name,
             )
             edges = StoreBackedSequence.for_edges_sink(
                 store=store,
-                model_id=resolved_model_id,
+                model_id=model_id,
                 dimension_name=dimension_name,
                 hierarchy_name=name,
             )
             subsets = StoreBackedSequence.for_subsets_sink(
                 store=store,
-                model_id=resolved_model_id,
+                model_id=model_id,
                 dimension_name=dimension_name,
                 hierarchy_name=name,
             )
@@ -293,7 +307,22 @@ class Hierarchy:
                 elements.replace_with_payloads(())
                 edges.replace_with_payloads(())
                 subsets.replace_with_payloads(())
-            self._staged_writer.bind_collections(elements=elements, edges=edges, subsets=subsets)
+            if serialize:
+                staged_output_dir = model_output_dir or str(model_id)
+                self._staged_writer = _HierarchyStagedWriter(
+                    model_output_dir=staged_output_dir,
+                    dimension_name=dimension_name,
+                    hierarchy_name=name,
+                    hierarchy_etag=hierarchy_etag,
+                    elements_filter_rules=elements_filter_rules,
+                    edges_filter_rules=edges_filter_rules,
+                    subsets_filter_rules=subsets_filter_rules,
+                )
+                self._staged_writer.bind_collections(
+                    elements=elements,
+                    edges=edges,
+                    subsets=subsets,
+                )
 
         self.type = 'Hierarchy'
         self.name = name
@@ -316,7 +345,7 @@ class Hierarchy:
 
     def _write_array(self, fh, key: str, collection: MutableSequence[Any], *, indent: str = "\t") -> None:
         item_prefix = indent * 2
-        fh.write(f'{indent}"{key}": [')
+        fh.write(f'{indent}"{key}":\n{indent}[')
         if key == "Elements":
             items = list(collection)
             items.sort(key=lambda item: ((getattr(item, "name", None) or ""), (getattr(item, "type", None) or "")))
@@ -353,14 +382,18 @@ class Hierarchy:
                     fh.write(chunk)
             return
         fh.write("{\n")
-        fh.write(f'\t"@type": {json.dumps(self.type, ensure_ascii=False)},\n')
-        fh.write(f'\t"Name": {json.dumps(self.name, ensure_ascii=False)},\n')
-        self._write_array(fh, "Elements", self.elements)
-        fh.write(",\n")
-        self._write_array(fh, "Edges", self.edges)
-        fh.write(",\n")
+        fh.write("\t\"@type\":" + json.dumps(self.type, ensure_ascii=False) + ",\n")
+        fh.write("\t\"Name\":" + json.dumps(self.name, ensure_ascii=False) + ",\n")
+        if not self.elements:
+            fh.write('\t"Elements":[],\n')
+        else:
+            self._write_array(fh, "Elements", self.elements)
+            fh.write(",\n")
+        if self.edges:
+            self._write_array(fh, "Edges", self.edges)
+            fh.write(",\n")
         subset_links = [format_url("{}.subsets/{}.json", self.name, s.name) for s in self.subsets]
-        fh.write(f'\t"Subsets@Code.links": {json.dumps(subset_links, ensure_ascii=False)}\n')
+        _write_hierarchy_subset_links_field(fh, subset_links)
         fh.write("}")
 
     def __eq__(self, other: Any) -> bool:

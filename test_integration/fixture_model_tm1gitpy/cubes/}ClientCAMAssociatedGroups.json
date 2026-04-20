@@ -1,14 +1,14 @@
 {
-	"@type": "Cube",
-	"Name": "}ClientCAMAssociatedGroups",
-	"Dimensions": [
+	"@type":"Cube",
+	"Name":"}ClientCAMAssociatedGroups",
+	"Dimensions":
+	[
 		{
-			"@id": "Dimensions('}CAMAssociatedGroups')"
+			"@id":"Dimensions('}CAMAssociatedGroups')"
 		},
 		{
-			"@id": "Dimensions('}Groups')"
+			"@id":"Dimensions('}Groups')"
 		}
 	],
-	"Rules@Code.link": [],
-	"Views@Code.links": []
+	"Views@Code.links":[]
 }

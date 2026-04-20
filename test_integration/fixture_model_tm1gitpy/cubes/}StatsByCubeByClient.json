@@ -1,23 +1,23 @@
 {
-	"@type": "Cube",
-	"Name": "}StatsByCubeByClient",
-	"Dimensions": [
+	"@type":"Cube",
+	"Name":"}StatsByCubeByClient",
+	"Dimensions":
+	[
 		{
-			"@id": "Dimensions('}PerfClients')"
+			"@id":"Dimensions('}PerfClients')"
 		},
 		{
-			"@id": "Dimensions('}PerfCubes')"
+			"@id":"Dimensions('}PerfCubes')"
 		},
 		{
-			"@id": "Dimensions('}Cube Functions')"
+			"@id":"Dimensions('}Cube Functions')"
 		},
 		{
-			"@id": "Dimensions('}StatsStatsByCubeByClient')"
+			"@id":"Dimensions('}StatsStatsByCubeByClient')"
 		},
 		{
-			"@id": "Dimensions('}TimeIntervals')"
+			"@id":"Dimensions('}TimeIntervals')"
 		}
 	],
-	"Rules@Code.link": [],
-	"Views@Code.links": []
+	"Views@Code.links":[]
 }

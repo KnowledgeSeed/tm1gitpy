@@ -6,7 +6,11 @@ from typing import Any, Iterable, Iterator, Optional
 class ChangesetStore:
     @classmethod
     def path_for(cls, *, changeset_id: str, base_dir: Optional[str] = None) -> Path:
-        root = Path(base_dir).expanduser().resolve() if base_dir else (Path.cwd().resolve() / ".tm1gitpy")
+        root = (
+            Path(base_dir).expanduser().resolve()
+            if base_dir
+            else (Path.cwd().resolve() / ".tm1gitpy" / ".cache")
+        )
         return root / f"changeset-{changeset_id}.sqlite"
 
     def __init__(self, *, changeset_id: str, base_dir: Optional[str] = None, require_exists: bool = False):

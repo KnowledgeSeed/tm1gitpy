@@ -1,40 +1,40 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}StatsByProcess",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}StatsByProcess",
+	"Elements":
+	[
 		{
-		  "Name": "Client Name",
-		  "Type": "String"
+			"Name":"Client Name",
+			"Type":"String"
 		},
 		{
-		  "Name": "Completion Status",
-		  "Type": "Numeric"
+			"Name":"Completion Status",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Current Process",
-		  "Type": "String"
+			"Name":"Current Process",
+			"Type":"String"
 		},
 		{
-		  "Name": "Current State",
-		  "Type": "String"
+			"Name":"Current State",
+			"Type":"String"
 		},
 		{
-		  "Name": "Last Duration",
-		  "Type": "Numeric"
+			"Name":"Last Duration",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Last End Time",
-		  "Type": "Numeric"
+			"Name":"Last End Time",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Last Start Time",
-		  "Type": "Numeric"
+			"Name":"Last Start Time",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Next Activation Time",
-		  "Type": "Numeric"
+			"Name":"Next Activation Time",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

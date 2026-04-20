@@ -1,44 +1,44 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}ConnectionProperties",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}ConnectionProperties",
+	"Elements":
+	[
 		{
-		  "Name": "INTEGRATEDSECURITY",
-		  "Type": "String"
+			"Name":"INTEGRATEDSECURITY",
+			"Type":"String"
 		},
 		{
-		  "Name": "LASTSYNC",
-		  "Type": "String"
+			"Name":"LASTSYNC",
+			"Type":"String"
 		},
 		{
-		  "Name": "LASTSYNCSTAR",
-		  "Type": "String"
+			"Name":"LASTSYNCSTAR",
+			"Type":"String"
 		},
 		{
-		  "Name": "LASTSYNCSTARRECORD",
-		  "Type": "String"
+			"Name":"LASTSYNCSTARRECORD",
+			"Type":"String"
 		},
 		{
-		  "Name": "NAMESPACE",
-		  "Type": "String"
+			"Name":"NAMESPACE",
+			"Type":"String"
 		},
 		{
-		  "Name": "PASSWORD",
-		  "Type": "String"
+			"Name":"PASSWORD",
+			"Type":"String"
 		},
 		{
-		  "Name": "SYNCPLANET",
-		  "Type": "String"
+			"Name":"SYNCPLANET",
+			"Type":"String"
 		},
 		{
-		  "Name": "SYNCSTAR",
-		  "Type": "String"
+			"Name":"SYNCSTAR",
+			"Type":"String"
 		},
 		{
-		  "Name": "USER",
-		  "Type": "String"
+			"Name":"USER",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

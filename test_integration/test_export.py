@@ -27,7 +27,7 @@ class TestExport:
         
             # when
             test_tm1gitpy_dir = str(Path(temp_dir) / "test_tm1gitpy_dir")
-            test_tm1gitpy_model = export_check_no_errors(self, internal_model_dir=test_tm1gitpy_dir)
+            test_tm1gitpy_model = export_check_no_errors(self, model_id=Path(test_tm1gitpy_dir).name)
             serialize_model(test_tm1gitpy_model, test_tm1gitpy_dir)
             
             # then 
@@ -39,6 +39,7 @@ class TestExport:
     def test_export_filters_control_objects_with_skip_flags(self):
         model, errors = export(
             self.tm1_service,
+            model_id="integration-export",
             filter_rules_list=["Cubes('}*')", "Dimensions('}*')", "Processes('}*')"],
         )
         for category, category_errors in errors.items():
@@ -51,6 +52,7 @@ class TestExport:
     def test_export_applies_custom_filter_rules_during_assembly(self):
         model, errors = export(
             self.tm1_service,
+            model_id="integration-export",
             filter_rules_list=[
                 "Dimensions('TestDim1*')",
                 "Cubes('TestCube1*')",
@@ -78,6 +80,7 @@ class TestExport:
 
         model, errors = export(
             self.tm1_service,
+            model_id="integration-export",
             filter_rules_list=filter_rules,
         )
         for category, category_errors in errors.items():

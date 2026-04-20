@@ -1,12 +1,12 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}SecurityOverlay",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}SecurityOverlay",
+	"Elements":
+	[
 		{
-		  "Name": "OverlayData",
-		  "Type": "String"
+			"Name":"OverlayData",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

@@ -1,14 +1,14 @@
 {
-	"@type": "Cube",
-	"Name": "}ElementAttributes_}Groups",
-	"Dimensions": [
+	"@type":"Cube",
+	"Name":"}ElementAttributes_}Groups",
+	"Dimensions":
+	[
 		{
-			"@id": "Dimensions('}Groups')"
+			"@id":"Dimensions('}Groups')"
 		},
 		{
-			"@id": "Dimensions('}ElementAttributes_}Groups')"
+			"@id":"Dimensions('}ElementAttributes_}Groups')"
 		}
 	],
-	"Rules@Code.link": [],
-	"Views@Code.links": []
+	"Views@Code.links":[]
 }

@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 from typing import Any, Dict, TYPE_CHECKING
@@ -7,10 +8,13 @@ from TM1py import TM1Service, Process
 from requests import Response
 
 from tm1_git_py.model.ti import TI
+from tm1_git_py.model.tm1git_json import dump_as_tm1git
 
 # Importáljuk a TI osztályt a típus-ellenőrzéshez (type hinting)
 if TYPE_CHECKING:
     pass
+
+PROCESS_JSON_SPACED_COLON_KEYS: frozenset[str] = frozenset()
 # {
 #   "@type":"Process",
 # 	"Name":"airflow_test_success",
@@ -36,15 +40,18 @@ class Process:
         self.ti = ti
 
     def as_json(self):
-        return json.dumps({
+        payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
             "HasSecurityAccess": self.hasSecurityAccess,
             "Code@Code.link": self.code_link,
-            "DataSource": {"Type": "None"},
+            "DataSource": {"Type": _normalize_datasource_type(self.datasource)},
             "Parameters": self.parameters,
-            "Variables": self.variables
-        }, indent='\t')
+            "Variables": self.variables,
+        }
+        buf = io.StringIO()
+        dump_as_tm1git(payload, buf, spaced_colon_keys=PROCESS_JSON_SPACED_COLON_KEYS)
+        return buf.getvalue()
     
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Process):
