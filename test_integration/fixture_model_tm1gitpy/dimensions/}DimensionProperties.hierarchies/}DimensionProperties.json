@@ -1,72 +1,72 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}DimensionProperties",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}DimensionProperties",
+	"Elements":
+	[
 		{
-		  "Name": "ALLLEAVESHIERARCHYNAME",
-		  "Type": "String"
+			"Name":"ALLLEAVESHIERARCHYNAME",
+			"Type":"String"
 		},
 		{
-		  "Name": "DEFAULT_HIERARCHY",
-		  "Type": "String"
+			"Name":"DEFAULT_HIERARCHY",
+			"Type":"String"
 		},
 		{
-		  "Name": "DEMANDLOAD",
-		  "Type": "String"
+			"Name":"DEMANDLOAD",
+			"Type":"String"
 		},
 		{
-		  "Name": "LASTREPSYNCCHANGEDTIME",
-		  "Type": "String"
+			"Name":"LASTREPSYNCCHANGEDTIME",
+			"Type":"String"
 		},
 		{
-		  "Name": "LAST_TIME_UPDATED",
-		  "Type": "String"
+			"Name":"LAST_TIME_UPDATED",
+			"Type":"String"
 		},
 		{
-		  "Name": "LOCK",
-		  "Type": "String"
+			"Name":"LOCK",
+			"Type":"String"
 		},
 		{
-		  "Name": "REPLICATION",
-		  "Type": "String"
+			"Name":"REPLICATION",
+			"Type":"String"
 		},
 		{
-		  "Name": "REPSRCNAME",
-		  "Type": "String"
+			"Name":"REPSRCNAME",
+			"Type":"String"
 		},
 		{
-		  "Name": "REPSTATUS",
-		  "Type": "String"
+			"Name":"REPSTATUS",
+			"Type":"String"
 		},
 		{
-		  "Name": "SORTCOMPONENTSSENSE",
-		  "Type": "String"
+			"Name":"SORTCOMPONENTSSENSE",
+			"Type":"String"
 		},
 		{
-		  "Name": "SORTCOMPONENTSTYPE",
-		  "Type": "String"
+			"Name":"SORTCOMPONENTSTYPE",
+			"Type":"String"
 		},
 		{
-		  "Name": "SORTELEMENTSSENSE",
-		  "Type": "String"
+			"Name":"SORTELEMENTSSENSE",
+			"Type":"String"
 		},
 		{
-		  "Name": "SORTELEMENTSTYPE",
-		  "Type": "String"
+			"Name":"SORTELEMENTSTYPE",
+			"Type":"String"
 		},
 		{
-		  "Name": "SYNCATTRIBUTES",
-		  "Type": "String"
+			"Name":"SYNCATTRIBUTES",
+			"Type":"String"
 		},
 		{
-		  "Name": "SYNCSUBSETS",
-		  "Type": "String"
+			"Name":"SYNCSUBSETS",
+			"Type":"String"
 		},
 		{
-		  "Name": "VISIBILITY",
-		  "Type": "String"
+			"Name":"VISIBILITY",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

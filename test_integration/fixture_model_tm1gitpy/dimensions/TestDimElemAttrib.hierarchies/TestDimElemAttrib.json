@@ -1,7 +1,6 @@
 {
-	"@type": "Hierarchy",
-	"Name": "TestDimElemAttrib",
-	"Elements": [],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"@type":"Hierarchy",
+	"Name":"TestDimElemAttrib",
+	"Elements":[],
+	"Subsets@Code.links":[]
 }

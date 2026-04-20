@@ -1,11 +1,12 @@
 {
-	"@type": "Process",
-	"Name": "myprocess2",
-	"HasSecurityAccess": false,
-	"Code@Code.link": "myprocess2.ti",
-	"DataSource": {
-		"Type": "None"
+	"@type":"Process",
+	"Name":"myprocess2",
+	"HasSecurityAccess":false,
+	"Code@Code.link":"myprocess2.ti",
+	"DataSource":
+	{
+		"Type":"None"
 	},
-	"Parameters": [],
-	"Variables": []
+	"Parameters":[],
+	"Variables":[]
 }

@@ -13,13 +13,14 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
-            // "args": ["export", "--server=dev", "--model_output_folder=export", "--overwrite"]
-            // "args": ["export", "--server=dev", "--filter=examples/filter.txt", "--model_output_folder=export", "--overwrite"]
-            // "args": ["export", "-s", "dev", "-o", "--filter", "${workspaceFolder}/tm1_git_py/filter.txt"]
-            "args": ["filter", "--filter=examples/filter.txt",  "--model_output_folder=export2", "--overwrite"]
+            // "args": ["export", "--server=dev", "--model-output-folder=export", "--overwrite"]
+            // "args": ["model-filter", "--model-folder=export", "--model-output-folder=export-filtered", "--filter-rules=file://examples/filter.txt", "--overwrite"]
+            // "args": ["model-filter", "--model-folder=export", "--model-output-folder=export-filtered", "--filter-rules=Dimensions('}*'),!Dimensions('BW*')", "--overwrite"]
+            // "args": ["changset-filter", "--changeset-path=changeset.yml", "--filter-rules=file://examples/filter.txt"]
+            "args": ["model-filter", "--filter-rules=file://examples/filter.txt", "--model-output-folder=export2", "--overwrite"]
         },
         {
-            "name": "Filter",
+            "name": "Model Filter",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/tm1_git_py/main.py",
@@ -27,7 +28,7 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
-            "args": ["filter", "--filter=examples/filter.txt",  "--model_output_folder=export", "--overwrite"]
+            "args": ["model-filter", "--filter-rules=file://examples/filter.txt", "--model-output-folder=export", "--overwrite"]
         },
          {
             "name": "Export",
@@ -38,7 +39,7 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
-            "args": ["export", "--server=seederbpsp", "--model_output_folder=export2", "--filter=examples/filter.txt", "--overwrite"]
+            "args": ["export", "--server=seederbpsp", "--model-output-folder=export2", "--filter=file://examples/filter.txt", "--overwrite"]
         },
         {
             "name": "Compare",
@@ -58,9 +59,36 @@
                 "--format=yaml",
                 "--max-workers=8"
             ]
+        },
+        {
+            "name": "Changeset Filter",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tm1_git_py/main.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "changset-filter",
+                "--changeset-path=changeset.yml",
+                "--filter-rules=file://examples/filter.txt"
+            ]
+        },
+        {
+            "name": "Changeset Filter (Inline Rules)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tm1_git_py/main.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "changset-filter",
+                "--changeset-path=changeset.yml",
+                "--filter-rules=Dimensions('}*'),!Dimensions('BW*')"
+            ]
         }
     ]
 }
-
-compare --source=export2 --target=export3 --output=changeset.yml --mode=full --format=yaml
-python tm1_git_py/main.py compare --source=export2 --target=export3 --output=changeset.yml --mode=full --format=yaml

@@ -37,7 +37,8 @@ def _identity_key_query_for_type(payload_table: str, normalized: str) -> str:
         )
     if normalized in ("edge", "edges"):
         return (
-            f"SELECT COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq FROM {payload_table} "
+            f"SELECT COALESCE(ParentName, ''), COALESCE(ComponentName, ''), "
+            f"COALESCE(CAST(Weight AS TEXT), ''), seq FROM {payload_table} "
             "WHERE group_id=? ORDER BY COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq LIMIT 1 OFFSET ?"
         )
     if normalized in ("subset", "subsets"):
@@ -56,7 +57,8 @@ def _identity_chunk_query_for_type(payload_table: str, normalized: str) -> str:
         )
     if normalized in ("edge", "edges"):
         return (
-            f"SELECT COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq FROM {payload_table} "
+            f"SELECT COALESCE(ParentName, ''), COALESCE(ComponentName, ''), "
+            f"COALESCE(CAST(Weight AS TEXT), ''), seq FROM {payload_table} "
             "WHERE group_id=? ORDER BY COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq LIMIT ? OFFSET ?"
         )
     if normalized in ("subset", "subsets"):
@@ -71,7 +73,7 @@ def _identity_line_for_type(normalized: str, row: tuple[Any, ...]) -> str:
     if normalized in ("element", "elements"):
         return f"{row[0]}\x1f{row[1]}"
     if normalized in ("edge", "edges"):
-        return f"{row[0]}\x1f{row[1]}"
+        return f"{row[0]}\x1f{row[1]}\x1f{row[2]}"
     if normalized in ("subset", "subsets"):
         return str(row[0])
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
@@ -131,7 +133,6 @@ class ModelStore:
                 self._conn.row_factory = sqlite3.Row
             except Exception:
                 pass
-        self._anonymous_model_id: Optional[int] = None
         self._tx_depth = 0
         self._initialize()
 
@@ -145,40 +146,23 @@ class ModelStore:
             return row[index]
 
     @classmethod
-    def _db_path_for_model_dir(cls, main_dir: Optional[str]) -> str:
-        if main_dir:
-            model_dir = Path(main_dir).expanduser().resolve()
-            db_root = model_dir.parent / ".tm1gitpy"
-            safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", model_dir.name or "model")
-            path_fingerprint = hashlib.sha1(str(model_dir).encode("utf-8")).hexdigest()[:10]
-            filename = f"{safe_name}.{path_fingerprint}.sqlite"
-            return str(db_root / filename)
-        return str(Path.cwd().resolve() / ".tm1gitpy" / "default.sqlite")
+    def _db_path_for_model_id(cls, model_id: str) -> str:
+        normalized_model_id = re.sub(r"[^A-Za-z0-9._-]+", "_", (model_id or "").strip())
+        if not normalized_model_id:
+            raise ValueError("model_id must not be empty")
+        return str(Path.cwd().resolve() / ".tm1gitpy" / ".cache" / f"{normalized_model_id}.sqlite")
 
     @classmethod
-    def for_main_dir(cls, main_dir: Optional[str] = None) -> "ModelStore":
-        db_path = cls._db_path_for_model_dir(main_dir)
+    def for_model_id(cls, model_id: str) -> "ModelStore":
+        db_path = cls._db_path_for_model_id(model_id)
         abs_path = os.path.abspath(db_path)
         key = (abs_path, threading.get_ident())
         existing = cls._instances.get(key)
         if existing is not None:
             return existing
         created = cls(abs_path)
-        # Backward-compatibility marker for legacy tests/tools.
-        legacy_path = Path.cwd().resolve() / ".tm1gitpy" / "model_store.sqlite"
-        try:
-            legacy_path.parent.mkdir(parents=True, exist_ok=True)
-            if not legacy_path.exists():
-                legacy_path.touch()
-        except Exception:
-            pass
         cls._instances[key] = created
         return created
-
-    @classmethod
-    def for_model_dir(cls, model_dir: str) -> "ModelStore":
-        # Backward-compatible alias; in tests model_dir acts as the tool main directory.
-        return cls.for_main_dir(model_dir)
 
     def _initialize(self) -> None:
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -497,15 +481,6 @@ class ModelStore:
             )
         raise ValueError(f"Unsupported group object type: '{normalized}'")
 
-    def resolve_model_for_export(self, server_config_name: str, export_path: str) -> int:
-        _ = (server_config_name, export_path)
-        return 1
-
-    def resolve_model_for_deserialize(self, export_path: str) -> int:
-        _ = export_path
-        return 1
-
-
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
         # Use SAVEPOINT for all scopes to stay compatible with drivers that
@@ -529,7 +504,7 @@ class ModelStore:
         hierarchy_name: str,
         object_type: str,
         *,
-        model_id: Optional[int] = None,
+        model_id: Optional[str] = None,
     ) -> int:
         _ = model_id
         now = time.time_ns()
@@ -553,7 +528,7 @@ class ModelStore:
             raise RuntimeError("Failed to create or resolve group id.")
         return int(self._cell(row, "group_id", 0))
 
-    def get_hierarchy_etag(self, model_id: int, dimension_name: str, hierarchy_name: str) -> Optional[str]:
+    def get_hierarchy_etag(self, model_id: str, dimension_name: str, hierarchy_name: str) -> Optional[str]:
         _ = model_id
         row = self._conn.execute(
             """
@@ -616,7 +591,7 @@ class ModelStore:
     def get_group_reuse_metadata(
         self,
         *,
-        model_id: int,
+        model_id: str,
         dimension_name: str,
         hierarchy_name: str,
         object_type: str,

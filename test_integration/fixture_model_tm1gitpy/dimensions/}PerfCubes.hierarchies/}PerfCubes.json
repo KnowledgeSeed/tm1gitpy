@@ -1,202 +1,204 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}PerfCubes",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}PerfCubes",
+	"Elements":
+	[
 		{
-		  "Name": "Cubes Total",
-		  "Type": "Consolidated"
+			"Name":"Cubes Total",
+			"Type":"Consolidated"
 		},
 		{
-		  "Name": "TestCube1",
-		  "Type": "Numeric"
+			"Name":"TestCube1",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "TestCube2WithRule",
-		  "Type": "Numeric"
+			"Name":"TestCube2WithRule",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "TestCube3WithView",
-		  "Type": "Numeric"
+			"Name":"TestCube3WithView",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}Capabilities",
-		  "Type": "Numeric"
+			"Name":"}Capabilities",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}ClientCAMAssociatedGroups",
-		  "Type": "Numeric"
+			"Name":"}ClientCAMAssociatedGroups",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}ClientGroups",
-		  "Type": "Numeric"
+			"Name":"}ClientGroups",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}ClientProperties",
-		  "Type": "Numeric"
+			"Name":"}ClientProperties",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}ClientSettings",
-		  "Type": "Numeric"
+			"Name":"}ClientSettings",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}CubeSecurityProperties",
-		  "Type": "Numeric"
+			"Name":"}CubeSecurityProperties",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}DimensionProperties",
-		  "Type": "Numeric"
+			"Name":"}DimensionProperties",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}ElementAttributes_}Clients",
-		  "Type": "Numeric"
+			"Name":"}ElementAttributes_}Clients",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}ElementAttributes_}Cultures",
-		  "Type": "Numeric"
+			"Name":"}ElementAttributes_}Cultures",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}ElementAttributes_}Groups",
-		  "Type": "Numeric"
+			"Name":"}ElementAttributes_}Groups",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}HierarchyProperties",
-		  "Type": "Numeric"
+			"Name":"}HierarchyProperties",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}StatsByChore",
-		  "Type": "Numeric"
+			"Name":"}StatsByChore",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}StatsByClient",
-		  "Type": "Numeric"
+			"Name":"}StatsByClient",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}StatsByCube",
-		  "Type": "Numeric"
+			"Name":"}StatsByCube",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}StatsByCubeByClient",
-		  "Type": "Numeric"
+			"Name":"}StatsByCubeByClient",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}StatsByProcess",
-		  "Type": "Numeric"
+			"Name":"}StatsByProcess",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}StatsByRule",
-		  "Type": "Numeric"
+			"Name":"}StatsByRule",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "}StatsForServer",
-		  "Type": "Numeric"
+			"Name":"}StatsForServer",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [
+	"Edges":
+	[
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "TestCube1",
-		  "Weight": 1
+			"ComponentName":"TestCube1",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "TestCube2WithRule",
-		  "Weight": 1
+			"ComponentName":"TestCube2WithRule",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "TestCube3WithView",
-		  "Weight": 1
+			"ComponentName":"TestCube3WithView",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}Capabilities",
-		  "Weight": 1
+			"ComponentName":"}Capabilities",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}ClientCAMAssociatedGroups",
-		  "Weight": 1
+			"ComponentName":"}ClientCAMAssociatedGroups",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}ClientGroups",
-		  "Weight": 1
+			"ComponentName":"}ClientGroups",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}ClientProperties",
-		  "Weight": 1
+			"ComponentName":"}ClientProperties",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}ClientSettings",
-		  "Weight": 1
+			"ComponentName":"}ClientSettings",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}CubeSecurityProperties",
-		  "Weight": 1
+			"ComponentName":"}CubeSecurityProperties",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}DimensionProperties",
-		  "Weight": 1
+			"ComponentName":"}DimensionProperties",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}ElementAttributes_}Clients",
-		  "Weight": 1
+			"ComponentName":"}ElementAttributes_}Clients",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}ElementAttributes_}Cultures",
-		  "Weight": 1
+			"ComponentName":"}ElementAttributes_}Cultures",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}ElementAttributes_}Groups",
-		  "Weight": 1
+			"ComponentName":"}ElementAttributes_}Groups",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}HierarchyProperties",
-		  "Weight": 1
+			"ComponentName":"}HierarchyProperties",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}StatsByChore",
-		  "Weight": 1
+			"ComponentName":"}StatsByChore",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}StatsByClient",
-		  "Weight": 1
+			"ComponentName":"}StatsByClient",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}StatsByCube",
-		  "Weight": 1
+			"ComponentName":"}StatsByCube",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}StatsByCubeByClient",
-		  "Weight": 1
+			"ComponentName":"}StatsByCubeByClient",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}StatsByProcess",
-		  "Weight": 1
+			"ComponentName":"}StatsByProcess",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}StatsByRule",
-		  "Weight": 1
+			"ComponentName":"}StatsByRule",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		},
 		{
-		  "ParentName": "Cubes Total",
-		  "ComponentName": "}StatsForServer",
-		  "Weight": 1
+			"ComponentName":"}StatsForServer",
+			"ParentName":"Cubes Total",
+			"Weight":1
 		}
 	],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

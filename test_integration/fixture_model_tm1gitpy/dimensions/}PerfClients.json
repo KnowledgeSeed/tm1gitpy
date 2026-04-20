@@ -1,10 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}PerfClients",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}PerfClients",
+	"Hierarchies@Code.links":
+	[
 		"}PerfClients.hierarchies/}PerfClients.json"
 	],
-	"DefaultHierarchy": {
-		"@id": "Dimensions('}PerfClients')/Hierarchies('}PerfClients')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}PerfClients')/Hierarchies('}PerfClients')"
 	}
 }

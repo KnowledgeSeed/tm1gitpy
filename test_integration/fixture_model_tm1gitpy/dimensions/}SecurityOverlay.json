@@ -1,10 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}SecurityOverlay",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}SecurityOverlay",
+	"Hierarchies@Code.links":
+	[
 		"}SecurityOverlay.hierarchies/}SecurityOverlay.json"
 	],
-	"DefaultHierarchy": {
-		"@id": "Dimensions('}SecurityOverlay')/Hierarchies('}SecurityOverlay')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}SecurityOverlay')/Hierarchies('}SecurityOverlay')"
 	}
 }

@@ -1,7 +1,6 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Chores",
-	"Elements": [],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"@type":"Hierarchy",
+	"Name":"}Chores",
+	"Elements":[],
+	"Subsets@Code.links":[]
 }

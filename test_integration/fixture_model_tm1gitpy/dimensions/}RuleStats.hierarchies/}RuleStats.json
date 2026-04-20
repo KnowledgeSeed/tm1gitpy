@@ -1,36 +1,36 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}RuleStats",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}RuleStats",
+	"Elements":
+	[
 		{
-		  "Name": "Avg Time (ms)",
-		  "Type": "Numeric"
+			"Name":"Avg Time (ms)",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Last Run Time",
-		  "Type": "Numeric"
+			"Name":"Last Run Time",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Max Time (ms)",
-		  "Type": "Numeric"
+			"Name":"Max Time (ms)",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Min Time (ms)",
-		  "Type": "Numeric"
+			"Name":"Min Time (ms)",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Rule Text",
-		  "Type": "String"
+			"Name":"Rule Text",
+			"Type":"String"
 		},
 		{
-		  "Name": "Total Run Count",
-		  "Type": "Numeric"
+			"Name":"Total Run Count",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Total Time (ms)",
-		  "Type": "Numeric"
+			"Name":"Total Time (ms)",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

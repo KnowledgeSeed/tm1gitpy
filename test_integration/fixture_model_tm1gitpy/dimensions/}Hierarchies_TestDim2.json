@@ -1,10 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}Hierarchies_TestDim2",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}Hierarchies_TestDim2",
+	"Hierarchies@Code.links":
+	[
 		"}Hierarchies_TestDim2.hierarchies/}Hierarchies_TestDim2.json"
 	],
-	"DefaultHierarchy": {
-		"@id": "Dimensions('}Hierarchies_TestDim2')/Hierarchies('}Hierarchies_TestDim2')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Hierarchies_TestDim2')/Hierarchies('}Hierarchies_TestDim2')"
 	}
 }

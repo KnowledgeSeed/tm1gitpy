@@ -1,10 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}StatsStatsByCubeByClient",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}StatsStatsByCubeByClient",
+	"Hierarchies@Code.links":
+	[
 		"}StatsStatsByCubeByClient.hierarchies/}StatsStatsByCubeByClient.json"
 	],
-	"DefaultHierarchy": {
-		"@id": "Dimensions('}StatsStatsByCubeByClient')/Hierarchies('}StatsStatsByCubeByClient')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}StatsStatsByCubeByClient')/Hierarchies('}StatsStatsByCubeByClient')"
 	}
 }

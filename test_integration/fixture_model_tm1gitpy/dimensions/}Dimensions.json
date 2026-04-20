@@ -1,10 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}Dimensions",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}Dimensions",
+	"Hierarchies@Code.links":
+	[
 		"}Dimensions.hierarchies/}Dimensions.json"
 	],
-	"DefaultHierarchy": {
-		"@id": "Dimensions('}Dimensions')/Hierarchies('}Dimensions')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Dimensions')/Hierarchies('}Dimensions')"
 	}
 }

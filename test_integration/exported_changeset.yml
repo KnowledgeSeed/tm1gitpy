@@ -1,0 +1,15 @@
+changeset_id: delete_rule_case
+summary:
+  add: 0
+  remove: 0
+  modify: 1
+changes:
+- change_type: modify
+  object_type: Rule
+  uri: Cubes('TestCube2WithRule')/Rules('default')
+  apply: true
+  body:
+    Name: default
+    Rule: ''
+    Area: '[default]'
+    Comment: ''

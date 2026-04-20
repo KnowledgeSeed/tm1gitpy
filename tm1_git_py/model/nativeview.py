@@ -1,7 +1,10 @@
+import io
 import json
 import logging
 import re
 from typing import Any, Dict, Optional, Tuple
+
+from tm1_git_py.model.tm1git_json import dump_as_tm1git
 
 import TM1py
 from TM1py.Services import TM1Service
@@ -42,6 +45,10 @@ from requests import Response
 # 	"FormatString":"0.#########"
 # }
 
+# Keys (at any object depth) that use ``"key" : value`` instead of ``"key":value``.
+# Native views follow tm1git compact colons throughout (see fixture_model_tm1git).
+NATIVE_VIEW_JSON_SPACED_COLON_KEYS: frozenset[str] = frozenset()
+
 
 class NativeView:
     def __init__(self, name, columns, rows, titles, suppress_empty_columns, suppress_empty_rows, format_string):
@@ -55,7 +62,7 @@ class NativeView:
         self.format_string = format_string
 
     def as_json(self):
-        return json.dumps({
+        payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
             "Columns": self.columns,
@@ -64,7 +71,10 @@ class NativeView:
             "SuppressEmptyColumns": self.suppress_empty_columns,
             "SuppressEmptyRows": self.suppress_empty_rows,
             "FormatString": self.format_string,
-        }, indent='\t')
+        }
+        buf = io.StringIO()
+        dump_as_tm1git(payload, buf, spaced_colon_keys=NATIVE_VIEW_JSON_SPACED_COLON_KEYS)
+        return buf.getvalue()
     
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, NativeView):

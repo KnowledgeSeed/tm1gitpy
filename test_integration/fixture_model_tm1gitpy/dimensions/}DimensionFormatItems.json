@@ -1,10 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}DimensionFormatItems",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}DimensionFormatItems",
+	"Hierarchies@Code.links":
+	[
 		"}DimensionFormatItems.hierarchies/}DimensionFormatItems.json"
 	],
-	"DefaultHierarchy": {
-		"@id": "Dimensions('}DimensionFormatItems')/Hierarchies('}DimensionFormatItems')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}DimensionFormatItems')/Hierarchies('}DimensionFormatItems')"
 	}
 }

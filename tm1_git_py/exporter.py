@@ -145,15 +145,17 @@ def _emit_progress_event(progress_sink: ProgressSink, event: ProgressEvent) -> N
 
 def export(
     tm1_conn: TM1Service,
+    model_id: str,
     filter_rules_list: Optional[list[str]] = None,
-    internal_model_dir: Optional[str] = None,
-    internal_model_id: Optional[int] = None,
     *,
+    serialize: bool = False,
+    model_output_dir: Optional[str] = None,
     progress_sink: Optional[ProgressSink] = None,
     max_workers: Optional[int] = None,
 ) -> tuple[Model, Dict[str, str]]:
     active_progress_sink: ProgressSink = progress_sink if progress_sink is not None else NoopProgressSink()
     include_progress_kwarg = progress_sink is not None
+    effective_model_output_dir = model_output_dir or str(model_id)
 
     logger.info("TM1 export started")
     effective_rules = with_default_leaves_ignore(filter_rules_list)
@@ -168,9 +170,10 @@ def export(
         if include_progress_kwarg:
             _dimensions, _dim_errors = dimensions_to_model(
                 tm1_conn,
+                model_id=model_id,
                 filter_rules=filter_rules,
-                internal_model_dir=internal_model_dir,
-                internal_model_id=internal_model_id,
+                serialize=serialize,
+                model_output_dir=effective_model_output_dir,
                 progress_sink=active_progress_sink,
                 max_workers=max_workers,
             )
@@ -193,9 +196,10 @@ def export(
         else:
             _dimensions, _dim_errors = dimensions_to_model(
                 tm1_conn,
+                model_id=model_id,
                 filter_rules=filter_rules,
-                internal_model_dir=internal_model_dir,
-                internal_model_id=internal_model_id,
+                serialize=serialize,
+                model_output_dir=effective_model_output_dir,
                 max_workers=max_workers,
             )
             _cubes, _cube_errors = cubes_to_model(
@@ -214,10 +218,13 @@ def export(
     finally:
         active_progress_sink.close()
 
-    _model = Model(cubes=list(_cubes.values()),
-                   dimensions=list(_dimensions.values()),
-                   processes=list(_processes.values()),
-                   chores=list(_chores.values()))
+    _model = Model(
+        cubes=list(_cubes.values()),
+        dimensions=list(_dimensions.values()),
+        processes=list(_processes.values()),
+        chores=list(_chores.values()),
+        model_id=model_id,
+    )
     logger.info(
         "TM1 export model assembled dimensions=%d cubes=%d processes=%d chores=%d",
         len(_model.dimensions),
@@ -573,10 +580,11 @@ def cubes_to_model(
 
 def dimensions_to_model(
     tm1_conn: TM1Service,
+    model_id: str,
     filter_rules: FilterRules,
-    internal_model_dir: Optional[str] = None,
-    internal_model_id: Optional[int] = None,
     *,
+    serialize: bool = False,
+    model_output_dir: Optional[str] = None,
     progress_sink: Optional[ProgressSink] = None,
     max_workers: Optional[int] = None,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
@@ -588,11 +596,7 @@ def dimensions_to_model(
     )
     _errors: Dict[str, str] = {}
     _dimensions: Dict[str, Dimension] = {}
-    model_store = (
-        ModelStore.for_main_dir(internal_model_dir)
-        if internal_model_dir is not None
-        else None
-    )
+    model_store = ModelStore.for_model_id(model_id)
 
     # group key: (dimension, hierarchy, object_group)
     group_totals: Dict[tuple[str, str, str], Optional[int]] = {}
@@ -806,7 +810,7 @@ def dimensions_to_model(
         ),
     )
 
-    with ThreadPoolExecutor(max_workers=count_workers) as count_executor:
+    with ThreadPoolExecutor(max_workers=count_workers, thread_name_prefix="count_executor") as count_executor:
         for dim_index, dim_name in enumerate(all_dims, start=1):
             _drain_count_queue()
             try:
@@ -853,21 +857,21 @@ def dimensions_to_model(
                     can_reuse_elements = False
                     can_reuse_subsets = False
                     can_reuse_edges = False
-                    if model_store is not None and incoming_hierarchy_etag is not None:
+                    if incoming_hierarchy_etag is not None:
                         existing_elements_etag, existing_elements_rules = model_store.get_group_reuse_metadata(
-                            model_id=internal_model_id,
+                            model_id=model_id,
                             dimension_name=dim_name,
                             hierarchy_name=hierarchy_name,
                             object_type="elements",
                         )
                         existing_subsets_etag, existing_subsets_rules = model_store.get_group_reuse_metadata(
-                            model_id=internal_model_id,
+                            model_id=model_id,
                             dimension_name=dim_name,
                             hierarchy_name=hierarchy_name,
                             object_type="subsets",
                         )
                         existing_edges_etag, existing_edges_rules = model_store.get_group_reuse_metadata(
-                            model_id=internal_model_id,
+                            model_id=model_id,
                             dimension_name=dim_name,
                             hierarchy_name=hierarchy_name,
                             object_type="edges",
@@ -885,20 +889,17 @@ def dimensions_to_model(
                             and existing_edges_rules == edges_tm1_filter.applicable_rules
                         )
 
-                    hierarchy = (
-                        Hierarchy(
-                            name=hierarchy_name,
-                            dimension_name=dim_name,
-                            internal_model_dir=internal_model_dir,
-                            internal_model_id=internal_model_id,
-                            hierarchy_etag=incoming_hierarchy_etag,
-                            reuse_existing_store=bool(internal_model_dir),
-                            elements_filter_rules=elements_tm1_filter.applicable_rules,
-                            edges_filter_rules=edges_tm1_filter.applicable_rules,
-                            subsets_filter_rules=subsets_tm1_filter.applicable_rules,
-                        )
-                        if internal_model_dir
-                        else Hierarchy(name=hierarchy_name, elements=[], edges=[], subsets=[])
+                    hierarchy = Hierarchy(
+                        name=hierarchy_name,
+                        dimension_name=dim_name,
+                        model_id=model_id,
+                        model_output_dir=model_output_dir,
+                        serialize=serialize,
+                        hierarchy_etag=incoming_hierarchy_etag,
+                        reuse_existing_store=True,
+                        elements_filter_rules=elements_tm1_filter.applicable_rules,
+                        edges_filter_rules=edges_tm1_filter.applicable_rules,
+                        subsets_filter_rules=subsets_tm1_filter.applicable_rules,
                     )
 
                     if can_reuse_elements and can_reuse_subsets and can_reuse_edges:

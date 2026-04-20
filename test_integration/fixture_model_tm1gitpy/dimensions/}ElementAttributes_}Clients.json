@@ -1,10 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}ElementAttributes_}Clients",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}ElementAttributes_}Clients",
+	"Hierarchies@Code.links":
+	[
 		"}ElementAttributes_}Clients.hierarchies/}ElementAttributes_}Clients.json"
 	],
-	"DefaultHierarchy": {
-		"@id": "Dimensions('}ElementAttributes_}Clients')/Hierarchies('}ElementAttributes_}Clients')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}ElementAttributes_}Clients')/Hierarchies('}ElementAttributes_}Clients')"
 	}
 }

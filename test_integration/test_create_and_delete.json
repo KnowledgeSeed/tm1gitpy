@@ -1,10 +1,10 @@
 {
   "execution_id": "test_create_and_delete",
-  "changeset_id": "20260416110957",
+  "changeset_id": "20260419201813",
   "state": "SUCCEEDED",
-  "started_at": 1776337797.547285,
-  "finished_at": 1776337797.5921369,
-  "updated_at": 1776337797.592138,
+  "started_at": 1776629893.553844,
+  "finished_at": 1776629893.590229,
+  "updated_at": 1776629893.590229,
   "total_operations": 7,
   "completed_operations": 7,
   "current_operation": null,
@@ -18,10 +18,10 @@
       "before_state": null,
       "ok": true,
       "status_code": 204,
-      "url": "http://localhost:54877/api/v1/Dimensions('TestDimMultiHier')/Hierarchies('Leaves')/Elements('b')",
+      "url": "http://localhost:56440/api/v1/Dimensions('TestDimMultiHier')/Hierarchies('Leaves')/Elements('b')",
       "error": null,
-      "started_at": 1776337797.547673,
-      "finished_at": 1776337797.553213
+      "started_at": 1776629893.5543208,
+      "finished_at": 1776629893.558125
     },
     {
       "index": 2,
@@ -32,10 +32,10 @@
       "before_state": null,
       "ok": true,
       "status_code": 204,
-      "url": "http://localhost:54877/api/v1/Dimensions('TestDim1')/Hierarchies('TmpHierForChangeset')",
+      "url": "http://localhost:56440/api/v1/Dimensions('TestDim1')/Hierarchies('TmpHierForChangeset')",
       "error": null,
-      "started_at": 1776337797.55355,
-      "finished_at": 1776337797.5568588
+      "started_at": 1776629893.558683,
+      "finished_at": 1776629893.561853
     },
     {
       "index": 3,
@@ -46,10 +46,10 @@
       "before_state": null,
       "ok": true,
       "status_code": 201,
-      "url": "http://localhost:54877/api/v1/Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')/Edges",
+      "url": "http://localhost:56440/api/v1/Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')/Edges",
       "error": null,
-      "started_at": 1776337797.557203,
-      "finished_at": 1776337797.562119
+      "started_at": 1776629893.562253,
+      "finished_at": 1776629893.564589
     },
     {
       "index": 4,
@@ -60,10 +60,10 @@
       "before_state": null,
       "ok": true,
       "status_code": 201,
-      "url": "http://localhost:54877/api/v1/Cubes('TestCube3WithView')/Views",
+      "url": "http://localhost:56440/api/v1/Cubes('TestCube3WithView')/Views",
       "error": null,
-      "started_at": 1776337797.562577,
-      "finished_at": 1776337797.571776
+      "started_at": 1776629893.564953,
+      "finished_at": 1776629893.57196
     },
     {
       "index": 5,
@@ -74,27 +74,13 @@
       "before_state": null,
       "ok": true,
       "status_code": 201,
-      "url": "http://localhost:54877/api/v1/Processes",
+      "url": "http://localhost:56440/api/v1/Processes",
       "error": null,
-      "started_at": 1776337797.572132,
-      "finished_at": 1776337797.5810392
+      "started_at": 1776629893.572423,
+      "finished_at": 1776629893.581734
     },
     {
       "index": 6,
-      "action": "modify",
-      "object_type": "Cube",
-      "object_name": "TestCube2WithRule",
-      "uri": "Cubes('TestCube2WithRule')",
-      "before_state": null,
-      "ok": true,
-      "status_code": 200,
-      "url": "http://localhost:54877/api/v1/Cubes('TestCube2WithRule')",
-      "error": null,
-      "started_at": 1776337797.581474,
-      "finished_at": 1776337797.586177
-    },
-    {
-      "index": 7,
       "action": "modify",
       "object_type": "MDXView",
       "object_name": "testcube3withview_view1",
@@ -102,10 +88,24 @@
       "before_state": null,
       "ok": true,
       "status_code": 200,
-      "url": "http://localhost:54877/api/v1/Cubes('TestCube3WithView')/Views('testcube3withview_view1')",
+      "url": "http://localhost:56440/api/v1/Cubes('TestCube3WithView')/Views('testcube3withview_view1')",
       "error": null,
-      "started_at": 1776337797.5865679,
-      "finished_at": 1776337797.591648
+      "started_at": 1776629893.582156,
+      "finished_at": 1776629893.586966
+    },
+    {
+      "index": 7,
+      "action": "modify",
+      "object_type": "Rule",
+      "object_name": "default",
+      "uri": "Cubes('TestCube2WithRule')/Rules('default')",
+      "before_state": null,
+      "ok": true,
+      "status_code": 200,
+      "url": "http://localhost:56440/api/v1/Cubes('TestCube2WithRule')",
+      "error": null,
+      "started_at": 1776629893.5873952,
+      "finished_at": 1776629893.5898361
     }
   ],
   "failure_action": null,

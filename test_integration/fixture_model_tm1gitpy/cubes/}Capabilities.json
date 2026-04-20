@@ -1,17 +1,17 @@
 {
-	"@type": "Cube",
-	"Name": "}Capabilities",
-	"Dimensions": [
+	"@type":"Cube",
+	"Name":"}Capabilities",
+	"Dimensions":
+	[
 		{
-			"@id": "Dimensions('}Features')"
+			"@id":"Dimensions('}Features')"
 		},
 		{
-			"@id": "Dimensions('}Permissions')"
+			"@id":"Dimensions('}Permissions')"
 		},
 		{
-			"@id": "Dimensions('}Groups')"
+			"@id":"Dimensions('}Groups')"
 		}
 	],
-	"Rules@Code.link": [],
-	"Views@Code.links": []
+	"Views@Code.links":[]
 }

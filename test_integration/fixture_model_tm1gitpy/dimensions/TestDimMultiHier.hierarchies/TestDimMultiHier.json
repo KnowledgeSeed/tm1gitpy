@@ -1,39 +1,41 @@
 {
-	"@type": "Hierarchy",
-	"Name": "TestDimMultiHier",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"TestDimMultiHier",
+	"Elements":
+	[
 		{
-		  "Name": "DimElem1",
-		  "Type": "Numeric"
+			"Name":"DimElem1",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "DimElem2",
-		  "Type": "Numeric"
+			"Name":"DimElem2",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "DimElemC",
-		  "Type": "Consolidated"
+			"Name":"DimElemC",
+			"Type":"Consolidated"
 		},
 		{
-		  "Name": "a",
-		  "Type": "Numeric"
+			"Name":"a",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "b",
-		  "Type": "Numeric"
+			"Name":"b",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [
+	"Edges":
+	[
 		{
-		  "ParentName": "DimElemC",
-		  "ComponentName": "a",
-		  "Weight": 1
+			"ComponentName":"a",
+			"ParentName":"DimElemC",
+			"Weight":1
 		},
 		{
-		  "ParentName": "DimElemC",
-		  "ComponentName": "b",
-		  "Weight": 1
+			"ComponentName":"b",
+			"ParentName":"DimElemC",
+			"Weight":1
 		}
 	],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

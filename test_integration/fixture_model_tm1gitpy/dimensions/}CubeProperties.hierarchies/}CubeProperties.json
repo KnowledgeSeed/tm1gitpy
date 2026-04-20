@@ -1,124 +1,124 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}CubeProperties",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}CubeProperties",
+	"Elements":
+	[
 		{
-		  "Name": "ALLOW_PERSISTENT_HOLDS",
-		  "Type": "String"
+			"Name":"ALLOW_PERSISTENT_HOLDS",
+			"Type":"String"
 		},
 		{
-		  "Name": "CALCULATIONTHRESHOLD",
-		  "Type": "String"
+			"Name":"CALCULATIONTHRESHOLD",
+			"Type":"String"
 		},
 		{
-		  "Name": "CATALOG",
-		  "Type": "String"
+			"Name":"CATALOG",
+			"Type":"String"
 		},
 		{
-		  "Name": "DATARESERVATIONMODE",
-		  "Type": "String"
+			"Name":"DATARESERVATIONMODE",
+			"Type":"String"
 		},
 		{
-		  "Name": "DATASOURCE",
-		  "Type": "String"
+			"Name":"DATASOURCE",
+			"Type":"String"
 		},
 		{
-		  "Name": "DEMANDLOAD",
-		  "Type": "String"
+			"Name":"DEMANDLOAD",
+			"Type":"String"
 		},
 		{
-		  "Name": "LOCATION",
-		  "Type": "String"
+			"Name":"LOCATION",
+			"Type":"String"
 		},
 		{
-		  "Name": "LOCK",
-		  "Type": "String"
+			"Name":"LOCK",
+			"Type":"String"
 		},
 		{
-		  "Name": "LOGGING",
-		  "Type": "String"
+			"Name":"LOGGING",
+			"Type":"String"
 		},
 		{
-		  "Name": "MAINTAIN_DETAILED_FEEDER_MEMORY_STATS",
-		  "Type": "String"
+			"Name":"MAINTAIN_DETAILED_FEEDER_MEMORY_STATS",
+			"Type":"String"
 		},
 		{
-		  "Name": "MEASURES_DIMENSION",
-		  "Type": "String"
+			"Name":"MEASURES_DIMENSION",
+			"Type":"String"
 		},
 		{
-		  "Name": "PASSWORD",
-		  "Type": "String"
+			"Name":"PASSWORD",
+			"Type":"String"
 		},
 		{
-		  "Name": "PROVIDER",
-		  "Type": "String"
+			"Name":"PROVIDER",
+			"Type":"String"
 		},
 		{
-		  "Name": "PROVIDERSTRING",
-		  "Type": "String"
+			"Name":"PROVIDERSTRING",
+			"Type":"String"
 		},
 		{
-		  "Name": "REPLICATION",
-		  "Type": "String"
+			"Name":"REPLICATION",
+			"Type":"String"
 		},
 		{
-		  "Name": "REPSRCNAME",
-		  "Type": "String"
+			"Name":"REPSRCNAME",
+			"Type":"String"
 		},
 		{
-		  "Name": "REPSTATUS",
-		  "Type": "String"
+			"Name":"REPSTATUS",
+			"Type":"String"
 		},
 		{
-		  "Name": "RULE_STATS",
-		  "Type": "String"
+			"Name":"RULE_STATS",
+			"Type":"String"
 		},
 		{
-		  "Name": "SAPCLIENTID",
-		  "Type": "String"
+			"Name":"SAPCLIENTID",
+			"Type":"String"
 		},
 		{
-		  "Name": "SAPCLIENTLANG",
-		  "Type": "String"
+			"Name":"SAPCLIENTLANG",
+			"Type":"String"
 		},
 		{
-		  "Name": "SAPVARIABLESCLAUSE",
-		  "Type": "String"
+			"Name":"SAPVARIABLESCLAUSE",
+			"Type":"String"
 		},
 		{
-		  "Name": "SLICERMEMBERS",
-		  "Type": "String"
+			"Name":"SLICERMEMBERS",
+			"Type":"String"
 		},
 		{
-		  "Name": "SYNCRULE",
-		  "Type": "String"
+			"Name":"SYNCRULE",
+			"Type":"String"
 		},
 		{
-		  "Name": "SYNCVIEWS",
-		  "Type": "String"
+			"Name":"SYNCVIEWS",
+			"Type":"String"
 		},
 		{
-		  "Name": "TIME_DIMENSION",
-		  "Type": "String"
+			"Name":"TIME_DIMENSION",
+			"Type":"String"
 		},
 		{
-		  "Name": "USERID",
-		  "Type": "String"
+			"Name":"USERID",
+			"Type":"String"
 		},
 		{
-		  "Name": "VIRTUALCUBE",
-		  "Type": "String"
+			"Name":"VIRTUALCUBE",
+			"Type":"String"
 		},
 		{
-		  "Name": "VMM",
-		  "Type": "String"
+			"Name":"VMM",
+			"Type":"String"
 		},
 		{
-		  "Name": "VMT",
-		  "Type": "String"
+			"Name":"VMT",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

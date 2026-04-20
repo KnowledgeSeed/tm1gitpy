@@ -1,12 +1,12 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Connections",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Connections",
+	"Elements":
+	[
 		{
-		  "Name": "ADMIN",
-		  "Type": "String"
+			"Name":"ADMIN",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

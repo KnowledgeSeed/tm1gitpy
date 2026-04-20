@@ -23,12 +23,14 @@ class Model:
         processes: List[Process],
         chores: List[Chore],
         *,
+        model_id: str = "default",
         total_object_count: Optional[int] = None,
     ):
         self.cubes = cubes
         self.dimensions = dimensions
         self.processes = processes
         self.chores = chores
+        self.model_id = str(model_id or "default")
         self.total_object_count = int(total_object_count) if total_object_count is not None else None
 
     def to_dict(self):

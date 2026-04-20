@@ -50,13 +50,18 @@ class Cube:
         self.views = views
 
     def as_json(self):
-        return json.dumps({
+        payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
             "Dimensions": [{"@id": format_url("Dimensions('{}')", d.name)} for d in self.dimensions],
-            "Rules@Code.link": format_url("{}.rules", self.name) if self.rules else [],
-            "Views@Code.links": [format_url("{}.views/{}.json", self.name, v.name) for v in self.views],
-        }, indent='\t')
+        }
+        if self.rules:
+            payload["Rules@Code.link"] = format_url("{}.rules", self.name)
+        payload["Views@Code.links"] = [
+            format_url("{}.views/{}.json", self.name, v.name) for v in self.views
+        ]
+        s = json.dumps(payload, indent="\t", separators=(",", ":"))
+        return s.replace(":[\n", ":\n\t[\n")
 
     def get_rule_text(self) -> str:
         if not self.rules: return ""

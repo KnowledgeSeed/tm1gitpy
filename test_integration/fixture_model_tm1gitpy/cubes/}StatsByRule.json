@@ -1,17 +1,17 @@
 {
-	"@type": "Cube",
-	"Name": "}StatsByRule",
-	"Dimensions": [
+	"@type":"Cube",
+	"Name":"}StatsByRule",
+	"Dimensions":
+	[
 		{
-			"@id": "Dimensions('}Cubes')"
+			"@id":"Dimensions('}Cubes')"
 		},
 		{
-			"@id": "Dimensions('}LineNumber')"
+			"@id":"Dimensions('}LineNumber')"
 		},
 		{
-			"@id": "Dimensions('}RuleStats')"
+			"@id":"Dimensions('}RuleStats')"
 		}
 	],
-	"Rules@Code.link": [],
-	"Views@Code.links": []
+	"Views@Code.links":[]
 }

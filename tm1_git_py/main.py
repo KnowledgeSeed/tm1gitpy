@@ -13,6 +13,7 @@ from typing import Any
 
 from TM1py import TM1Service
 
+from tm1_git_py import Changeset
 from tm1_git_py.changeset import import_changeset
 from tm1_git_py.comparator import Comparator, TqdmComparatorProgressSink
 from tm1_git_py.config import TM1ServersConfig
@@ -64,9 +65,10 @@ def _split_compare_workers(max_workers: int) -> tuple[int, int]:
 
 def _rebind_model_store_handles(model: Model, model_root: Path) -> Model:
     """Rebind hierarchy store-backed sequences to a connection in the current thread."""
-    model_root_str = str(model_root)
-    store = ModelStore.for_main_dir(model_root_str)
-    model_id = store.resolve_model_for_deserialize(model_root_str)
+    model_id = (getattr(model, "model_id", None) or model_root.name).strip()
+    if not model_id:
+        model_id = "default"
+    ModelStore.for_model_id(model_id)
     rebuilt_dimensions: list[Dimension] = []
     dimensions_by_name: dict[str, Dimension] = {}
 
@@ -77,8 +79,7 @@ def _rebind_model_store_handles(model: Model, model_root: Path) -> Model:
                 Hierarchy(
                     name=hierarchy.name,
                     dimension_name=dim.name,
-                    internal_model_dir=model_root_str,
-                    internal_model_id=model_id,
+                    model_id=model_id,
                     reuse_existing_store=True,
                 )
             )
@@ -161,6 +162,7 @@ def _model_to_compare_snapshot(model: Model) -> dict:
         )
 
     return {
+        "model_id": getattr(model, "model_id", None),
         "dimensions": dimensions_payload,
         "cubes": cubes_payload,
         "processes": [process.to_dict() for process in model.processes],
@@ -233,6 +235,7 @@ def _model_from_compare_snapshot(snapshot: dict) -> Model:
         dimensions=dimensions,
         processes=processes,
         chores=chores,
+        model_id=str(snapshot.get("model_id") or "default"),
         total_object_count=snapshot.get("total_object_count"),
     )
 
@@ -368,17 +371,21 @@ def _add_log_level(p: argparse.ArgumentParser) -> None:
 
 
 def _cmd_export(args: argparse.Namespace) -> None:
-    tm1_service = _tm1_connection(args.server)
+    config = TM1ServersConfig()
+    config.load()
+    tm1_service = _tm1_connection_from_config(config, args.server)
     model_output_folder = args.model_output_folder or "export"
+    model_output_path = Path(model_output_folder).expanduser().resolve()
 
     _prepare_model_folder(model_output_folder, args.overwrite)
 
     filter_rules = _load_filter_rules(args.filter)
 
     logger.info("Exporting model to folder: %s", model_output_folder)
-    internal_model_dir = str(Path(model_output_folder))
-    model_store = ModelStore.for_main_dir(internal_model_dir)
-    internal_model_id = model_store.resolve_model_for_export(args.server, internal_model_dir)
+    model_id = model_output_path.name.strip()
+    if not model_id:
+        raise ValueError("model_id must not be empty")
+    ModelStore.for_model_id(model_id)
     export_sinks: list[ProgressSink] = [TqdmExportProgress()]
     if bool(args.log_file):
         export_sinks.append(LoggingProgressSink(logger))
@@ -387,9 +394,10 @@ def _cmd_export(args: argparse.Namespace) -> None:
     )
     exported_model, export_errors = export(
         tm1_service,
-        filter_rules,
-        internal_model_dir=internal_model_dir,
-        internal_model_id=internal_model_id,
+        model_id=model_id,
+        filter_rules_list=filter_rules,
+        serialize=True,
+        model_output_dir=str(model_output_path),
         progress_sink=export_progress_sink,
         max_workers=_normalize_max_workers(args.max_workers),
     )
@@ -449,8 +457,8 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         logger.error("Target model path is not a directory: %s", target)
         sys.exit(1)
 
-    ModelStore.for_main_dir(str(source))
-    ModelStore.for_main_dir(str(target))
+    ModelStore.for_model_id(source.name)
+    ModelStore.for_model_id(target.name)
 
     requested_workers = _normalize_max_workers(args.max_workers)
     source_workers, target_workers = _split_compare_workers(requested_workers)

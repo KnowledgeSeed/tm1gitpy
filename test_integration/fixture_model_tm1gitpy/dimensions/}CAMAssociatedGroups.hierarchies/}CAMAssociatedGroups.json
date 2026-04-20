@@ -1,7 +1,6 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}CAMAssociatedGroups",
-	"Elements": [],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"@type":"Hierarchy",
+	"Name":"}CAMAssociatedGroups",
+	"Elements":[],
+	"Subsets@Code.links":[]
 }

@@ -1,22 +1,24 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}PerfClients",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}PerfClients",
+	"Elements":
+	[
 		{
-		  "Name": "Admin",
-		  "Type": "Numeric"
+			"Name":"Admin",
+			"Type":"Numeric"
 		},
 		{
-		  "Name": "Clients Total",
-		  "Type": "Consolidated"
+			"Name":"Clients Total",
+			"Type":"Consolidated"
 		}
 	],
-	"Edges": [
+	"Edges":
+	[
 		{
-		  "ParentName": "Clients Total",
-		  "ComponentName": "Admin",
-		  "Weight": 1
+			"ComponentName":"Admin",
+			"ParentName":"Clients Total",
+			"Weight":1
 		}
 	],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

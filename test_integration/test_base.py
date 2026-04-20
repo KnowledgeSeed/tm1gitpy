@@ -69,6 +69,8 @@ def _normalize_json_keys(value):
             normalized_items,
             key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         )
+    if isinstance(value, str):
+        return value.casefold()
     return value
 
 
@@ -89,7 +91,6 @@ def _json_files_equivalent(left_path: str, right_path: str) -> bool:
 
 
 def _assert_dircmp_trees_equal(left: str, right: str) -> None:
-    """Recursively assert two directories have identical file sets and contents."""
     cmp = filecmp.dircmp(left, right)
     left_only = [
         name for name in cmp.left_only
@@ -200,11 +201,18 @@ def is_tm1_running(port: int, timeout_in_seconds: int = 1) -> bool:
         return False
 
 
-def find_free_port() -> int:
-    """Find an available port on the host machine."""
+def find_free_port(preferred: int = 5360) -> int:
+    """Find an available TCP port on the host. Uses ``preferred`` when it can be bound."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("", preferred))
+            return preferred
+    except OSError:
+        pass
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("", 0))
         return s.getsockname()[1]
 
 
@@ -258,12 +266,12 @@ def export_check_no_errors(
     self,
     filter_rules: list[str] = None,
     *,
-    internal_model_dir: Optional[str] = None,
+    model_id: Optional[str] = None,
 ) -> Model:
     model, errors = export(
         self.tm1_service,
+        model_id=model_id or "default",
         filter_rules_list=filter_rules,
-        internal_model_dir=internal_model_dir,
     )
     assert isinstance(model, Model)
     for category, category_errors in errors.items():

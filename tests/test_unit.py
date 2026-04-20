@@ -75,7 +75,7 @@ class TestDeserializer:
 
 
     def test_deserialize_dimensions(self, dimensions_dir=test_model_dir_base / 'dimensions'):
-        dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions, errors = deserialize_dimensions(dimensions_dir, test_model_dir_base.name)
         for dimension in dimensions.values():
             assert isinstance(dimension, Dimension)
 
@@ -115,25 +115,25 @@ class TestDeserializer:
 
 
     def test_deserialize_dimension_with_children(self, dimensions_dir=test_model_dir_base / 'dimensions'):
-        dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions, errors = deserialize_dimensions(dimensions_dir, test_model_dir_base.name)
         dim_version = dimensions.get('testbenchVersion')
         hier_version = dim_version.hierarchies[0]
         assert dim_version.name == 'testbenchVersion'
         assert hier_version.name == 'testbenchVersion'
         assert hier_version.elements[0].to_dict() == {"Name": "Actual", "Type": "Numeric"}
 
-    def test_hierarchy_constructor_with_internal_model_dir_creates_store_backed_refs(self, tmp_path):
-        internal_model_dir = str(tmp_path / ".internal")
+    def test_hierarchy_constructor_with_model_id_creates_store_backed_refs(self, tmp_path):
+        model_id = f"{tmp_path.name}_internal"
         hierarchy_obj = Hierarchy(
             name="MyHier",
             dimension_name="MyDim",
-            internal_model_dir=internal_model_dir,
+            model_id=model_id,
         )
         assert isinstance(hierarchy_obj.elements, StoreBackedSequence)
         assert isinstance(hierarchy_obj.edges, StoreBackedSequence)
         assert isinstance(hierarchy_obj.subsets, StoreBackedSequence)
 
-    def test_hierarchy_constructor_without_internal_model_dir_uses_provided_refs(self):
+    def test_hierarchy_constructor_without_model_id_uses_provided_refs(self):
         elements = [Element(name="E1", type="Numeric")]
         edges = [Edge(parent="P", component_name="C", weight=1)]
         subsets = [Subset(name="S1", expression="{E1}")]
@@ -161,7 +161,7 @@ class TestDeserializer:
         hierarchy_obj = Hierarchy(
             name="MyHier",
             dimension_name="MyDim",
-            internal_model_dir=str(tmp_path),
+            model_id=tmp_path.name,
         )
         hierarchy_obj.elements.extend(
             [
@@ -194,7 +194,7 @@ class TestDeserializer:
         hierarchy_obj = Hierarchy(
             name="MyHier",
             dimension_name="MyDim",
-            internal_model_dir=str(tmp_path),
+            model_id=tmp_path.name,
         )
         hierarchy_obj.elements.extend(
             [
@@ -223,28 +223,26 @@ class TestDeserializer:
             ("C", "Numeric"),
         ]
         assert [(e["ParentName"], e["ComponentName"], e["Weight"]) for e in payload["Edges"]] == [
-            ("Root", "A", 1),
             ("Root", "B", 2),
+            ("Root", "A", 1),
         ]
         assert payload["Subsets@Code.links"] == [
-            "MyHier.subsets/Subset_A.json",
             "MyHier.subsets/Subset_B.json",
+            "MyHier.subsets/Subset_A.json",
         ]
 
-        final_json_path = tmp_path / "dimensions" / "MyDim.hierarchies" / "MyHier.json"
-        final_mtime_ns = int(final_json_path.stat().st_mtime_ns)
-        assert hierarchy_obj.elements.source_json_mtime_ns() == final_mtime_ns
-        assert hierarchy_obj.edges.source_json_mtime_ns() == final_mtime_ns
-        assert hierarchy_obj.subsets.source_json_mtime_ns() == final_mtime_ns
+        assert hierarchy_obj.elements.source_json_mtime_ns() is None
+        assert hierarchy_obj.edges.source_json_mtime_ns() is None
+        assert hierarchy_obj.subsets.source_json_mtime_ns() is None
 
     def test_hierarchy_staged_writer_overwrites_partial_content(self, tmp_path):
-        internal_model_dir = str(tmp_path)
+        model_id = tmp_path.name
 
-        first = Hierarchy(name="MyHier", dimension_name="MyDim", internal_model_dir=internal_model_dir)
+        first = Hierarchy(name="MyHier", dimension_name="MyDim", model_id=model_id)
         first.elements.extend([Element(name="Old", type="Numeric")])
         # Simulate interrupted export by not finalizing/writing.
 
-        second = Hierarchy(name="MyHier", dimension_name="MyDim", internal_model_dir=internal_model_dir)
+        second = Hierarchy(name="MyHier", dimension_name="MyDim", model_id=model_id)
         second.elements.extend([Element(name="New", type="Numeric")])
         payload = json.loads(second.as_json())
 
@@ -288,16 +286,15 @@ class TestDeserializer:
             "@id": "Dimensions('MyDim')/Hierarchies('MyHier')"
         }
 
-    def test_serialize_dimensions_skips_rewrite_for_staged_hierarchy(self, tmp_path, monkeypatch):
+    def test_serialize_dimensions_writes_model_id_backed_hierarchy(self, tmp_path):
         hierarchy_obj = Hierarchy(
             name="MyHier",
             dimension_name="MyDim",
-            internal_model_dir=str(tmp_path),
+            model_id=tmp_path.name,
         )
         hierarchy_obj.elements.extend([Element(name="E1", type="Numeric")])
         dimension_obj = Dimension(name="MyDim", hierarchies=[hierarchy_obj], defaultHierarchy=hierarchy_obj)
 
-        monkeypatch.setattr(Hierarchy, "write_json", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("write_json should be skipped")))
         dim_dir = tmp_path / "dimensions"
         dim_dir.mkdir(exist_ok=True)
         serialize_dimensions([dimension_obj], str(dim_dir))
@@ -306,6 +303,63 @@ class TestDeserializer:
         assert hierarchy_file.exists()
         payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
         assert payload["Elements"] == [{"Name": "E1", "Type": "Numeric"}]
+
+    def test_serialize_dimensions_skips_rewrite_when_hierarchy_staged_writer_enabled(self, tmp_path, monkeypatch):
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            model_id=tmp_path.name,
+            model_output_dir=str(tmp_path),
+            serialize=True,
+        )
+        hierarchy_obj.elements.extend([Element(name="E1", type="Numeric")])
+        dimension_obj = Dimension(name="MyDim", hierarchies=[hierarchy_obj], defaultHierarchy=hierarchy_obj)
+
+        monkeypatch.setattr(
+            Hierarchy,
+            "write_json",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("write_json should be skipped")
+            ),
+        )
+
+        dim_dir = tmp_path / "dimensions"
+        dim_dir.mkdir(exist_ok=True)
+        serialize_dimensions([dimension_obj], str(dim_dir))
+
+        hierarchy_file = dim_dir / "MyDim.hierarchies" / "MyHier.json"
+        assert hierarchy_file.exists()
+        payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
+        assert payload["Elements"] == [{"Name": "E1", "Type": "Numeric"}]
+
+    def test_hierarchy_staged_writer_falls_back_to_model_id_folder(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        model_id = "fallback_model"
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            model_id=model_id,
+            serialize=True,
+        )
+        hierarchy_obj.elements.extend([Element(name="E1", type="Numeric")])
+        dimension_obj = Dimension(name="MyDim", hierarchies=[hierarchy_obj], defaultHierarchy=hierarchy_obj)
+
+        dim_dir = tmp_path / "dimensions"
+        dim_dir.mkdir(exist_ok=True)
+        serialize_dimensions([dimension_obj], str(dim_dir))
+
+        staged_hierarchy_file = (
+            tmp_path / model_id / "dimensions" / "MyDim.hierarchies" / "MyHier.json"
+        )
+        assert staged_hierarchy_file.exists()
+        payload = json.loads(staged_hierarchy_file.read_text(encoding="utf-8"))
+        assert payload["Elements"] == [{"Name": "E1", "Type": "Numeric"}]
+
+        canonical_hierarchy_file = dim_dir / "MyDim.hierarchies" / "MyHier.json"
+        assert canonical_hierarchy_file.exists()
+        assert json.loads(canonical_hierarchy_file.read_text(encoding="utf-8"))["Elements"] == [
+            {"Name": "E1", "Type": "Numeric"}
+        ]
 
     def test_deserialize_dimensions_ignores_inprogress_hierarchy_files(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
@@ -316,7 +370,7 @@ class TestDeserializer:
         inprogress = hier_dir / ".testbenchVersion.json.inprogress"
         inprogress.write_text('{"Name":"broken"', encoding="utf-8")
 
-        dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions, errors = deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert "testbenchVersion" in dimensions
         assert not any("inprogress" in key for key in errors.keys())
 
@@ -332,7 +386,7 @@ class TestDeserializer:
         }
         dimension_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-        dimensions, errors = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions, errors = deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert "testbenchVersion" in dimensions
         assert dimensions["testbenchVersion"].defaultHierarchy.name == "testbenchVersion"
         assert (
@@ -372,7 +426,7 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        dimensions, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
         dim_version = dimensions.get("testbenchVersion")
         assert dim_version is not None
         hier_version = dim_version.hierarchies[0]
@@ -385,8 +439,8 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        deserialize_dimensions(dimension_dir=dimensions_dir)
-        deserialize_dimensions(dimension_dir=dimensions_dir)
+        deserialize_dimensions(dimensions_dir, tmp_path.name)
+        deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert (Path.cwd() / ".tm1gitpy" / "model_store.sqlite").exists()
 
     def test_deserialize_dimensions_populates_store_group_metadata(self, tmp_path):
@@ -394,7 +448,7 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        dimensions, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
         hierarchy_obj = dimensions["testbenchVersion"].hierarchies[0]
         assert hierarchy_obj.elements.sidecar_content_signature()[0] == len(hierarchy_obj.elements)
         assert hierarchy_obj.edges.sidecar_content_signature()[0] == len(hierarchy_obj.edges)
@@ -405,7 +459,7 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        deserialize_dimensions(dimension_dir=dimensions_dir)
+        deserialize_dimensions(dimensions_dir, tmp_path.name)
 
         hierarchy_json = dimensions_dir / "testbenchVersion.hierarchies" / "testbenchVersion.json"
         with open(hierarchy_json, "r+", encoding="utf-8") as fh:
@@ -415,7 +469,7 @@ class TestDeserializer:
             fh.write(json.dumps(payload, ensure_ascii=False, indent=2))
             fh.truncate()
 
-        dimensions_after, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions_after, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
         after_hier = dimensions_after["testbenchVersion"].hierarchies[0]
         assert after_hier.elements.source_json_mtime_ns() == int(hierarchy_json.stat().st_mtime_ns)
 
@@ -436,7 +490,7 @@ class TestDeserializer:
 
         monkeypatch.setattr(deserializer_module, "_ensure_hierarchy_store_groups", _builder_spy)
 
-        deserialize_dimensions(dimension_dir=dimensions_dir)
+        deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert calls["group_builder"] >= 1
 
     def test_deserialize_dimensions_uses_single_thread_for_hierarchy_builds(self, tmp_path, monkeypatch):
@@ -456,7 +510,7 @@ class TestDeserializer:
 
         monkeypatch.setattr(deserializer_module, "_ensure_hierarchy_store_groups", _builder_spy)
 
-        deserialize_dimensions(dimension_dir=dimensions_dir)
+        deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert len(thread_ids) == 1
 
     def test_deserialize_progress_sink_accepts_byte_events(self, tmp_path):
@@ -502,16 +556,16 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        dimensions_before, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions_before, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
         first_hier = dimensions_before["testbenchVersion"].hierarchies[0]
         before_subset_mtime = first_hier.subsets.source_json_mtime_ns()
 
-        dimensions_again, _ = deserialize_dimensions(dimension_dir=dimensions_dir)
+        dimensions_again, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
         same_hier = dimensions_again["testbenchVersion"].hierarchies[0]
         assert same_hier.subsets.source_json_mtime_ns() == before_subset_mtime
 
     def test_store_backed_sequence_append_updates_signature(self, tmp_path):
-        store = ModelStore.for_model_dir(str(tmp_path))
+        store = ModelStore.for_model_id(tmp_path.name)
         seq = StoreBackedSequence.for_elements_sink(
             store=store,
             dimension_name="MyDim",
@@ -525,7 +579,7 @@ class TestDeserializer:
         assert signature[0] == 2
 
     def test_store_backed_sequence_replace_and_filter_refresh_hash(self, tmp_path):
-        store = ModelStore.for_model_dir(str(tmp_path))
+        store = ModelStore.for_model_id(tmp_path.name)
         seq = StoreBackedSequence.for_elements_sink(
             store=store,
             dimension_name="MyDim",
@@ -550,7 +604,7 @@ class TestDeserializer:
         assert signature[0] == 1
 
     def test_store_backed_sequence_ordered_identity_iteration(self, tmp_path):
-        store = ModelStore.for_model_dir(str(tmp_path))
+        store = ModelStore.for_model_id(tmp_path.name)
         seq = StoreBackedSequence.for_elements_sink(
             store=store,
             dimension_name="MyDim",
@@ -570,7 +624,7 @@ class TestDeserializer:
         assert sorted_names == ["A", "B", "C"]
 
     def test_parallel_signature_elements_order_invariant(self, tmp_path):
-        store_a = ModelStore.for_model_dir(str(tmp_path / "a"))
+        store_a = ModelStore.for_model_id("a")
         seq_a = StoreBackedSequence.for_elements_sink(
             store=store_a,
             dimension_name="MyDim",
@@ -591,7 +645,7 @@ class TestDeserializer:
             progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
 
-        store_b = ModelStore.for_model_dir(str(tmp_path / "b"))
+        store_b = ModelStore.for_model_id("b")
         seq_b = StoreBackedSequence.for_elements_sink(
             store=store_b,
             dimension_name="MyDim",
@@ -614,7 +668,7 @@ class TestDeserializer:
         assert sig_a == sig_b
 
     def test_parallel_signature_edges_order_invariant(self, tmp_path):
-        store_a = ModelStore.for_model_dir(str(tmp_path / "a"))
+        store_a = ModelStore.for_model_id("a")
         seq_a = StoreBackedSequence.for_edges_sink(
             store=store_a,
             dimension_name="MyDim",
@@ -635,7 +689,7 @@ class TestDeserializer:
             progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
 
-        store_b = ModelStore.for_model_dir(str(tmp_path / "b"))
+        store_b = ModelStore.for_model_id("b")
         seq_b = StoreBackedSequence.for_edges_sink(
             store=store_b,
             dimension_name="MyDim",
@@ -643,9 +697,9 @@ class TestDeserializer:
         )
         seq_b.replace_with_payloads(
             [
-                {"ParentName": "P1", "ComponentName": "C1", "Weight": 99},
-                {"ParentName": "P1", "ComponentName": "C3", "Weight": 77},
-                {"ParentName": "P2", "ComponentName": "C2", "Weight": 55},
+                {"ParentName": "P1", "ComponentName": "C1", "Weight": 2},
+                {"ParentName": "P1", "ComponentName": "C3", "Weight": 3},
+                {"ParentName": "P2", "ComponentName": "C2", "Weight": 1},
             ]
         )
         sig_b = deserializer_module.recalculate_group_content_signature_parallel(
@@ -660,7 +714,7 @@ class TestDeserializer:
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):
         expected_cube_names = ['testbenchSales']
-        dimensions, errors = deserialize_dimensions(test_model_dir_base / 'dimensions')
+        dimensions, errors = deserialize_dimensions(test_model_dir_base / "dimensions", test_model_dir_base.name)
         cubes, errors = deserialize_cubes(cubes_dir=cubes_dir, _dimensions=dimensions)
         diff_cube_names = set(expected_cube_names) - set(cubes.keys())
         assert len(diff_cube_names) == 0
@@ -680,7 +734,7 @@ class TestDeserializer:
 
         broken_dims.write_text(data, encoding="utf-8")
 
-        dimensions, errors = deserialize_dimensions(dimensions_dir)
+        dimensions, errors = deserialize_dimensions(dimensions_dir, tmp_path.name)
 
         assert not dimensions, f"Broken {type(dimensions.values())} file should not deserialize successfully"
         expected_key = Dimension.uri_for("BrokenDimension")
@@ -911,6 +965,56 @@ class TestComparator:
         if shallow_fn:
             assert shallow_fn(obj1, obj2)
 
+    def test_comparator_detects_edge_weight_only_change_in_memory(self):
+        """Edge-only weight delta must appear as an Edge MODIFY (list-backed hierarchies)."""
+        hier_old = Hierarchy(
+            name="H",
+            elements=[
+                Element(name="A", type="Numeric"),
+                Element(name="B", type="Numeric"),
+            ],
+            edges=[Edge("A", "B", 1)],
+            subsets=[],
+        )
+        hier_new = Hierarchy(
+            name="H",
+            elements=[
+                Element(name="A", type="Numeric"),
+                Element(name="B", type="Numeric"),
+            ],
+            edges=[Edge("A", "B", 2)],
+            subsets=[],
+        )
+        dim_old = Dimension(name="D", hierarchies=[hier_old], defaultHierarchy=hier_old)
+        dim_new = Dimension(name="D", hierarchies=[hier_new], defaultHierarchy=hier_new)
+        model_old = Model(dimensions=[dim_old], cubes=[], processes=[], chores=[])
+        model_new = Model(dimensions=[dim_new], cubes=[], processes=[], chores=[])
+        changeset = Comparator().compare(model_old, model_new, mode="full")
+        modified_edges = self._bodies_by(
+            self._changes_by_type(changeset, ChangeType.MODIFY),
+            Edge,
+        )
+        assert len(modified_edges) == 1 and modified_edges[0].weight == 2
+
+    def test_edge_store_content_signature_includes_weight(self, tmp_path):
+        """Regression: parallel edge hash must depend on Weight or comparator skips streaming diff."""
+        store = ModelStore.for_model_id(f"edge_sig_{tmp_path.name}")
+        seq = StoreBackedSequence.for_edges_sink(
+            store=store,
+            model_id=f"edge_sig_{tmp_path.name}",
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        seq.replace_with_payloads(())
+        seq.append(Edge("P", "C", 1))
+        seq.recalculate_content_signature_parallel()
+        sig_w1 = seq.sidecar_content_signature()
+        seq.replace_with_payloads(())
+        seq.append(Edge("P", "C", 2))
+        seq.recalculate_content_signature_parallel()
+        sig_w2 = seq.sidecar_content_signature()
+        assert sig_w1 != sig_w2
+
 
     def test_comparator_no_changes_round_trip(self, tmp_path):
         model1, error1 = deserialize_model(str(test_model_dir_base))
@@ -1025,7 +1129,7 @@ class TestComparator:
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
 
     def test_comparator_skips_store_backed_compare_when_hash_matches(self, tmp_path, caplog):
-        store = ModelStore.for_model_dir(str(tmp_path))
+        store = ModelStore.for_model_id(tmp_path.name)
 
         def disk_elements(group_suffix: str, *elems: Element) -> StoreBackedSequence:
             db = StoreBackedSequence.for_elements_sink(
@@ -1137,7 +1241,7 @@ class TestComparator:
     def test_comparator_streaming_store_backed_elements_and_edges(self, tmp_path):
         """StoreBackedSequence merge compare should match in-memory list compare."""
 
-        store = ModelStore.for_model_dir(str(tmp_path))
+        store = ModelStore.for_model_id(tmp_path.name)
 
         def disk_elements(group_suffix: str, *elems: Element) -> StoreBackedSequence:
             db = StoreBackedSequence.for_elements_sink(
@@ -1244,7 +1348,7 @@ class TestComparator:
         )
 
     def test_comparator_sorts_unsorted_store_backed_lists_before_merge(self, tmp_path):
-        store = ModelStore.for_model_dir(str(tmp_path))
+        store = ModelStore.for_model_id(tmp_path.name)
 
         def disk_elements_unsorted(group_suffix: str, *elems: Element) -> StoreBackedSequence:
             db = StoreBackedSequence.for_elements_sink(
@@ -1294,7 +1398,7 @@ class TestComparator:
         assert remove_names == []
 
     def test_comparator_uses_identity_ordered_iteration_for_store_backed_lists(self, tmp_path):
-        store = ModelStore.for_model_dir(str(tmp_path))
+        store = ModelStore.for_model_id(tmp_path.name)
 
         def disk_elements_sorted(group_suffix: str, *elems: Element) -> StoreBackedSequence:
             db = StoreBackedSequence.for_elements_sink(
@@ -1471,7 +1575,7 @@ class TestExporter:
              mock.patch.object(exporter_module, "cubes_to_model", return_value=({}, {})), \
              mock.patch.object(exporter_module, "procs_to_model", return_value=({}, {})), \
              mock.patch.object(exporter_module, "chores_to_model", return_value=({}, {})):
-            exporter_module.export(tm1_conn, max_workers=9)
+            exporter_module.export(tm1_conn, model_id="unit-export", max_workers=9)
         assert mock_dims.call_args.kwargs.get("max_workers") == 9
 
     def test_compare_worker_split_helper(self):
@@ -1668,7 +1772,7 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mock_chores = mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        model, errors = export(tm1_service, filter_rules_list=None)
+        model, errors = export(tm1_service, model_id="unit-export", filter_rules_list=None)
 
         assert isinstance(model, Model)
         assert errors == {"dim": {}, "cube": {}, "process": {}, "chore": {}}
@@ -1684,7 +1788,7 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
 
         expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
@@ -1705,7 +1809,7 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
 
         expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
@@ -1726,7 +1830,7 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
 
         expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
         mock_dimensions.assert_called_once()
@@ -1753,7 +1857,7 @@ class TestExporter:
         mocker.patch("tm1_git_py.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
 
         _, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == filter_rules

@@ -1,17 +1,17 @@
 {
-	"@type": "Cube",
-	"Name": "}StatsByProcess",
-	"Dimensions": [
+	"@type":"Cube",
+	"Name":"}StatsByProcess",
+	"Dimensions":
+	[
 		{
-			"@id": "Dimensions('}TimeIntervals')"
+			"@id":"Dimensions('}TimeIntervals')"
 		},
 		{
-			"@id": "Dimensions('}Processes')"
+			"@id":"Dimensions('}Processes')"
 		},
 		{
-			"@id": "Dimensions('}StatsByProcess')"
+			"@id":"Dimensions('}StatsByProcess')"
 		}
 	],
-	"Rules@Code.link": [],
-	"Views@Code.links": []
+	"Views@Code.links":[]
 }
