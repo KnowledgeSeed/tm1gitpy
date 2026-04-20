@@ -441,7 +441,8 @@ class TestDeserializer:
 
         deserialize_dimensions(dimensions_dir, tmp_path.name)
         deserialize_dimensions(dimensions_dir, tmp_path.name)
-        assert (Path.cwd() / ".tm1gitpy" / "model_store.sqlite").exists()
+        db_path = Path(ModelStore._db_path_for_model_id(tmp_path.name))
+        assert db_path.is_file(), f"expected internal model store sqlite at {db_path}"
 
     def test_deserialize_dimensions_populates_store_group_metadata(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
