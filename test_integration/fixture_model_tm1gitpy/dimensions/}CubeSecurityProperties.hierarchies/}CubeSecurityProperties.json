@@ -1,0 +1,16 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}CubeSecurityProperties",
+	"Elements":
+	[
+		{
+			"Name":"CELLSECURITYDEFAULTVALUE",
+			"Type":"String"
+		},
+		{
+			"Name":"CELLSECURITYMOSTRESTRICTIVE",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}

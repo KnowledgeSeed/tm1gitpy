@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}CAMAssociatedGroups",
+	"Hierarchies@Code.links":
+	[
+		"}CAMAssociatedGroups.hierarchies/}CAMAssociatedGroups.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}CAMAssociatedGroups')/Hierarchies('}CAMAssociatedGroups')"
+	}
+}
