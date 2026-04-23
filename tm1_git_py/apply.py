@@ -10,6 +10,7 @@ from requests import Response
 from tm1_git_py import Changeset
 from tm1_git_py.changeset import ChangeType, Change, ObjectType
 from tm1_git_py.changeset_status import ChangeSetStatusStore
+from tm1_git_py.filter import DEFAULT_TM1_TECHNICAL_OBJECTS, should_exclude_path
 from tm1_git_py.model import Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule
 from tm1_git_py.progress_reporting import (
     NoopProgressSink,
@@ -46,6 +47,51 @@ def _normalize_apply_response(
     ).encode("utf-8")
     normalized.encoding = "utf-8"
     return normalized
+
+
+def _build_ignored_duplicate_create_response(
+        *,
+        object_type: str,
+        object_name: str,
+        uri: Optional[str],
+) -> Response:
+    response = Response()
+    response.status_code = 208
+    response.url = uri or f"{object_type}:{object_name}"
+    response._content = (
+        f"Skipped create for existing technical object "
+        f"{object_type}{':' + object_name if object_name else ''}."
+    ).encode("utf-8")
+    response.encoding = "utf-8"
+    return response
+
+
+def _is_technical_object_uri(uri: Optional[str], object_type: str, object_name: str) -> bool:
+    if uri:
+        try:
+            return should_exclude_path(uri, DEFAULT_TM1_TECHNICAL_OBJECTS)
+        except Exception:
+            logger.debug("Failed to classify technical object from uri='%s'", uri, exc_info=True)
+    return object_type in {"Cube", "Dimension", "Process"} and (object_name or "").startswith("}")
+
+
+def _exception_status_code(exc: Exception) -> Optional[int]:
+    for attr in ("status_code", "status"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    return None
+
+
+def _is_duplicate_create_exception(exc: Exception) -> bool:
+    normalized_text = str(exc or "").lower()
+    status_code = _exception_status_code(exc)
+    return "already exists" in normalized_text and status_code in {400, 409}
 
 def apply(
         changeset: Changeset,
@@ -315,10 +361,27 @@ def _resolve_handler(module, action: str, object_type: str):
 def create_object(tm1_service: TM1Service, object_instance: T, object_type, uri: Optional[str] = None) -> Response:
     module = importlib.import_module(object_instance.__class__.__module__)
     create = _resolve_handler(module, "create", object_type)
+    object_name = getattr(object_instance, "name", "")
     try:
-        return create(tm1_service, object_instance, uri=uri)
-    except TypeError:
-        return create(tm1_service, object_instance)
+        try:
+            return create(tm1_service, object_instance, uri=uri)
+        except TypeError:
+            return create(tm1_service, object_instance)
+    except Exception as exc:
+        if _is_technical_object_uri(uri, object_type, object_name) and _is_duplicate_create_exception(exc):
+            logger.warning(
+                "Ignoring duplicate create failure for technical object %s%s path=%s: %s",
+                f"{object_type}:" if object_name else object_type,
+                object_name or "",
+                uri,
+                exc,
+            )
+            return _build_ignored_duplicate_create_response(
+                object_type=object_type,
+                object_name=object_name,
+                uri=uri,
+            )
+        raise
 
 
 def delete_object(tm1_service: TM1Service, object_instance: T, object_type, uri: Optional[str] = None) -> Response:

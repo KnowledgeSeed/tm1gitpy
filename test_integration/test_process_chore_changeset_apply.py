@@ -22,7 +22,14 @@ from tm1_git_py.model.ti import TI
 
 @pytest.mark.usefixtures("tm1_service")
 class TestProcessChoreChangesetApply:
+    _fixture_model_id_no_meta = "fixture_model_no_meta"
+
     _f_no_meta = DEFAULT_TM1_TECHNICAL_OBJECTS
+    _f_with_meta = [
+        "!Cubes('}*')",
+        "!Dimensions('}*')",
+        "!Processes('}*')"
+    ]
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
@@ -43,6 +50,12 @@ class TestProcessChoreChangesetApply:
     def _cleanup_chore(self, chore_name: str):
         try:
             self.tm1_service.chores.delete(chore_name)
+        except Exception:
+            pass
+
+    def _cleanup_process(self, process_name: str):
+        try:
+            self.tm1_service.processes.delete(process_name)
         except Exception:
             pass
 
@@ -157,14 +170,16 @@ class TestProcessChoreChangesetApply:
 
     def test_create_process_no_meta_objects(self):
         """Changeset should re-create a process that was deleted from the server."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
 
         self.tm1_service.processes.delete("myprocess2")
         test_model = export_check_no_errors(self, self._f_no_meta)
 
         changeset = self.compare(test_model, fixture_model)
         self.apply(changeset)
-        test_model = export_check_no_errors(self)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
         added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
         assert len(added_processes) == 1
@@ -174,7 +189,9 @@ class TestProcessChoreChangesetApply:
 
     def test_delete_process_no_meta_objects(self):
         """Changeset should remove a process that does not exist in the fixture."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
 
         extra_process = TM1py.Process(name="TestExtraProcess", datasource_type="None")
         self.tm1_service.processes.create(extra_process)
@@ -182,7 +199,7 @@ class TestProcessChoreChangesetApply:
 
         changeset = self.compare(test_model, fixture_model)
         self.apply(changeset)
-        test_model = export_check_no_errors(self)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
         removed_processes = self._changes_by(changeset, ChangeType.REMOVE, "Process")
         assert len(removed_processes) == 1
@@ -192,14 +209,15 @@ class TestProcessChoreChangesetApply:
 
     def test_create_process_add_only_no_meta_objects(self):
         """In add_only mode, missing processes should be created."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
-
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         self.tm1_service.processes.delete("myprocess2")
         test_model = export_check_no_errors(self, self._f_no_meta)
 
         changeset = self.compare(test_model, fixture_model, mode="add_only")
         self.apply(changeset)
-        test_model = export_check_no_errors(self)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
         added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
         assert len(added_processes) >= 1
@@ -209,8 +227,9 @@ class TestProcessChoreChangesetApply:
 
     def test_delete_process_add_only_no_meta_objects(self):
         """In add_only mode, extra processes should NOT be removed."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
-
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         extra_process = TM1py.Process(name="TestExtraProcess2", datasource_type="None")
         self.tm1_service.processes.create(extra_process)
         model = export_check_no_errors(self, self._f_no_meta)
@@ -221,9 +240,16 @@ class TestProcessChoreChangesetApply:
         assert not self._changes_by(changeset, ChangeType.REMOVE, "Process")
         assert self.tm1_service.processes.exists("TestExtraProcess2")
 
+        # clean-up
+        self.tm1_service.processes.delete("TestExtraProcess2")
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
+
     def test_modify_process_no_meta_objects(self):
         """Changeset should restore a modified process back to fixture definition."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess2"
 
         live_process = self.tm1_service.processes.get(process_name)
@@ -241,10 +267,14 @@ class TestProcessChoreChangesetApply:
         modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
         assert any(p.name == process_name for p in modified_processes)
         assert self.tm1_service.processes.exists(process_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_modify_process_add_only_no_meta_objects(self):
         """In add_only mode, process modify changes should still be applied."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess2"
 
         live_process = self.tm1_service.processes.get(process_name)
@@ -258,10 +288,14 @@ class TestProcessChoreChangesetApply:
         modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
         assert any(p.name == process_name for p in modified_processes)
         assert self.tm1_service.processes.exists(process_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_modify_process_with_datasource_dict_payload(self):
         """Direct process MODIFY apply should accept datasource payloads shaped as dict."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess2"
         fixture_process = next(
             p for p in fixture_model.processes if p.name == process_name
@@ -288,10 +322,14 @@ class TestProcessChoreChangesetApply:
         self.apply(changeset)
         live_process = self.tm1_service.processes.get(process_name)
         assert str(getattr(live_process, "datasource_type", "")).lower() == "none"
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_modify_process_ti_code_no_meta_objects(self):
         """Changeset apply should restore modified TI procedures."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess2"
         fixture_process = next(
             p for p in fixture_model.processes if p.name == process_name
@@ -309,6 +347,8 @@ class TestProcessChoreChangesetApply:
         assert TI.normalize_text(
             fixture_process.ti.prolog_procedure
         ) == TI.normalize_text(live_after.prolog_procedure)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Chore tests
@@ -316,7 +356,9 @@ class TestProcessChoreChangesetApply:
 
     def test_apply_add_and_remove_chore(self):
         """Scenarios 1 + 2: add and remove chore via apply."""
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess"
         chore_name = "zz_chore_add_remove"
         self._ensure_process(process_name)
@@ -349,9 +391,14 @@ class TestProcessChoreChangesetApply:
         self.apply(remove_changeset)
         assert not self._chore_exists(chore_name)
         assert not self.tm1_service.chores.exists(chore_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_modify_chore_metadata_and_active_transitions(self):
         """Scenarios 3 + 4 + 9: metadata updates, activate/deactivate, timezone-preserving timestamp."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess"
         chore_name = "zz_chore_modify_meta"
         self._ensure_process(process_name)
@@ -427,9 +474,14 @@ class TestProcessChoreChangesetApply:
         self.apply(update_false)
         assert self.tm1_service.chores.get(chore_name).active is False
         self._cleanup_chore(chore_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_modify_chore_tasks_replace_and_parameter_changes(self):
         """Scenarios 5 + 6 + 7: task replacement, parameter updates, mixed add/remove/modify task operations."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         proc_a = "myprocess"
         proc_b = "zz_proc_task_param"
         self._ensure_process(proc_a)
@@ -486,10 +538,15 @@ class TestProcessChoreChangesetApply:
         task_processes = self._task_process_names(chore_name)
         assert task_processes == [proc_b, proc_a]
         self._cleanup_chore(chore_name)
-        self.tm1_service.processes.delete(proc_b)
+        self._cleanup_process(proc_b)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_chore_start_time_date_only_and_invalid_payload(self):
         """Scenarios 8 + 12: date-only start_time accepted; invalid frequency/start_time rejected."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess"
         chore_name = "zz_chore_date_only"
         self._ensure_process(process_name)
@@ -528,11 +585,14 @@ class TestProcessChoreChangesetApply:
         ]
         with pytest.raises(AssertionError):
             self.apply(invalid)
-
-        self._cleanup_chore(chore_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_compare_add_only_chore_behavior(self):
         """Scenario 10: in add_only mode missing target chores are added, extras are not removed."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess"
         self._ensure_process(process_name)
         keep_extra = "zz_chore_keep_in_add_only"
@@ -576,11 +636,17 @@ class TestProcessChoreChangesetApply:
         assert self.tm1_service.chores.exists(keep_extra)
         assert self.tm1_service.chores.exists(create_missing)
 
-        self._cleanup_chore(keep_extra)
+        # clean-up
         self._cleanup_chore(create_missing)
+        self._cleanup_chore(keep_extra)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_order_idempotency_round_trip_and_multi_chore(self):
         """Scenarios 13 + 14 + 15 + 17: apply order with process, idempotency, round-trip compare/apply/compare, multi-chore apply."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "zz_chore_dep_proc"
         chore_a = "zz_multi_chore_a"
         chore_b = "zz_multi_chore_b"
@@ -645,11 +711,17 @@ class TestProcessChoreChangesetApply:
 
         self._cleanup_chore(chore_a)
         self._cleanup_chore(chore_b)
-        self.tm1_service.processes.delete(process_name)
+        self._cleanup_process(process_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_chore_with_special_characters(self):
         """Scenario 16: special-character chore names apply correctly."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "myprocess"
+        process_object = self.tm1_service.processes.get(process_name)
         chore_name = "ZZ Chore } Mixed_Case"
         self._ensure_process(process_name)
         self._cleanup_chore(chore_name)
@@ -668,7 +740,11 @@ class TestProcessChoreChangesetApply:
         self.apply(changeset)
         assert self._chore_exists(chore_name)
         assert self.tm1_service.chores.exists(chore_name)
+
+        # clean-up
         self._cleanup_chore(chore_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_chore_fails_for_missing_task_process(self):
         """Scenario 11: missing dependent process causes apply failure for chore."""
@@ -700,6 +776,9 @@ class TestProcessChoreChangesetApply:
         Validate chore apply normalizes task parameter payload to process parameter schema.
         This protects against TM1 error 248 (parameter count mismatch).
         """
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
+        )
         process_name = "zz_proc_param_schema"
         chore_name = "zz_chore_param_schema"
         self._cleanup_chore(chore_name)
@@ -737,10 +816,9 @@ class TestProcessChoreChangesetApply:
             )
         finally:
             self._cleanup_chore(chore_name)
-            try:
-                self.tm1_service.processes.delete(process_name)
-            except Exception:
-                pass
+            self._cleanup_process(process_name)
+            test_model = export_check_no_errors(self, self._f_with_meta)
+            check_no_diff(fixture_dir, test_model)
 
     def compare(
         self, source, target, mode: str = "full", filter_rules: list[str] = None
