@@ -52,33 +52,6 @@ class TestChangesetApply:
             and change.body.__class__.__name__ == class_name
         ]
 
-    def _restore_fixture_no_meta(
-        self, fixture_dir: str, filter_rules: list[str] = None
-    ):
-        _fixture_dir, full_fixture_model = load_fixture_model_tm1gitpy(
-            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
-        )
-        current_model = export_check_no_errors(self, filter_rules=filter_rules)
-        restore_changeset = self.compare(
-            current_model, full_fixture_model, filter_rules=filter_rules
-        )
-        if restore_changeset.has_changes():
-            self.apply(restore_changeset)
-        restored_model = export_check_no_errors(self, self._f_with_meta)
-        check_no_diff(fixture_dir, restored_model)
-
-    def _restore_fixture_with_meta(self, fixture_dir: str):
-        _fixture_dir, full_fixture_model = load_fixture_model_tm1gitpy(
-            self, self._f_with_meta, model_id=self._fixture_model_id_with_meta
-        )
-        current_model = export_check_no_errors(self, self._f_with_meta)
-        restore_changeset = self.compare(
-            current_model, full_fixture_model
-        )  # , filter_rules=self._f_with_meta)
-        if restore_changeset.has_changes():
-            self.apply(restore_changeset)
-        restored_model = export_check_no_errors(self, self._f_with_meta)
-        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_create_cube_full_no_meta_objects(self):
 
@@ -123,7 +96,8 @@ class TestChangesetApply:
         assert len(added_cubes) == 1
         assert added_cubes[0].name == cube_name
         assert self.tm1_service.cubes.exists(cube_name)
-        self._restore_fixture_with_meta(fixture_dir)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     @pytest.mark.skip
     def test_recreate_cube_with_force_included_technical_objects_ignores_duplicate_adds(
@@ -191,7 +165,8 @@ class TestChangesetApply:
             for record in caplog.records
         )
         assert not remaining_changeset.has_changes()
-        self._restore_fixture_with_meta(fixture_dir)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_create_cube_add_only_no_meta_objects(self):
 
@@ -236,7 +211,8 @@ class TestChangesetApply:
         assert len(added_cubes) == 1
         assert added_cubes[0].name == cube_name
         assert self.tm1_service.cubes.exists(cube_name)
-        self._restore_fixture_with_meta(fixture_dir)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_delete_cube_full_no_meta_objects(self):
 
@@ -290,7 +266,8 @@ class TestChangesetApply:
         assert len(removed_cubes) == 1
         assert removed_cubes[0].name == cube_name
         assert not self.tm1_service.cubes.exists(cube_name)
-        self._restore_fixture_with_meta(fixture_dir)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_delete_cube_add_only_no_meta_objects(self):
 
@@ -370,7 +347,8 @@ class TestChangesetApply:
         assert any(view.name == fixture_mdx.name for view in added_mdx)
 
         self.apply(changeset)
-        self._restore_fixture_no_meta(fixture_dir)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_add_nativeview(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
@@ -387,15 +365,16 @@ class TestChangesetApply:
         self.tm1_service.views.delete(
             cube_name=cube_name, view_name=fixture_native.name
         )
-        model = export_check_no_errors(self)
+        test_model = export_check_no_errors(self)
 
-        changeset = self.compare(model, fixture_model)
+        changeset = self.compare(test_model, fixture_model)
         added_native = self._changes_by(changeset, ChangeType.ADD, "NativeView")
 
         assert any(view.name == fixture_native.name for view in added_native)
 
         self.apply(changeset)
-        self._restore_fixture_no_meta(fixture_dir)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_remove_mdxview(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
@@ -425,7 +404,8 @@ class TestChangesetApply:
             cube_name=cube_name, view_name=view_name
         )
         assert not any(exists_private_public)
-        self._restore_fixture_no_meta(fixture_dir)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_remove_nativeview(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
@@ -483,7 +463,8 @@ class TestChangesetApply:
             cube_name=cube_name, view_name=view_name
         )
         assert not any(exists_private_public)
-        self._restore_fixture_no_meta(fixture_dir)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_modify_nativeview(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
@@ -532,7 +513,13 @@ class TestChangesetApply:
             cube_name=cube_name, view_name=view_name
         )
         assert updated.suppress_empty_rows is False
-        self._restore_fixture_no_meta(fixture_dir)
+
+        # clean-up
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Dimension tests
@@ -577,7 +564,8 @@ class TestChangesetApply:
         self.apply(changeset)
 
         assert self.tm1_service.dimensions.exists(dimension_name)
-        self._restore_fixture_with_meta(fixture_dir)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_delete_dimension_no_meta_objects(self):
 
@@ -634,7 +622,8 @@ class TestChangesetApply:
         assert len(removed_dimensions) == 1
         assert removed_dimensions[0].name == dimension_name
         assert not self.tm1_service.dimensions.exists(dimension_name)
-        self._restore_fixture_with_meta(fixture_dir)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     # -----------------------------------------------------------------------
     # Element and Edge tests
@@ -743,14 +732,6 @@ class TestChangesetApply:
         )
         self.tm1_service.subsets.create(subset_obj)
 
-        restore_filter_rules = [
-            "!Dimensions('}Subsets_TestDim1*')",
-            "!Dimensions('}Subsets_TestDim1*')/Hierarchies('*')",
-            "!Dimensions('}Subsets_TestDim1*')/Hierarchies('*')/Elements('*')",
-            "!Dimensions('}Subsets_TestDim1*')/Hierarchies('*')/Edges('*')",
-            "!Dimensions('}Subsets_TestDim1*')/Hierarchies('*')/Subsets('*')",
-        ]
-
         test_model = export_check_no_errors(self)
         changeset = self.compare(test_model, fixture_model)
         self.apply(changeset)
@@ -759,7 +740,12 @@ class TestChangesetApply:
             dimension_name="TestDim1",
             hierarchy_name="TestDim1",
         )
-        self._restore_fixture_no_meta(fixture_dir, restore_filter_rules)
+
+        # clean-up
+        self.tm1_service.hierarchies.delete("}Subsets_TestDim1", "}Subsets_TestDim1")
+        self.tm1_service.dimensions.delete("}Subsets_TestDim1")
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_modify_subset(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
@@ -773,14 +759,6 @@ class TestChangesetApply:
             expression="{[TestDim1].[TestDim1].Members}",
         )
         self.tm1_service.subsets.update_or_create(subset_obj)
-
-        restore_filter_rules = [
-            "!Dimensions('}Subsets_TestDim1*')",
-            "!Dimensions('}Subsets_TestDim1*')/Hierarchies('*')",
-            "!Dimensions('}Subsets_TestDim1*')/Hierarchies('*')/Elements('*')",
-            "!Dimensions('}Subsets_TestDim1*')/Hierarchies('*')/Edges('*')",
-            "!Dimensions('}Subsets_TestDim1*')/Hierarchies('*')/Subsets('*')",
-        ]
 
         changeset = Changeset("modify_subset_case")
         changeset.changes = [
@@ -803,7 +781,14 @@ class TestChangesetApply:
             )
             assert "TestDim1Elem1" in updated_subset.expression
         finally:
-            self._restore_fixture_no_meta(fixture_dir, restore_filter_rules)
+            # clean-up
+            self.tm1_service.hierarchies.delete("}Subsets_TestDim1", "}Subsets_TestDim1")
+            self.tm1_service.dimensions.delete("}Subsets_TestDim1")
+            test_model = export_check_no_errors(self)
+            changeset = self.compare(test_model, fixture_model)
+            self.apply(changeset)
+            test_model = export_check_no_errors(self, self._f_with_meta)
+            check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Hierarchy tests
@@ -951,7 +936,13 @@ class TestChangesetApply:
 
         cube_after = self.tm1_service.cubes.get(cube_name)
         assert cube_after.rules is None
-        self._restore_fixture_no_meta(fixture_dir)
+
+        # clean-up
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_create_rule_no_meta_objects(self):
         """Changeset should add a rule that exists in the fixture but is missing on the server."""
@@ -986,17 +977,19 @@ class TestChangesetApply:
         cube_final = self.tm1_service.cubes.get("TestCube2WithRule")
         assert cube_final.rules is not None
         assert "TestDim1Elem1" in str(cube_final.rules)
-        self._restore_fixture_no_meta(fixture_dir)
+
+        # clean-up
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Apply chain test
     # -----------------------------------------------------------------------
 
     def test_apply_mixed_changeset_operations(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
-            self, self._f_no_meta, model_id=self._fixture_model_id_no_meta
-        )
-
         temp_hierarchy_name = "TmpHierForChangeset"
         process_name = "zz_test_changeset_apply_proc"
         cube_name = "TestCube3WithView"
