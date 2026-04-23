@@ -241,11 +241,13 @@ def resolve_test_model_dir(request: pytest.FixtureRequest) -> str:
     raise ValueError(f"test_model directory not found at expected location: {test_model_path}")
 
 
-def load_fixture_model_tm1gitpy(obj, filter_rules: list[str] = None) -> tuple[str, Model]:
+def load_fixture_model_tm1gitpy(obj, filter_rules: list[str] = None, model_id: str = None) -> tuple[str, Model]:
     dir_path = get_dir(obj)
     fixture_dir = str(Path(dir_path) / "fixture_model_tm1gitpy")
-    fixture_model, errors = deserialize_model(fixture_dir)
-    return fixture_dir, filter(fixture_model, filter_rules) if filter_rules else fixture_model
+    fixture_model, errors = deserialize_model(dir=fixture_dir, model_id=model_id)
+    if filter_rules:
+        fixture_model = filter(fixture_model, filter_rules)
+    return fixture_dir, fixture_model
 
 
 def load_fixture_changeset(obj, filter_rules: list[str] = None) -> tuple[str, Model]:

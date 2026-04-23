@@ -24,15 +24,17 @@ from tests.utility import (
     make_dimension, make_subset, make_chore, make_process, make_mdx_view, make_cube, make_rule, make_hierarchy,
     make_element
 )
-from tm1_git_py.apply import apply
+from tm1_git_py.apply import apply, create_object
 from tm1_git_py.exporter import export
 from tm1_git_py.serializer import serialize_model, serialize_dimensions
 from tm1_git_py.comparator import Comparator
 from tm1_git_py.changeset import Change, ChangeType, Changeset, ObjectType, import_changeset
 from tm1_git_py.filter import (
+    DEFAULT_TM1_TECHNICAL_OBJECTS,
     EntityType,
     FilterRules,
     filter_changeset,
+    with_technical_objects_ignore,
     should_exclude_path,
     with_default_leaves_ignore,
 )
@@ -777,6 +779,27 @@ class TestDeserializer:
             f"Error key '{expected_key}' missing; collected keys: {list(errors.keys())}"
         )
 
+
+
+class TestTechnicalObjectFilters:
+
+    def test_ignore_technical_objects_defaults_when_rules_missing(self):
+        assert with_technical_objects_ignore(None) == DEFAULT_TM1_TECHNICAL_OBJECTS
+
+    def test_ignore_technical_objects_extends_custom_rules(self):
+        filter_rules = ["Dimensions('Sales*')"]
+
+        assert with_technical_objects_ignore(filter_rules) == [
+            "Dimensions('Sales*')",
+            *DEFAULT_TM1_TECHNICAL_OBJECTS,
+        ]
+
+    def test_ignore_technical_objects_preserves_force_include_precedence(self):
+        effective_rules = with_technical_objects_ignore(["!Cubes('}*')"])
+
+        assert "!Cubes('}*')" in effective_rules
+        assert "Cubes('}*')" in effective_rules
+        assert not should_exclude_path("Cubes('}Stats')", effective_rules)
 
 
 class TestSerializer:
@@ -1779,7 +1802,10 @@ class TestExporter:
         assert errors == {"dim": {}, "cube": {}, "process": {}, "chore": {}}
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
-        assert kwargs["filter_rules"]._normalized_rules == with_default_leaves_ignore([])
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(None) + with_technical_objects_ignore(None)
+        )
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
 
     def test_export_non_technical_filter_rules_keep_skip_control_disabled(self, mocker):
         tm1_service = mocker.Mock()
@@ -1791,7 +1817,10 @@ class TestExporter:
 
         export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1812,7 +1841,10 @@ class TestExporter:
 
         export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1833,7 +1865,10 @@ class TestExporter:
 
         export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
 
-        expected_pf = FilterRules(with_default_leaves_ignore(filter_rules))
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -1861,7 +1896,11 @@ class TestExporter:
         export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
 
         _, kwargs = mock_dimensions.call_args
-        assert kwargs["filter_rules"]._normalized_rules == filter_rules
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
 
     def test_should_exclude_path_supports_tm1project_filter_format(self):
         filter_rules = [
@@ -2146,6 +2185,90 @@ class TestExporter:
 
 
 class TestChangeset:
+
+    def test_create_object_ignores_duplicate_create_for_technical_object(self, mocker, caplog):
+        process = make_process(name="}Stats")
+        duplicate_error = RuntimeError(
+            "Text: "
+            "'{\"error\":{\"code\":\"278\",\"message\":\"A process with Name \\\"}Stats\\\" already exists.\"}}' "
+            "- Status Code: 400 - Reason: 'Bad Request'"
+        )
+        duplicate_error.status_code = 400
+        mock_create = mocker.patch("tm1_git_py.model.process.create_process", side_effect=duplicate_error)
+
+        with caplog.at_level(logging.WARNING):
+            response = create_object(
+                tm1_service=mocker.Mock(),
+                object_instance=process,
+                object_type=ObjectType.PROCESS.value,
+                uri=process.uri(),
+            )
+
+        assert response.ok
+        assert response.status_code == 208
+        assert "Ignoring duplicate create failure for technical object" in caplog.text
+        assert mock_create.call_count == 1
+
+    def test_create_object_raises_duplicate_create_for_non_technical_object(self, mocker):
+        process = make_process(name="RegularProcess")
+        duplicate_error = RuntimeError(
+            "Text: "
+            "'{\"error\":{\"code\":\"278\",\"message\":\"A process with Name \\\"RegularProcess\\\" already exists.\"}}' "
+            "- Status Code: 400 - Reason: 'Bad Request'"
+        )
+        duplicate_error.status_code = 400
+        mocker.patch("tm1_git_py.model.process.create_process", side_effect=duplicate_error)
+
+        with pytest.raises(RuntimeError, match="already exists"):
+            create_object(
+                tm1_service=mocker.Mock(),
+                object_instance=process,
+                object_type=ObjectType.PROCESS.value,
+                uri=process.uri(),
+            )
+
+    def test_apply_continues_after_duplicate_create_for_technical_object(self, mocker, caplog):
+        technical_process = make_process(name="}Stats")
+        regular_process = make_process(name="RegularProcess")
+        changeset = Changeset(changeset_id="20260420000001")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=technical_process.uri(),
+                body=technical_process,
+                apply=True,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=regular_process.uri(),
+                body=regular_process,
+                apply=True,
+            ),
+        ]
+
+        def create_process_side_effect(_tm1_service, process, **_kwargs):
+            if process.name == "}Stats":
+                duplicate_error = RuntimeError(
+                    "Text: "
+                    "'{\"error\":{\"code\":\"278\",\"message\":\"A process with Name \\\"}Stats\\\" already exists.\"}}' "
+                    "- Status Code: 400 - Reason: 'Bad Request'"
+                )
+                duplicate_error.status_code = 400
+                raise duplicate_error
+            return types.SimpleNamespace(url=process.uri(), status_code=201, ok=True)
+
+        mocker.patch("tm1_git_py.model.process.create_process", side_effect=create_process_side_effect)
+        mocker.patch("tm1_git_py.apply.delete_object")
+        mocker.patch("tm1_git_py.apply.update_object")
+
+        with caplog.at_level(logging.WARNING):
+            success, changes = apply(tm1_service=mocker.Mock(), changeset=changeset, fail_fast=True)
+
+        assert success
+        assert changes == [regular_process.uri(), technical_process.uri()]
+        assert "Ignoring duplicate create failure for technical object" in caplog.text
 
     def test_apply_uses_sorted_order_for_delete(self, mocker):
         model_old, errors_old = deserialize_model(str(test_model_dir_base))

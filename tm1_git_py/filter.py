@@ -586,7 +586,7 @@ def _top_level_prefix(path_or_pattern: str) -> str:
 DEFAULT_TM1_TECHNICAL_OBJECTS = [
     "Cubes('}*')",
     "Dimensions('}*')",
-    "Processes('}*')",
+    "Processes('}*')"
 ]
 
 logger = logging.getLogger(__name__)
@@ -597,6 +597,22 @@ FORCE_INCLUDE_LEAVES_HIERARCHY_RULE = f"!{DEFAULT_LEAVES_HIERARCHY_RULE}"
 
 def _rule_compare_key(rule: str) -> str:
     return (rule or "").strip().lstrip("/")
+
+
+def with_technical_objects_ignore(filter_rules: Optional[List[str]]) -> List[str]:
+    """Merge default technical-object exclusions with caller-provided rules."""
+    effective_rules = [rule for rule in (filter_rules or []) if rule]
+    effective_rules.extend(DEFAULT_TM1_TECHNICAL_OBJECTS)
+
+    deduped_rules: List[str] = []
+    seen_keys: set[str] = set()
+    for rule in effective_rules:
+        key = _rule_compare_key(rule)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped_rules.append(rule)
+    return deduped_rules
 
 
 def with_default_leaves_ignore(filter_rules: Optional[List[str]]) -> List[str]:

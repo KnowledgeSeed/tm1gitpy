@@ -1,15 +1,14 @@
 import filecmp
+import tempfile
 from pathlib import Path
-import pytest
 
+import pytest
+from TM1py import TM1Service
 
 from test_integration.test_base import load_fixture_model_tm1gitpy, export_check_no_errors, tm1_service
-from TM1py import TM1Service
 from tm1_git_py.exporter import export
 from tm1_git_py.serializer import serialize_model
 
-import tempfile
-import filecmp
 
 @pytest.mark.usefixtures("tm1_service")
 class TestExport:
@@ -90,3 +89,20 @@ class TestExport:
         cube_names = [c.name for c in model.cubes]
         assert not any(name.startswith("Channel") for name in dimension_names)
         assert not any(name.startswith("zSYS Maintenance Parameter") for name in cube_names)
+
+    def test_export_force_includes_technical_cube_while_other_technical_objects_stay_ignored(self):
+        forced_cube_name = "}StatsByCube"
+
+        model, errors = export(
+            self.tm1_service,
+            model_id="integration-export-force-technical-cube",
+            filter_rules_list=[f"!Cubes('{forced_cube_name}')"],
+        )
+        for category, category_errors in errors.items():
+            assert not category_errors, f"Found errors in {category}: {category_errors}"
+
+        cube_names = [c.name for c in model.cubes]
+        assert forced_cube_name in cube_names
+        assert "}StatsByRule" not in cube_names
+        assert all(not d.name.startswith("}") for d in model.dimensions)
+        assert all(not p.name.startswith("}") for p in model.processes)
