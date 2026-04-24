@@ -127,7 +127,7 @@ class ModelStore:
     def __init__(self, db_path: str):
         self.db_path = db_path
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        self._conn = sqlite3.connect(db_path, timeout=30.0)
+        self._conn = sqlite3.connect(db_path, timeout=30.0, check_same_thread=False)
         if hasattr(self._conn, "row_factory"):
             try:
                 self._conn.row_factory = sqlite3.Row
@@ -165,7 +165,7 @@ class ModelStore:
         return created
 
     def _initialize(self) -> None:
-        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.execute("PRAGMA foreign_keys=OFF")
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA temp_store=MEMORY")
@@ -350,6 +350,23 @@ class ModelStore:
             (group_id,),
         ).fetchone()
         return int(self._cell(row, "COUNT(*)", 0)) if row is not None else 0
+
+    def _next_append_seq(self, group_id: int) -> int:
+        """
+        Next ``seq`` for appending rows to this group without a full-table COUNT.
+
+        Uses ``MAX(seq)``, which is cheap with the primary key (group_id, seq).
+        Contiguous ``seq`` values 0..n-1 imply the next index is ``n``.
+        """
+        payload_table = self._object_table_for_group(group_id)
+        row = self._conn.execute(
+            f"SELECT COALESCE(MAX(seq), -1) AS max_seq FROM {payload_table} WHERE group_id=?",
+            (group_id,),
+        ).fetchone()
+        if row is None:
+            return 0
+        max_seq = int(self._cell(row, "max_seq", 0))
+        return max_seq + 1
 
     def _identity_order_clause_for_type(self, normalized: str) -> str:
         if normalized in ("element", "elements"):
@@ -623,21 +640,6 @@ class ModelStore:
             [str(item) for item in parsed],
         )
 
-    def _load_group_state(self, group_id: int) -> tuple[int, str]:
-        row = self._conn.execute(
-            "SELECT row_count, content_hash FROM groups WHERE group_id=?",
-            (group_id,),
-        ).fetchone()
-        if row is None:
-            return 0, self.EMPTY_CONTENT_HASH
-        stored_row_count = int(self._cell(row, "row_count", 0))
-        actual_row_count = self._actual_row_count(group_id)
-        content_hash = str(self._cell(row, "content_hash", 1))
-        if stored_row_count != actual_row_count:
-            # Metadata can get stale across schema/storage transitions; trust the table.
-            content_hash = self.EMPTY_CONTENT_HASH
-        return actual_row_count, content_hash
-
     @staticmethod
     def _payload_to_json(payload: dict[str, Any]) -> str:
         return _json_dumps(payload, sort_keys=True)
@@ -651,11 +653,13 @@ class ModelStore:
         progress_label: Optional[str] = None,
         progress_every: int = DEFAULT_ITER_PROGRESS_EVERY,
     ) -> int:
-        row_count, _content_hash = self._load_group_state(group_id)
+        # Avoid COUNT(*) here: repeated appends (e.g. paged TM1 export) would scan
+        # the whole group each time. MAX(seq) matches append semantics for dense seq.
+        next_seq = self._next_append_seq(group_id)
+        row_count = next_seq
         object_type_normalized = self._object_type_normalized_for_group(group_id)
         payload_table = self._object_table_for_group(group_id)
         payload_columns = self._payload_columns_for_type(object_type_normalized)
-        next_seq = row_count
         inserted = 0
         batch_size = max(1, int(batch_size))
         next_log_at = max(1, int(progress_every))

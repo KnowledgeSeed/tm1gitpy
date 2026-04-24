@@ -3,6 +3,7 @@ import io
 import logging
 import os
 import re
+import time
 from typing import List, Any, Dict, Optional, Tuple, MutableSequence, Iterator
 import TM1py
 from TM1py import TM1Service
@@ -118,8 +119,8 @@ class _HierarchyStagedWriter:
             else:
                 fh.write(",\n")
             emitted += 1
-            payload_obj = _loads_json(payload_json)
-            _write_json_object_block(fh, payload_obj, item_line_prefix="\t\t")
+            fh.write("\t\t")
+            fh.write(payload_json)
         if first:
             fh.write("]")
         else:
@@ -163,7 +164,7 @@ class _HierarchyStagedWriter:
     @staticmethod
     def _sorted_element_payload_json_strings(payload_json_iter: Iterator[str]) -> Iterator[str]:
         payloads = [_loads_json(payload_json) for payload_json in payload_json_iter]
-        payloads.sort(key=lambda payload: ((payload.get("Name") or payload.get("name") or ""), (payload.get("Type") or payload.get("type") or "")))
+        # payloads.sort(key=lambda payload: ((payload.get("Name") or payload.get("name") or ""), (payload.get("Type") or payload.get("type") or "")))
         for payload in payloads:
             yield json.dumps(payload, ensure_ascii=False)
 
@@ -177,20 +178,67 @@ class _HierarchyStagedWriter:
     ) -> None:
         sequence.set_source_json_mtime_ns(final_mtime_ns)
         sequence.set_filter_rules(filter_rules)
-        sequence.recalculate_content_signature_parallel()
+        
         if etag is not None:
             sequence.set_etag(etag)
 
     def finalize(self) -> str:
+        if not self._finalized or not os.path.exists(self.final_path):
+            self.serialize_hierarchy_json()
+        final_mtime_ns = int(os.stat(self.final_path).st_mtime_ns)
+        if self.elements_ref is not None:
+            self._apply_group_metadata(
+                self.elements_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.elements_filter_rules,
+                etag=self.hierarchy_etag,
+            )
+            row_count, content_hash = self.elements_ref.recalculate_content_signature_parallel()
+            self.elements_ref._store.commit_group_content_signature(
+                self.elements_ref.group_id,
+                row_count=row_count,
+                content_hash=content_hash
+            )
+        
+        if self.edges_ref is not None:
+            self._apply_group_metadata(
+                self.edges_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.edges_filter_rules,
+                etag=self.hierarchy_etag,
+            )
+            row_count, content_hash = self.edges_ref.recalculate_content_signature_parallel()
+            self.edges_ref._store.commit_group_content_signature(
+                self.edges_ref.group_id,
+                row_count=row_count,
+                content_hash=content_hash
+            )
+        if self.subsets_ref is not None:
+            self._apply_group_metadata(
+                self.subsets_ref,
+                final_mtime_ns=final_mtime_ns,
+                filter_rules=self.subsets_filter_rules,
+                etag=self.hierarchy_etag,
+            )
+            row_count, content_hash = self.subsets_ref.recalculate_content_signature_parallel()
+            self.subsets_ref._store.commit_group_content_signature(
+                self.subsets_ref.group_id,
+                row_count=row_count,
+                content_hash=content_hash
+            )
+        return self.final_path
+
+    def serialize_hierarchy_json(self) -> str:
         if self._finalized:
             logger.debug("Skipping finalize for hierarchy='%s' (already finalized)", self.hierarchy_name)
             return self.final_path
+        total_started = time.perf_counter()
         logger.info(
             "Starting hierarchy finalization hierarchy='%s' target='%s'",
             self.hierarchy_name,
             self.final_path,
         )
-        self._sort_staged_jsonls()
+        # self._sort_staged_jsonls()
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")
             fh.write('\t"@type":' + json.dumps("Hierarchy", ensure_ascii=False) + ",\n")
@@ -199,20 +247,25 @@ class _HierarchyStagedWriter:
             if elements_empty:
                 fh.write('\t"Elements":[],\n')
             else:
+                elements_started = time.perf_counter()
                 self._write_payload_array_from_json_strings(
                     fh,
                     "Elements",
-                    self._sorted_element_payload_json_strings(
-                        self.elements_ref.iter_payload_json_strings(
-                            ordered_by_identity=True,
-                            progress_label=f"{self.hierarchy_name}:Elements",
-                            progress_every=self.JSON_DUMP_PROGRESS_EVERY,
-                        )
+                    self.elements_ref.iter_payload_json_strings(
+                        ordered_by_identity=True,
+                        progress_label=f"{self.hierarchy_name}:Elements",
+                        progress_every=self.JSON_DUMP_PROGRESS_EVERY,
                     ),
+                )
+                logger.info(
+                    "Hierarchy serialize elements write duration hierarchy='%s' duration_ms=%.3f",
+                    self.hierarchy_name,
+                    (time.perf_counter() - elements_started) * 1000,
                 )
                 fh.write(",\n")
             edges_nonempty = self.edges_ref is not None and len(self.edges_ref) > 0
             if edges_nonempty:
+                edges_started = time.perf_counter()
                 self._write_payload_array_from_json_strings(
                     fh,
                     "Edges",
@@ -222,37 +275,32 @@ class _HierarchyStagedWriter:
                         progress_every=self.JSON_DUMP_PROGRESS_EVERY,
                     ),
                 )
+                logger.info(
+                    "Hierarchy serialize edges write duration hierarchy='%s' duration_ms=%.3f",
+                    self.hierarchy_name,
+                    (time.perf_counter() - edges_started) * 1000,
+                )
                 fh.write(",\n")
+            subset_links_started = time.perf_counter()
             subset_links = self._build_subset_links()
+            logger.info(
+                "Hierarchy serialize subset-links build duration hierarchy='%s' duration_ms=%.3f",
+                self.hierarchy_name,
+                (time.perf_counter() - subset_links_started) * 1000,
+            )
             _write_hierarchy_subset_links_field(fh, subset_links)
             fh.write("}")
-        os.replace(self.inprogress_path, self.final_path)
-        final_mtime_ns = int(os.stat(self.final_path).st_mtime_ns)
-        if self.elements_ref is not None:
-            self._apply_group_metadata(
-                self.elements_ref,
-                final_mtime_ns=final_mtime_ns,
-                filter_rules=self.elements_filter_rules,
-                etag=self.hierarchy_etag,
-            )
-        if self.edges_ref is not None:
-            self._apply_group_metadata(
-                self.edges_ref,
-                final_mtime_ns=final_mtime_ns,
-                filter_rules=self.edges_filter_rules,
-                etag=self.hierarchy_etag,
-            )
-        if self.subsets_ref is not None:
-            self._apply_group_metadata(
-                self.subsets_ref,
-                final_mtime_ns=final_mtime_ns,
-                filter_rules=self.subsets_filter_rules,
-                etag=self.hierarchy_etag,
-            )
+            os.replace(self.inprogress_path, self.final_path)
+        
         logger.info(
             "Completed hierarchy finalization hierarchy='%s' target='%s'",
             self.hierarchy_name,
             self.final_path,
+        )
+        logger.info(
+            "Hierarchy serialize total duration hierarchy='%s' duration_ms=%.3f",
+            self.hierarchy_name,
+            (time.perf_counter() - total_started) * 1000,
         )
         self._finalized = True
         return self.final_path
@@ -339,6 +387,11 @@ class Hierarchy:
         if not self._staged_writer:
             return None
         return self._staged_writer.finalize()
+
+    def serialize_hierarchy_json(self) -> Optional[str]:
+        if not self._staged_writer:
+            return None
+        return self._staged_writer.serialize_hierarchy_json()
 
     def finalize_staged_json(self) -> Optional[str]:
         return self.finalize()

@@ -5,16 +5,19 @@ from tm1_git_py.tm1py_ext.element_service_ext import (
     PaginatedElementsResult,
     get_elements,
     get_elements_count,
+    _get_elements_page,
 )
 from tm1_git_py.tm1py_ext.edge_service_ext import (
     PaginatedEdgesResult,
     get_edges,
     get_edges_count,
+    _get_edges_page,
 )
 from tm1_git_py.tm1py_ext.subset_service_ext import (
     PaginatedSubsetsResult,
     get_subsets,
     get_subsets_count,
+    _get_subsets_page,
 )
 from tm1_git_py.tm1py_ext.dimension_service_ext import (
     DimensionNamesResult,

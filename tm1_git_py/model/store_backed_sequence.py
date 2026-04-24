@@ -136,6 +136,22 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         if self._on_append:
             self._on_append(payloads)
 
+    def extend_payloads(self, payloads: Iterable[dict[str, Any]]) -> None:
+        """
+        Append rows from REST/OData-shaped dicts without building model objects first.
+
+        Each dict must include the fields expected by
+        ``ModelStore._payload_values_for_type`` for this sequence's ``object_type``
+        (elements: ``Name``/``Type``; edges: ``ParentName``/``ComponentName``/``Weight``;
+        subsets: ``Name``/``Expression``). Mixed-case keys from TM1 JSON are accepted.
+        """
+        batch = list(payloads)
+        if not batch:
+            return
+        self._store.append_payloads(self.group_id, batch)
+        if self._on_append:
+            self._on_append(batch)
+
     def iter_payloads(self, *, ordered_by_identity: bool = False) -> Iterator[dict[str, Any]]:
         yield from self._store.iter_payloads(self.group_id, progress_label=True, ordered_by_identity=ordered_by_identity)
 
@@ -164,7 +180,12 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             self.group_id,
             payloads,
         )
-        self.recalculate_content_signature_parallel()
+        row_count, content_hash = self.recalculate_content_signature_parallel()
+        self._store.commit_group_content_signature(
+            self.group_id,
+            row_count=row_count,
+            content_hash=content_hash
+    )
 
     def filter_in_place(self, predicate: Callable[[T], bool]) -> int:
         kept_payloads = []

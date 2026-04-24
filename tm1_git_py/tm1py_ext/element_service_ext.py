@@ -1,7 +1,7 @@
 """Element-related utilities using TM1py, including paginated element retrieval."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, MutableSequence, Callable
+from typing import TYPE_CHECKING, Any, List, Optional, MutableSequence, Callable
 
 from TM1py.Utils import format_url
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class PaginatedElementsResult:
     """Result of a paginated get_elements call."""
 
-    elements: List[Element]
+    objects: List[Element]
     """Element objects in this page."""
 
     count: Optional[int]
@@ -27,6 +27,9 @@ class PaginatedElementsResult:
 
     top: int
     """Maximum number of elements requested for this page."""
+
+    raw_rows: List[dict[str, Any]]
+    """OData ``value`` entries for this page (same dict refs as parsed JSON)."""
 
 
 def _get_elements_page(
@@ -80,16 +83,18 @@ def _get_elements_page(
     response = tm1_conn.connection.GET(url, **kwargs)
     data = response.json()
 
-    elements = [Element.from_dict(e) for e in data.get("value", [])]
+    raw_rows = list(data.get("value", []))
+    elements = [Element.from_dict(e) for e in raw_rows]
     total_count = data.get("@odata.count")
     if total_count is not None:
         total_count = int(total_count)
 
     return PaginatedElementsResult(
-        elements=elements,
+        objects=elements,
         count=total_count if count else None,
         skip=skip,
         top=top,
+        raw_rows=raw_rows,
     )
 
 
@@ -114,7 +119,7 @@ def get_elements(
     :param kwargs: Passed through to REST GET (e.g. timeout)
     :return: All fetched Element objects
     """
-    all_elements: List[Element] = [] if collector is None else collector
+    collector_or_list: MutableSequence[Element] = [] if collector is None else collector
 
     def _fetcher(
         conn: "TM1Service",
@@ -135,10 +140,13 @@ def get_elements(
             count=(skip == 0),
             **kw,
         )
-        all_elements.extend(result.elements)
+        if collector is not None and hasattr(collector, "extend_payloads"):
+            collector.extend_payloads(result.raw_rows)
+        else:
+            collector_or_list.extend(result.objects)
         if on_page_loaded is not None:
-            on_page_loaded(len(result.elements), result.count)
-        return (result.elements, result.count)
+            on_page_loaded(len(result.objects), result.count)
+        return (result.objects, result.count)
 
     paginate_by_pages(
         tm1_conn,
@@ -150,7 +158,7 @@ def get_elements(
         entity_type="element",
         **kwargs,
     )
-    return all_elements
+    return collector_or_list
 
 
 def get_elements_count(

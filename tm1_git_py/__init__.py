@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from tm1_git_py.tm1py_ext.element_service_ext import (
         PaginatedElementsResult,
         get_elements,
+        _get_elements_page
     )
     from tm1_git_py.tm1py_ext.subset_service_ext import (
         PaginatedSubsetsResult,

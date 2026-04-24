@@ -1,7 +1,7 @@
 """Edge-related utilities using TM1py, including paginated edge retrieval."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, MutableSequence, Callable
+from typing import TYPE_CHECKING, Any, List, Optional, MutableSequence, Callable
 
 from TM1py.Utils import format_url
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 class PaginatedEdgesResult:
     """Result of a paginated get_edges call."""
 
-    edges: List[Edge]
+    objects: List[Edge]
     """Edges in this page."""
 
     count: Optional[int]
@@ -28,6 +28,9 @@ class PaginatedEdgesResult:
 
     top: int
     """Maximum number of edges requested for this page."""
+
+    raw_rows: List[dict[str, Any]]
+    """OData ``value`` entries for this page (same dict refs as parsed JSON)."""
 
 
 def _get_edges_page(
@@ -78,21 +81,22 @@ def _get_edges_page(
     if params:
         url = f"{base_url}&{'&'.join(params)}"
 
-    response = tm1_conn.connection.GET(url, **kwargs)
+    response = tm1_conn.connection.GET(url, **kwargs, async_requests_mode=True)
     data = response.json()
 
     total_count = data.get("@odata.count")
     if total_count is not None:
         total_count = int(total_count)
 
-    raw_value = data.get("value", [])
-    edges = [Edge.from_dict(item) for item in raw_value]
+    raw_rows = list(data.get("value", []))
+    edges = [Edge.from_dict(item) for item in raw_rows]
 
     return PaginatedEdgesResult(
-        edges=edges,
+        objects=edges,
         count=total_count if count else None,
         skip=skip,
         top=top,
+        raw_rows=raw_rows,
     )
 
 
@@ -117,7 +121,7 @@ def get_edges(
     :param kwargs: Passed through to REST GET (e.g. timeout)
     :return: All fetched edges as list of Edge objects
     """
-    all_edges: List[Edge] = [] if collector is None else collector
+    collector_or_list: MutableSequence[Edge] = [] if collector is None else collector
 
     def _fetcher(
         conn: "TM1Service",
@@ -138,10 +142,13 @@ def get_edges(
             count=(skip == 0),
             **kw,
         )
-        all_edges.extend(result.edges)
+        if collector is not None and hasattr(collector, "extend_payloads"):
+            collector.extend_payloads(result.raw_rows)
+        else:
+            collector_or_list.extend(result.objects)
         if on_page_loaded is not None:
-            on_page_loaded(len(result.edges), result.count)
-        return (result.edges, result.count)
+            on_page_loaded(len(result.objects), result.count)
+        return (result.objects, result.count)
 
     paginate_by_pages(
         tm1_conn,
@@ -153,7 +160,7 @@ def get_edges(
         entity_type="edge",
         **kwargs,
     )
-    return all_edges
+    return collector_or_list
 
 
 def get_edges_count(

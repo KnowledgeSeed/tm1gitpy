@@ -1,14 +1,20 @@
+import concurrent
 import json
 import logging
 import os
 import re
 import sys
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Empty, Queue
-from typing import Dict, List, Optional, Any
+import threading
+from typing import Dict, List, MutableSequence, Optional, Any
 from warnings import catch_warnings
 from TM1py import TM1Service
 import TM1py
+
+from tm1_git_py.model import element
 try:
     from tqdm import tqdm  # type: ignore[reportMissingModuleSource]
 except Exception:  # pragma: no cover - optional runtime fallback
@@ -48,6 +54,9 @@ from tm1_git_py.tm1py_ext import (
     get_edges_count,
     get_elements,
     get_elements_count,
+    _get_elements_page,
+    _get_edges_page,
+    _get_subsets_page,
     get_process_names,
     get_subsets,
     get_subsets_count,
@@ -59,84 +68,95 @@ from tm1_git_py.tm1py_ext.hierarchy_service_ext import get_all_names as get_hier
 
 logger = logging.getLogger(__name__)
 
+class ThreadSafeCounter:
+    def __init__(self):
+        self.big_total = 0
+        self.lock = threading.Lock()
+
+    def increment_by(self, value: int):
+        with self.lock:  # Acquire lock before modifying the counter
+            self.big_total += value
+
+    def get_value(self):
+        return self.big_total
 
 def _default_max_workers() -> int:
     return max(1, ((os.cpu_count() or 1) // 2) + 1)
 
 
-class TqdmExportProgress(ProgressSink):
-    def __init__(self):
-        self._overall_bar = None
-        self._current_bar = None
+# class TqdmExportProgress(ProgressSink):
+#     def __init__(self):
+#         self._overall_bar = None
+#         self._current_bar = None
 
-    def on_event(self, event: ProgressEvent) -> None:
-        if tqdm is None or not sys.stderr.isatty():
-            return
-        if self._overall_bar is None:
-            self._overall_bar = tqdm(
-                total=1,
-                desc="Export overall",
-                unit="row",
-                leave=False,
-                dynamic_ncols=True,
-                position=0,
-            )
-        if self._current_bar is None:
-            self._current_bar = tqdm(
-                total=1,
-                desc="Current",
-                unit="row",
-                leave=False,
-                dynamic_ncols=True,
-                position=1,
-            )
+#     def on_event(self, event: ProgressEvent) -> None:
+#         if tqdm is None or not sys.stderr.isatty():
+#             return
+#         if self._overall_bar is None:
+#             self._overall_bar = tqdm(
+#                 total=1,
+#                 desc="Export overall",
+#                 unit="row",
+#                 leave=False,
+#                 dynamic_ncols=True,
+#                 position=0,
+#             )
+#         if self._current_bar is None:
+#             self._current_bar = tqdm(
+#                 total=1,
+#                 desc="Current",
+#                 unit="row",
+#                 leave=False,
+#                 dynamic_ncols=True,
+#                 position=1,
+#             )
 
-        if event.scope == ProgressScope.TOTAL:
-            if event.kind == ProgressKind.START:
-                total = max(1, int(event.total or 0))
-                current = min(max(0, int(event.current or 0)), total)
-                self._overall_bar.reset(total=total)
-                self._overall_bar.unit = event.unit.value
-                self._overall_bar.set_description_str(event.message or "Export overall", refresh=True)
-                self._overall_bar.n = current
-                self._overall_bar.refresh()
-                return
-            if event.kind == ProgressKind.UPDATE:
-                if event.total is not None:
-                    new_total = max(1, int(event.total))
-                    if int(self._overall_bar.total or 1) != new_total:
-                        self._overall_bar.reset(total=new_total)
-                total = int(self._overall_bar.total or 1)
-                self._overall_bar.n = min(max(0, int(event.current or 0)), total)
-                self._overall_bar.refresh()
-                return
-        if event.scope == ProgressScope.WORKER:
-            if event.kind == ProgressKind.START:
-                total = max(1, int(event.total or 0))
-                current = min(max(0, int(event.current or 0)), total)
-                self._current_bar.reset(total=total)
-                self._current_bar.unit = event.unit.value
-                self._current_bar.set_description_str(event.message or "Current", refresh=True)
-                self._current_bar.n = current
-                self._current_bar.refresh()
-                return
-            if event.kind == ProgressKind.UPDATE:
-                if event.total is not None:
-                    new_total = max(1, int(event.total))
-                    if int(self._current_bar.total or 1) != new_total:
-                        self._current_bar.reset(total=new_total)
-                total = int(self._current_bar.total or 1)
-                self._current_bar.n = min(max(0, int(event.current or 0)), total)
-                self._current_bar.refresh()
-                return
+#         if event.scope == ProgressScope.TOTAL:
+#             if event.kind == ProgressKind.START:
+#                 total = max(1, int(event.total or 0))
+#                 current = min(max(0, int(event.current or 0)), total)
+#                 self._overall_bar.reset(total=total)
+#                 self._overall_bar.unit = event.unit.value
+#                 self._overall_bar.set_description_str(event.message or "Export overall", refresh=True)
+#                 self._overall_bar.n = current
+#                 self._overall_bar.refresh()
+#                 return
+#             if event.kind == ProgressKind.UPDATE:
+#                 if event.total is not None:
+#                     new_total = max(1, int(event.total))
+#                     if int(self._overall_bar.total or 1) != new_total:
+#                         self._overall_bar.reset(total=new_total)
+#                 total = int(self._overall_bar.total or 1)
+#                 self._overall_bar.n = min(max(0, int(event.current or 0)), total)
+#                 self._overall_bar.refresh()
+#                 return
+#         if event.scope == ProgressScope.WORKER:
+#             if event.kind == ProgressKind.START:
+#                 total = max(1, int(event.total or 0))
+#                 current = min(max(0, int(event.current or 0)), total)
+#                 self._current_bar.reset(total=total)
+#                 self._current_bar.unit = event.unit.value
+#                 self._current_bar.set_description_str(event.message or "Current", refresh=True)
+#                 self._current_bar.n = current
+#                 self._current_bar.refresh()
+#                 return
+#             if event.kind == ProgressKind.UPDATE:
+#                 if event.total is not None:
+#                     new_total = max(1, int(event.total))
+#                     if int(self._current_bar.total or 1) != new_total:
+#                         self._current_bar.reset(total=new_total)
+#                 total = int(self._current_bar.total or 1)
+#                 self._current_bar.n = min(max(0, int(event.current or 0)), total)
+#                 self._current_bar.refresh()
+#                 return
 
-    def close(self) -> None:
-        if self._current_bar is not None:
-            self._current_bar.close()
-            self._current_bar = None
-        if self._overall_bar is not None:
-            self._overall_bar.close()
-            self._overall_bar = None
+#     def close(self) -> None:
+#         if self._current_bar is not None:
+#             self._current_bar.close()
+#             self._current_bar = None
+#         if self._overall_bar is not None:
+#             self._overall_bar.close()
+#             self._overall_bar = None
 
 
 def _emit_progress_event(progress_sink: ProgressSink, event: ProgressEvent) -> None:
@@ -599,6 +619,7 @@ def dimensions_to_model(
     _dimensions: Dict[str, Dimension] = {}
     model_store = ModelStore.for_model_id(model_id)
 
+    big_total = ThreadSafeCounter()
     # group key: (dimension, hierarchy, object_group)
     group_totals: Dict[tuple[str, str, str], Optional[int]] = {}
     group_processed: Dict[tuple[str, str, str], int] = {}
@@ -606,7 +627,7 @@ def dimensions_to_model(
     count_queue: Queue[tuple[tuple[str, str, str], Optional[int], Optional[Exception]]] = Queue()
     overall_total_rows = 0
     overall_processed_rows = 0
-    count_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
+    io_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
 
     def _emit_overall_update() -> None:
         _emit_progress_event(
@@ -811,105 +832,50 @@ def dimensions_to_model(
         ),
     )
 
-    with ThreadPoolExecutor(max_workers=count_workers, thread_name_prefix="count_executor") as count_executor:
+    
+    with ThreadPoolExecutor(max_workers=io_workers, thread_name_prefix="dim_io_executor") as io_executor:
+
+        total = 0;
         for dim_index, dim_name in enumerate(all_dims, start=1):
-            _drain_count_queue()
             try:
                 hierarchies_tm1_filter = filter_rules.to_tm1_hierarchy_name_filter(dim_name)
-                hierarchy_identities = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(
-                    tm1_conn,
-                    dim_name,
-                    filter=hierarchies_tm1_filter.filter_expr,
-                )
-
+                hierarchy_identities = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(tm1_conn, dim_name, filter=hierarchies_tm1_filter.filter_expr)
                 hierarchy_list: List[Hierarchy] = []
-                _emit_progress_event(
-                    progress_sink,
-                    ProgressEvent.make(
-                        kind=ProgressKind.START,
-                        scope=ProgressScope.WORKER,
-                        current=0,
-                        total=len(hierarchy_identities),
-                        unit=ProgressUnit.LINE,
-                        message=f"exporting hierarchies ({dim_name})",
-                    ),
-                )
+
+                hierarchy_futures = []
+                hierarchy_names = {}
 
                 for idx, hierarchy_identity in enumerate(hierarchy_identities):
-                    _drain_count_queue()
                     hierarchy_name = hierarchy_identity.name
                     incoming_hierarchy_etag = hierarchy_identity.etag
                     elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
                     subsets_tm1_filter = filter_rules.to_tm1_subset_name_filter(dim_name, hierarchy_name)
                     edges_tm1_filter = filter_rules.to_tm1_edge_name_filter(dim_name, hierarchy_name)
 
-                    _submit_count_jobs(
-                        count_executor,
-                        dim_name,
-                        hierarchy_name,
-                        elements_tm1_filter.filter_expr,
-                        subsets_tm1_filter.filter_expr,
-                        edges_tm1_filter.filter_expr,
-                        elements_tm1_filter.skip_all,
-                        subsets_tm1_filter.skip_all,
-                        edges_tm1_filter.skip_all,
-                    )
-
                     can_reuse_elements = False
                     can_reuse_subsets = False
                     can_reuse_edges = False
                     if incoming_hierarchy_etag is not None:
-                        existing_elements_etag, existing_elements_rules = model_store.get_group_reuse_metadata(
-                            model_id=model_id,
-                            dimension_name=dim_name,
-                            hierarchy_name=hierarchy_name,
-                            object_type="elements",
-                        )
-                        existing_subsets_etag, existing_subsets_rules = model_store.get_group_reuse_metadata(
-                            model_id=model_id,
-                            dimension_name=dim_name,
-                            hierarchy_name=hierarchy_name,
-                            object_type="subsets",
-                        )
-                        existing_edges_etag, existing_edges_rules = model_store.get_group_reuse_metadata(
-                            model_id=model_id,
-                            dimension_name=dim_name,
-                            hierarchy_name=hierarchy_name,
-                            object_type="edges",
-                        )
-                        can_reuse_elements = (
-                            existing_elements_etag == incoming_hierarchy_etag
-                            and existing_elements_rules == elements_tm1_filter.applicable_rules
-                        )
-                        can_reuse_subsets = (
-                            existing_subsets_etag == incoming_hierarchy_etag
-                            and existing_subsets_rules == subsets_tm1_filter.applicable_rules
-                        )
-                        can_reuse_edges = (
-                            existing_edges_etag == incoming_hierarchy_etag
-                            and existing_edges_rules == edges_tm1_filter.applicable_rules
-                        )
+                        existing_elements_etag, existing_elements_rules = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="elements")
+                        existing_subsets_etag, existing_subsets_rules = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="subsets")
+                        existing_edges_etag, existing_edges_rules = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="edges")
+                        can_reuse_elements = (existing_elements_etag == incoming_hierarchy_etag and existing_elements_rules == elements_tm1_filter.applicable_rules)
+                        can_reuse_subsets = (existing_subsets_etag == incoming_hierarchy_etag and existing_subsets_rules == subsets_tm1_filter.applicable_rules)
+                        can_reuse_edges = (existing_edges_etag == incoming_hierarchy_etag and existing_edges_rules == edges_tm1_filter.applicable_rules)
 
                     hierarchy = Hierarchy(
-                        name=hierarchy_name,
-                        dimension_name=dim_name,
-                        model_id=model_id,
-                        model_output_dir=model_output_dir,
-                        serialize=serialize,
-                        hierarchy_etag=incoming_hierarchy_etag,
-                        reuse_existing_store=True,
-                        elements_filter_rules=elements_tm1_filter.applicable_rules,
-                        edges_filter_rules=edges_tm1_filter.applicable_rules,
-                        subsets_filter_rules=subsets_tm1_filter.applicable_rules,
-                    )
-
-                    if can_reuse_elements and can_reuse_subsets and can_reuse_edges:
-                        logger.info(
-                            "Reusing hierarchy from model store dimension='%s' hierarchy='%s' etag='%s' (elements/subsets/edges unchanged)",
-                            dim_name,
-                            hierarchy_name,
-                            incoming_hierarchy_etag,
+                            name=hierarchy_name,
+                            dimension_name=dim_name,
+                            model_id=model_id,
+                            model_output_dir=model_output_dir,
+                            serialize=serialize,
+                            hierarchy_etag=incoming_hierarchy_etag,
+                            reuse_existing_store=True,
+                            elements_filter_rules=elements_tm1_filter.applicable_rules,
+                            edges_filter_rules=edges_tm1_filter.applicable_rules,
+                            subsets_filter_rules=subsets_tm1_filter.applicable_rules,
                         )
+                    hierarchy_names[hierarchy_name] = hierarchy
 
                     if not can_reuse_elements and hasattr(hierarchy.elements, "replace_with_payloads"):
                         hierarchy.elements.replace_with_payloads(())
@@ -918,149 +884,87 @@ def dimensions_to_model(
                     if not can_reuse_edges and hasattr(hierarchy.edges, "replace_with_payloads"):
                         hierarchy.edges.replace_with_payloads(())
 
-                    element_key = (dim_name, hierarchy_name, "elements")
-                    subset_key = (dim_name, hierarchy_name, "subsets")
-                    edge_key = (dim_name, hierarchy_name, "edges")
+                    def _start_page(fn, tm1_conn, dim_name, hierarchy_name, filter_expr, skip, top, total, mutable_list: MutableSequence):
+                        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"counting hierarchies ({dim_name}), page {skip} of {total}"))
+                        page = fn(tm1_conn=tm1_conn, dimension_name=dim_name, hierarchy_name=hierarchy_name, filter=filter_expr, skip=skip, top=top, count=True)
+                        progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))    
+                        return (page, mutable_list)
 
-                    if can_reuse_elements:
-                        total = int(group_totals.get(element_key) or 0)
-                        _start_current(f"cached elements {dim_name}/{hierarchy_name}", total)
-                        _complete_current(f"cached elements {dim_name}/{hierarchy_name}", total, total)
-                        _mark_group_complete(element_key)
-                    elif not elements_tm1_filter.skip_all:
-                        processed_elements = 0
-                        total = int(group_totals.get(element_key) or 0)
-                        _start_current(f"elements {dim_name}/{hierarchy_name}", total)
+                    # parallel fetching of elements pages
+                    elements_count = get_elements_count(tm1_conn, dim_name, hierarchy_name, filter=elements_tm1_filter.filter_expr)
+                    big_total.increment_by(elements_count)
+                    futures = []
+                    progress_sink.on_event(ProgressEvent.total_line(total=big_total.get_value()))
+                    if not can_reuse_elements and not elements_tm1_filter.skip_all:
+                        for i in range(0, elements_count, 100_000):
+                            future = io_executor.submit(_start_page, _get_elements_page, tm1_conn, dim_name, hierarchy_name, elements_tm1_filter.filter_expr, i, 100_000, elements_count, hierarchy.elements)
+                            futures.append(future)
+                    else:
+                        progress_sink.on_event(ProgressEvent.total_line(current_delta=elements_count))
 
-                        def _on_elements_page_loaded(page_rows: int, page_total: Optional[int]) -> None:
-                            nonlocal processed_elements
-                            _drain_count_queue()
-                            if page_total is not None and group_totals.get(element_key) is None:
-                                _register_group_total(element_key, int(page_total))
-                            processed_elements += int(page_rows)
-                            _advance_group_processed(element_key, int(page_rows))
-                            _update_current(
-                                f"elements {dim_name}/{hierarchy_name}",
-                                processed_elements,
-                                int(group_totals.get(element_key) or processed_elements),
+                    # parallel fetching of edge pages
+                    edges_count = get_edges_count(tm1_conn, dim_name, hierarchy_name, filter=edges_tm1_filter.filter_expr)
+                    big_total.increment_by(edges_count)
+                    progress_sink.on_event(ProgressEvent.total_line(total=big_total.get_value()))
+                    if not can_reuse_edges and not edges_tm1_filter.skip_all:
+                        for i in range(0, edges_count, 100_000):
+                            future = io_executor.submit(_start_page, _get_edges_page, tm1_conn, dim_name, hierarchy_name, edges_tm1_filter.filter_expr, i, 100_000, edges_count, hierarchy.edges)
+                            futures.append(future)
+                    else:
+                        progress_sink.on_event(ProgressEvent.total_line(current_delta=edges_count))
+
+                    # parallel fetching of subset pages
+                    subsets_count = get_subsets_count(tm1_conn, dim_name, hierarchy_name, filter=subsets_tm1_filter.filter_expr)
+                    big_total.increment_by(subsets_count)
+                    progress_sink.on_event(ProgressEvent.total_line(total=big_total.get_value()))
+                    if not can_reuse_subsets and not subsets_tm1_filter.skip_all:
+                        for i in range(0, subsets_count, 100_000):
+                            future = io_executor.submit(_start_page, _get_subsets_page, tm1_conn, dim_name, hierarchy_name, subsets_tm1_filter.filter_expr, i, 100_000, subsets_count, hierarchy.subsets)
+                            futures.append(future)
+                    else:
+                        progress_sink.on_event(ProgressEvent.total_line(current_delta=subsets_count))
+
+                    # write to sqlite on main (single thread)
+                    for future in concurrent.futures.as_completed(futures):
+                        try:
+                            page, collector = future.result()
+                            merged_count = len(page.objects)
+                            merge_started = time.perf_counter()
+                            if hasattr(collector, "extend_payloads"):
+                                collector.extend_payloads(page.raw_rows)
+                                merge_mode = "payload"
+                            else:
+                                collector.extend(page.objects)
+                                merge_mode = "object"
+                            logger.info(
+                                "Hierarchy page merge completed dimension='%s' hierarchy='%s' rows=%d mode=%s elapsed_ms=%.3f",
+                                dim_name,
+                                hierarchy_name,
+                                merged_count,
+                                merge_mode,
+                                (time.perf_counter() - merge_started) * 1000,
                             )
+                            progress_sink.on_event(ProgressEvent.total_line(current_delta=merged_count))
+                        except Exception as exc:
+                            print(f'Task generated an exception: {exc}')
 
-                        get_elements(
-                            tm1_conn,
-                            dim_name,
-                            hierarchy_name,
-                            filter=elements_tm1_filter.filter_expr,
-                            collector=hierarchy.elements,
-                            on_page_loaded=_on_elements_page_loaded,
-                        )
-                        _mark_group_complete(element_key)
-                        _complete_current(
-                            f"elements {dim_name}/{hierarchy_name}",
-                            processed_elements,
-                            int(group_totals.get(element_key) or processed_elements),
-                        )
+                    def _start_serialize_hierarchy(hierarchy: Hierarchy):
+                        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Dumping hierarchy to JSON"))
+                        hierarchy.serialize_hierarchy_json()
+                        return hierarchy.name
 
-                    if can_reuse_subsets:
-                        total = int(group_totals.get(subset_key) or 0)
-                        _start_current(f"cached subsets {dim_name}/{hierarchy_name}", total)
-                        _complete_current(f"cached subsets {dim_name}/{hierarchy_name}", total, total)
-                        _mark_group_complete(subset_key)
-                    elif not subsets_tm1_filter.skip_all:
-                        processed_subsets = 0
-                        total = int(group_totals.get(subset_key) or 0)
-                        _start_current(f"subsets {dim_name}/{hierarchy_name}", total)
+                    hierarchy_futures.append(io_executor.submit(_start_serialize_hierarchy, hierarchy))
 
-                        def _on_subsets_page_loaded(page_rows: int, page_total: Optional[int]) -> None:
-                            nonlocal processed_subsets
-                            _drain_count_queue()
-                            if page_total is not None and group_totals.get(subset_key) is None:
-                                _register_group_total(subset_key, int(page_total))
-                            processed_subsets += int(page_rows)
-                            _advance_group_processed(subset_key, int(page_rows))
-                            _update_current(
-                                f"subsets {dim_name}/{hierarchy_name}",
-                                processed_subsets,
-                                int(group_totals.get(subset_key) or processed_subsets),
-                            )
-
-                        get_subsets(
-                            tm1_conn,
-                            dimension_name=dim_name,
-                            hierarchy_name=hierarchy_name,
-                            filter=subsets_tm1_filter.filter_expr,
-                            collector=hierarchy.subsets,
-                            on_page_loaded=_on_subsets_page_loaded,
-                        )
-                        _mark_group_complete(subset_key)
-                        _complete_current(
-                            f"subsets {dim_name}/{hierarchy_name}",
-                            processed_subsets,
-                            int(group_totals.get(subset_key) or processed_subsets),
-                        )
-
-                    if can_reuse_edges:
-                        total = int(group_totals.get(edge_key) or 0)
-                        _start_current(f"cached edges {dim_name}/{hierarchy_name}", total)
-                        _complete_current(f"cached edges {dim_name}/{hierarchy_name}", total, total)
-                        _mark_group_complete(edge_key)
-                    elif not edges_tm1_filter.skip_all:
-                        processed_edges = 0
-                        total = int(group_totals.get(edge_key) or 0)
-                        _start_current(f"edges {dim_name}/{hierarchy_name}", total)
-
-                        def _on_edges_page_loaded(page_rows: int, page_total: Optional[int]) -> None:
-                            nonlocal processed_edges
-                            _drain_count_queue()
-                            if page_total is not None and group_totals.get(edge_key) is None:
-                                _register_group_total(edge_key, int(page_total))
-                            processed_edges += int(page_rows)
-                            _advance_group_processed(edge_key, int(page_rows))
-                            _update_current(
-                                f"edges {dim_name}/{hierarchy_name}",
-                                processed_edges,
-                                int(group_totals.get(edge_key) or processed_edges),
-                            )
-
-                        get_edges(
-                            tm1_conn,
-                            dim_name,
-                            hierarchy_name,
-                            filter=edges_tm1_filter.filter_expr,
-                            collector=hierarchy.edges,
-                            on_page_loaded=_on_edges_page_loaded,
-                        )
-                        _mark_group_complete(edge_key)
-                        _complete_current(
-                            f"edges {dim_name}/{hierarchy_name}",
-                            processed_edges,
-                            int(group_totals.get(edge_key) or processed_edges),
-                        )
-
-                    hierarchy.finalize()
-                    hierarchy_list.append(hierarchy)
-                    _emit_progress_event(
-                        progress_sink,
-                        ProgressEvent.make(
-                            kind=ProgressKind.UPDATE,
-                            scope=ProgressScope.WORKER,
-                            current=idx + 1,
-                            total=len(hierarchy_identities),
-                            unit=ProgressUnit.LINE,
-                            message=f"exporting hierarchies ({dim_name})",
-                        ),
-                    )
-
-                _emit_progress_event(
-                    progress_sink,
-                    ProgressEvent.make(
-                        kind=ProgressKind.UPDATE,
-                        scope=ProgressScope.WORKER,
-                        current=len(hierarchy_identities),
-                        total=len(hierarchy_identities),
-                        unit=ProgressUnit.LINE,
-                        message=f"exporting hierarchies ({dim_name})",
-                    ),
-                )
+                for future in concurrent.futures.as_completed(hierarchy_futures):
+                    try:
+                        hierarchy_name = future.result()
+                        hierarchy = hierarchy_names[hierarchy_name]
+                        progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Recalculating hash and signature"))
+                        hierarchy.finalize()
+                        progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Recalculating hash and signature"))
+                        hierarchy_list.append(hierarchy)
+                    except Exception as exc:
+                        print(f'Task generated an exception: {exc}')
 
                 if len(hierarchy_list) > 0:
                     _dimension = Dimension(
@@ -1091,34 +995,7 @@ def dimensions_to_model(
                         unit=ProgressUnit.LINE,
                         message="exporting dimensions",
                     ),
-                )
-
-        # Drain any remaining count completions after export work finishes.
-        while not count_queue.empty():
-            _drain_count_queue()
-
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.UPDATE,
-            scope=ProgressScope.TOTAL,
-            current=overall_processed_rows,
-            total=overall_total_rows,
-            unit=ProgressUnit.LINE,
-            message="Export overall",
-        ),
-    )
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.UPDATE,
-            scope=ProgressScope.WORKER,
-            current=len(all_dims),
-            total=len(all_dims),
-            unit=ProgressUnit.LINE,
-            message="exporting dimensions",
-        ),
-    )
+                )   
     return _dimensions, _errors
 
 

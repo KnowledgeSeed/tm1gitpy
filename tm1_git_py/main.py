@@ -18,7 +18,7 @@ from tm1_git_py.changeset import import_changeset
 from tm1_git_py.comparator import Comparator, TqdmComparatorProgressSink
 from tm1_git_py.config import TM1ServersConfig
 from tm1_git_py.deserializer import deserialize_model
-from tm1_git_py.exporter import TqdmExportProgress, export
+from tm1_git_py.exporter import export
 from tm1_git_py.filter import filter, import_filter
 from tm1_git_py.logging_config import setup_logging
 from tm1_git_py.model import Model
@@ -386,12 +386,16 @@ def _cmd_export(args: argparse.Namespace) -> None:
     if not model_id:
         raise ValueError("model_id must not be empty")
     ModelStore.for_model_id(model_id)
-    export_sinks: list[ProgressSink] = [TqdmExportProgress()]
+    requested_workers = _normalize_max_workers(args.max_workers)
+
+    # sinkks
+    export_sinks: list[ProgressSink] = [TqdmProgressSink(worker_count=requested_workers, base_position=0, leave=True)]
     if bool(args.log_file):
         export_sinks.append(LoggingProgressSink(logger))
     export_progress_sink: ProgressSink = (
         export_sinks[0] if len(export_sinks) == 1 else CompositeProgressSink(export_sinks)
     )
+
     exported_model, export_errors = export(
         tm1_service,
         model_id=model_id,
@@ -399,7 +403,7 @@ def _cmd_export(args: argparse.Namespace) -> None:
         serialize=True,
         model_output_dir=str(model_output_path),
         progress_sink=export_progress_sink,
-        max_workers=_normalize_max_workers(args.max_workers),
+        max_workers=requested_workers
     )
 
     if export_errors and any(export_errors.values()):
@@ -462,8 +466,6 @@ def _cmd_compare(args: argparse.Namespace) -> None:
 
     requested_workers = _normalize_max_workers(args.max_workers)
     source_workers, target_workers = _split_compare_workers(requested_workers)
-
-
 
     source_tqdm = TqdmProgressSink(
         # str(source),

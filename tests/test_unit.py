@@ -403,10 +403,18 @@ class TestDeserializer:
 
         sequence = iter([
                 subset_service_ext.PaginatedSubsetsResult(
-                    subsets=[Subset(name="S1", expression="{A}")], count=2, skip=0, top=1
+                    objects=[Subset(name="S1", expression="{A}")],
+                    count=2,
+                    skip=0,
+                    top=1,
+                    raw_rows=[{"Name": "S1", "Expression": "{A}"}],
                 ),
                 subset_service_ext.PaginatedSubsetsResult(
-                    subsets=[Subset(name="S2", expression="{B}")], count=None, skip=1, top=1
+                    objects=[Subset(name="S2", expression="{B}")],
+                    count=None,
+                    skip=1,
+                    top=1,
+                    raw_rows=[{"Name": "S2", "Expression": "{B}"}],
                 ),
             ]
         )
@@ -713,6 +721,66 @@ class TestDeserializer:
             progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
         assert sig_a == sig_b
+
+    def test_store_backed_sequence_extend_payloads_round_trip_element(self, tmp_path):
+        store = ModelStore.for_model_id(tmp_path.name)
+        seq = StoreBackedSequence.for_elements_sink(
+            store=store,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
+        )
+        seq.extend_payloads([{"Name": "A", "Type": "Numeric"}])
+        assert len(seq) == 1
+        assert seq[0] == Element(name="A", type="Numeric")
+
+    def test_store_backed_sequence_extend_payloads_matches_extend_elements(self, tmp_path):
+        store_e = ModelStore.for_model_id(tmp_path.name + "_e")
+        store_p = ModelStore.for_model_id(tmp_path.name + "_p")
+        seq_e = StoreBackedSequence.for_elements_sink(
+            store=store_e,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        seq_p = StoreBackedSequence.for_elements_sink(
+            store=store_p,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        seq_e.extend([Element(name="A", type="Numeric"), Element(name="B", type="String")])
+        seq_p.extend_payloads(
+            [
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "String"},
+            ]
+        )
+        assert list(seq_e.iter_payloads()) == list(seq_p.iter_payloads())
+
+    def test_store_backed_sequence_extend_payloads_matches_extend_edges(self, tmp_path):
+        store_e = ModelStore.for_model_id(tmp_path.name + "_e2")
+        store_p = ModelStore.for_model_id(tmp_path.name + "_p2")
+        seq_e = StoreBackedSequence.for_edges_sink(
+            store=store_e,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        seq_p = StoreBackedSequence.for_edges_sink(
+            store=store_p,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        seq_e.extend(
+            [
+                Edge(parent="P", component_name="C1", weight=1.0),
+                Edge(parent="P", component_name="C2", weight=2.0),
+            ]
+        )
+        seq_p.extend_payloads(
+            [
+                {"ParentName": "P", "ComponentName": "C1", "Weight": 1.0},
+                {"ParentName": "P", "ComponentName": "C2", "Weight": 2.0},
+            ]
+        )
+        assert list(seq_e.iter_payloads()) == list(seq_p.iter_payloads())
 
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):

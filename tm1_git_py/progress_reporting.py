@@ -49,13 +49,61 @@ class ProgressEvent:
     timestamp_ns: int = 0
 
     @staticmethod
+    def worker_line(
+        *,
+        current: Optional[int] = None,
+        current_delta: int = 0,
+        total: Optional[int] = None,
+        path: Optional[str] = None,
+        worker_id: Optional[str] = None,
+        message: Optional[str] = None,
+        update_total: bool = False,
+    ) -> "ProgressEvent":
+        
+        resolved_worker_id = str(worker_id) if worker_id else _default_worker_id()
+        return ProgressEvent(
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.WORKER,
+            unit=ProgressUnit.LINE,
+            worker_id=resolved_worker_id,
+            current=current,
+            current_delta=current_delta,
+            total=total,
+            path=path,
+            message=message,
+            update_total=bool(update_total),
+            timestamp_ns=time.time_ns(),
+        )
+
+    def total_line(
+        *,
+        current: Optional[int] = None,
+        current_delta: int = 0,
+        total: Optional[int] = None,
+        path: Optional[str] = None,
+        message: Optional[str] = None,
+    ) -> "ProgressEvent":
+        return ProgressEvent(
+            kind=ProgressKind.UPDATE,
+            scope=ProgressScope.TOTAL,
+            unit=ProgressUnit.LINE,
+            current=current,
+            current_delta=current_delta,
+            total=total,
+            path=path,
+            worker_id=_default_worker_id(),
+            message=message,
+            timestamp_ns=time.time_ns(),
+        )
+
+    @staticmethod
     def make(
         *,
         kind: ProgressKind,
         scope: ProgressScope,
         unit: ProgressUnit,
         current: Optional[int] = None,
-        current_delta: Optional[int] = None,
+        current_delta: int = 0,
         total: Optional[int] = None,
         path: Optional[str] = None,
         worker_id: Optional[str] = None,
@@ -68,10 +116,7 @@ class ProgressEvent:
             raise TypeError("ProgressEvent.make scope must be ProgressScope")
         if not isinstance(unit, ProgressUnit):
             raise TypeError("ProgressEvent.make unit must be ProgressUnit")
-        has_current = current is not None
-        has_delta = current_delta is not None
-        if has_current == has_delta:
-            raise ValueError("ProgressEvent.make requires exactly one of current or current_delta")
+
         resolved_worker_id = str(worker_id) if worker_id else _default_worker_id()
         return ProgressEvent(
             kind=kind,
@@ -199,6 +244,7 @@ class TqdmProgressSink:
             for idx in range(self.worker_count):
                 worker_bar = tqdm(
                     total=1,
+                    ascii=' =',
                     desc=f"Worker {idx}",
                     unit="item",
                     leave=self._leave,
@@ -230,7 +276,8 @@ class TqdmProgressSink:
             worker_bar.n = min(max(0, int(event.current)), target_total)
         else:
             worker_bar.n = min(max(0, int(worker_bar.n) + int(event.current_delta or 0)), target_total)
-        base_message = str(event.message or f"{event.kind.value} {event.scope.value}")
+        # base_message = str(event.message or f"{event.kind.value} {event.scope.value}")
+        base_message = str(event.message or worker_bar.desc)
         text = str(event.path or "").strip()
         if text:
             try:
@@ -257,8 +304,9 @@ class TqdmProgressSink:
                 target_total = max(1, existing_total + int(event.current_delta or 0))
         else:
             target_total = max(1, int(event.total)) if event.total is not None else existing_total
-        if int(self._total_bar.total or 0) != target_total:
-            self._total_bar.reset(total=target_total)
+        # if int(self._total_bar.total or 0) != target_total:
+            # self._total_bar.reset(total=target_total)
+        self._total_bar.total = target_total
         if event.current is not None:
             self._total_bar.n = min(max(0, int(event.current)), target_total)
         else:
@@ -283,19 +331,19 @@ class TqdmProgressSink:
 
     def _release_worker_if_final(self, event: ProgressEvent) -> None:
         worker_id = str(event.worker_id) if event.worker_id is not None else None
-        if worker_id is None:
-            return
-        if event.current is None or event.total is None:
-            return
-        if event.kind == ProgressKind.COMPLETE or int(event.current) == int(event.total):
-            worker_bar = self.worker_bar_dict.get(worker_id)
-            if worker_bar is not None:
-                worker_bar.reset(total=1)
-                worker_bar.n = 0
-                worker_bar.set_description_str("", refresh=False)
-                worker_bar.refresh()
-            self.worker_bar_dict.pop(worker_id, None)
-            self._worker_bar_index.pop(worker_id, None)
+        # if worker_id is None:
+        #     return
+        # if event.current is None or event.total is None:
+        #     return
+        # if event.kind == ProgressKind.COMPLETE or int(event.current) == int(event.total):
+        #     worker_bar = self.worker_bar_dict.get(worker_id)
+        #     if worker_bar is not None:
+        #         worker_bar.reset(total=1)
+        #         worker_bar.n = 0
+        #         worker_bar.set_description_str("", refresh=False)
+        #         worker_bar.refresh()
+        #     self.worker_bar_dict.pop(worker_id, None)
+        #     self._worker_bar_index.pop(worker_id, None)
 
     def on_event(self, event: ProgressEvent) -> None:
         with self._lock:

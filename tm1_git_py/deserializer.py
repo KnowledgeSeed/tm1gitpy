@@ -247,11 +247,6 @@ def recalculate_group_content_signature_parallel(
         fetch_batch_size=fetch_batch_size,
     )
     if total_rows == 0:
-        store.commit_group_content_signature(
-            group_id,
-            row_count=0,
-            content_hash=store.EMPTY_CONTENT_HASH,
-        )
         return 0, store.EMPTY_CONTENT_HASH
 
     chunk_results: list[tuple[int, int, str]] = []
@@ -363,11 +358,6 @@ def recalculate_group_content_signature_parallel(
         normalized=normalized,
         total_rows=row_count,
         chunk_results=chunk_results,
-    )
-    store.commit_group_content_signature(
-        group_id,
-        row_count=row_count,
-        content_hash=content_hash,
     )
     return row_count, content_hash
 

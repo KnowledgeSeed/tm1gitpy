@@ -1,7 +1,7 @@
 """Subset-related utilities using TM1py, including paginated subset retrieval."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, MutableSequence, Callable
+from typing import TYPE_CHECKING, Any, List, Optional, MutableSequence, Callable
 
 from TM1py.Utils import format_url
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 class PaginatedSubsetsResult:
     """Result of a paginated get_subsets call."""
 
-    subsets: List[Subset]
+    objects: List[Subset]
     """Subsets in this page."""
 
     count: Optional[int]
@@ -28,6 +28,9 @@ class PaginatedSubsetsResult:
 
     top: int
     """Maximum number of subsets requested for this page."""
+
+    raw_rows: List[dict[str, Any]]
+    """OData ``value`` entries for this page (same dict refs as parsed JSON)."""
 
 
 def _get_subsets_page(
@@ -85,23 +88,24 @@ def _get_subsets_page(
     if params:
         url = f"{base_url}&{'&'.join(params)}"
 
-    response = tm1_conn.connection.GET(url, **kwargs)
+    response = tm1_conn.connection.GET(url, **kwargs, async_requests_mode=True)
     data = response.json()
 
-    raw_value = data.get("value", [])
+    raw_rows = list(data.get("value", []))
     subsets = [
         Subset(name=item.get("Name", ""), expression=item.get("Expression") or "")
-        for item in raw_value
+        for item in raw_rows
     ]
     total_count = data.get("@odata.count")
     if total_count is not None:
         total_count = int(total_count)
 
     return PaginatedSubsetsResult(
-        subsets=subsets,
+        objects=subsets,
         count=total_count if count else None,
         skip=skip,
         top=top,
+        raw_rows=raw_rows,
     )
 
 
@@ -129,7 +133,7 @@ def get_subsets(
     :return: All fetched Subset objects
     """
     hierarchy_name = hierarchy_name if hierarchy_name else dimension_name
-    all_subsets: List[Subset] = [] if collector is None else collector
+    collector_or_list: MutableSequence[Subset] = [] if collector is None else collector
 
     def _fetcher(
         conn: "TM1Service",
@@ -152,10 +156,13 @@ def get_subsets(
             private=private,
             **kw,
         )
-        all_subsets.extend(result.subsets)
+        if collector is not None and hasattr(collector, "extend_payloads"):
+            collector.extend_payloads(result.raw_rows)
+        else:
+            collector_or_list.extend(result.objects)
         if on_page_loaded is not None:
-            on_page_loaded(len(result.subsets), result.count)
-        return (result.subsets, result.count)
+            on_page_loaded(len(result.objects), result.count)
+        return (result.objects, result.count)
 
     paginate_by_pages(
         tm1_conn,
@@ -168,7 +175,7 @@ def get_subsets(
         private=private,
         **kwargs,
     )
-    return all_subsets
+    return collector_or_list
 
 
 def get_subsets_count(
