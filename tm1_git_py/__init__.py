@@ -22,10 +22,21 @@ if TYPE_CHECKING:
     from tm1_git_py.filter import filter as apply_filter
     from tm1_git_py.filter import FilterRules, filter_changeset, should_exclude_path
     from tm1_git_py.hot_promote_selection import (
+        apply_selection_to_changes,
+        extract_match_parts,
         matches_selection,
+        resolve_selection_categories,
         update_changeset_apply,
         validate_selection_category,
     )
+    from tm1_git_py.hot_promote_navigation import (
+        get_navigation_items,
+        get_navigation_overview,
+        normalize_scope_type,
+        parse_navigation_path,
+    )
+    from tm1_git_py.hot_promote_filters import derive_filter_rules_from_changeset
+    from tm1_git_py.hot_promote_filters import load_changeset
     from tm1_git_py.serializer import serialize_model
 
 __all__ = [
@@ -42,8 +53,17 @@ __all__ = [
     "filter_changeset",
     "should_exclude_path",
     "update_changeset_apply",
+    "apply_selection_to_changes",
+    "extract_match_parts",
     "matches_selection",
+    "resolve_selection_categories",
     "validate_selection_category",
+    "get_navigation_items",
+    "get_navigation_overview",
+    "normalize_scope_type",
+    "parse_navigation_path",
+    "derive_filter_rules_from_changeset",
+    "load_changeset",
     "serialize_model",
     "export",
 ]
@@ -61,8 +81,17 @@ _LAZY_IMPORTS = {
     "filter_changeset": ("tm1_git_py.filter", "filter_changeset"),
     "should_exclude_path": ("tm1_git_py.filter", "should_exclude_path"),
     "update_changeset_apply": ("tm1_git_py.hot_promote_selection", "update_changeset_apply"),
+    "apply_selection_to_changes": ("tm1_git_py.hot_promote_selection", "apply_selection_to_changes"),
+    "extract_match_parts": ("tm1_git_py.hot_promote_selection", "extract_match_parts"),
     "matches_selection": ("tm1_git_py.hot_promote_selection", "matches_selection"),
+    "resolve_selection_categories": ("tm1_git_py.hot_promote_selection", "resolve_selection_categories"),
     "validate_selection_category": ("tm1_git_py.hot_promote_selection", "validate_selection_category"),
+    "get_navigation_items": ("tm1_git_py.hot_promote_navigation", "get_navigation_items"),
+    "get_navigation_overview": ("tm1_git_py.hot_promote_navigation", "get_navigation_overview"),
+    "normalize_scope_type": ("tm1_git_py.hot_promote_navigation", "normalize_scope_type"),
+    "parse_navigation_path": ("tm1_git_py.hot_promote_navigation", "parse_navigation_path"),
+    "derive_filter_rules_from_changeset": ("tm1_git_py.hot_promote_filters", "derive_filter_rules_from_changeset"),
+    "load_changeset": ("tm1_git_py.hot_promote_filters", "load_changeset"),
     "serialize_model": ("tm1_git_py.serializer", "serialize_model"),
     "export": ("tm1_git_py.exporter", "export"),
 }
