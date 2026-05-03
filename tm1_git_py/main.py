@@ -1,6 +1,5 @@
 import argparse
 import logging
-import os
 import queue
 import shutil
 import sys
@@ -31,6 +30,7 @@ from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
+from tm1_git_py.process_pool import ignore_sigint_in_worker, shutdown_process_pool_now
 from tm1_git_py.progress_reporting import (
     CallbackProgressSink,
     CompositeProgressSink,
@@ -40,20 +40,18 @@ from tm1_git_py.progress_reporting import (
     TqdmProgressSink,
 )
 from tm1_git_py.serializer import serialize_model
+from tm1_git_py.worker_config import resolve_worker_counts
 
 logger = logging.getLogger(__name__)
 
 
-def _default_max_workers() -> int:
-    return max(1, ((os.cpu_count() or 1) // 2) + 1)
-
-
-def _normalize_max_workers(value: Any) -> int:
+def _normalize_max_workers(value: Any) -> int | None:
+    if value is None:
+        return None
     try:
-        workers = int(value)
+        return max(1, int(value))
     except (TypeError, ValueError):
-        return _default_max_workers()
-    return max(1, workers)
+        return None
 
 
 def _split_compare_workers(max_workers: int) -> tuple[int, int]:
@@ -350,13 +348,7 @@ def _filter(model, filter_rules: list[str]) -> Model:
     return model
 
 
-def _add_log_level(p: argparse.ArgumentParser) -> None:
-    p.add_argument(
-        "--log-level",
-        type=str,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set log level (overrides TM1GITPY_LOG_LEVEL)",
-    )
+def _add_common_cli_options(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--log-file",
         type=str,
@@ -367,6 +359,11 @@ def _add_log_level(p: argparse.ArgumentParser) -> None:
         "--console-logs",
         action="store_true",
         help="Enable console log output in addition to progress UI",
+    )
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable detailed worker/thread progress bars in the terminal progress UI",
     )
 
 
@@ -386,25 +383,20 @@ def _cmd_export(args: argparse.Namespace) -> None:
     if not model_id:
         raise ValueError("model_id must not be empty")
     ModelStore.for_model_id(model_id)
-    requested_workers = _normalize_max_workers(args.max_workers)
+    requested_max_workers = _normalize_max_workers(args.max_workers)
+    worker_counts = resolve_worker_counts(requested_max_workers)
 
     # sinkks
-    export_sinks: list[ProgressSink] = [TqdmProgressSink(worker_count=requested_workers, base_position=0, leave=True)]
+    debug_progress = bool(getattr(args, "debug", False))
+    tqdm_export_sink = TqdmProgressSink(worker_count=worker_counts.cpu_workers + worker_counts.io_workers, base_position=0, leave=True, thread_tracing_enabled=debug_progress)
+    export_sink: list[ProgressSink] = [tqdm_export_sink]
     if bool(args.log_file):
-        export_sinks.append(LoggingProgressSink(logger))
+        export_sink.append(LoggingProgressSink(logger))
     export_progress_sink: ProgressSink = (
-        export_sinks[0] if len(export_sinks) == 1 else CompositeProgressSink(export_sinks)
+        export_sink[0] if len(export_sink) == 1 else CompositeProgressSink(export_sink)
     )
-
-    exported_model, export_errors = export(
-        tm1_service,
-        model_id=model_id,
-        filter_rules_list=filter_rules,
-        serialize=True,
-        model_output_dir=str(model_output_path),
-        progress_sink=export_progress_sink,
-        max_workers=requested_workers
-    )
+    exported_model, export_errors = export(tm1_service, model_id=model_id, filter_rules_list=filter_rules, progress_sink=export_progress_sink, max_workers=requested_max_workers)
+    tqdm_export_sink.close()
 
     if export_errors and any(export_errors.values()):
         logger.warning("Export errors encountered")
@@ -414,9 +406,16 @@ def _cmd_export(args: argparse.Namespace) -> None:
     else:
         logger.info("Export completed successfully with no errors")
 
-    serialize_model(exported_model, model_output_folder)
+    tqdm_serialize_sink = TqdmProgressSink(worker_count=worker_counts.cpu_workers + worker_counts.io_workers, base_position=0, leave=True, thread_tracing_enabled=debug_progress)
+    serialize_sinks: list[ProgressSink] = [tqdm_serialize_sink]
+    if bool(args.log_file):
+        serialize_sinks.append(LoggingProgressSink(logger))
+    serialize_progress_sink: ProgressSink = (
+        serialize_sinks[0] if len(serialize_sinks) == 1 else CompositeProgressSink(serialize_sinks)
+    )
+    serialize_model(exported_model, model_output_folder, progress_sink=serialize_progress_sink, max_workers=requested_max_workers)
+    tqdm_serialize_sink.close()
     logger.info("Model serialized to: %s", model_output_folder)
-
 
 def _cmd_filter(args: argparse.Namespace) -> None:
     model_folder = args.model_folder or "export"
@@ -427,8 +426,9 @@ def _cmd_filter(args: argparse.Namespace) -> None:
     filter_sinks: list[ProgressSink] = [
         TqdmProgressSink(
             base_position=0,
-            worker_count=_default_max_workers(),
+            worker_count=resolve_worker_counts(None).cpu_workers,
             leave=False,
+            thread_tracing_enabled=bool(getattr(args, "debug", False)),
         )
     ]
     if bool(args.log_file):
@@ -439,7 +439,7 @@ def _cmd_filter(args: argparse.Namespace) -> None:
     model, errors = deserialize_model(
         model_folder,
         progress_sink=filter_progress_sink,
-        max_workers=_default_max_workers(),
+        max_workers=None,
     )
     if errors:
         logger.warning("Deserialization completed with %d error(s)", len(errors))
@@ -464,20 +464,23 @@ def _cmd_compare(args: argparse.Namespace) -> None:
     ModelStore.for_model_id(source.name)
     ModelStore.for_model_id(target.name)
 
-    requested_workers = _normalize_max_workers(args.max_workers)
-    source_workers, target_workers = _split_compare_workers(requested_workers)
+    requested_max_workers = _normalize_max_workers(args.max_workers)
+    worker_counts = resolve_worker_counts(requested_max_workers)
+    source_workers, target_workers = _split_compare_workers(worker_counts.cpu_workers)
 
     source_tqdm = TqdmProgressSink(
         # str(source),
         worker_count=source_workers,
         base_position=0,
         leave=False,
+        thread_tracing_enabled=bool(getattr(args, "debug", False)),
     )
     target_tqdm = TqdmProgressSink(
         # str(target),
         worker_count=target_workers,
         base_position=source_workers+1,
         leave=False,
+        thread_tracing_enabled=bool(getattr(args, "debug", False)),
     )
     source_progress_sinks: list[ProgressSink] = [source_tqdm]
     target_progress_sinks: list[ProgressSink] = [target_tqdm]
@@ -500,13 +503,21 @@ def _cmd_compare(args: argparse.Namespace) -> None:
     )
     progress_thread.start()
     logger.info("Loading source model from %s", source)
+    pool: ProcessPoolExecutor | None = None
     try:
-        with ProcessPoolExecutor(max_workers=2) as pool:
-            source_future = pool.submit(_deserialize_model_worker, str(source), 0, progress_queue, source_workers)
-            target_future = pool.submit(_deserialize_model_worker, str(target), 1, progress_queue, target_workers)
-            source_snapshot, err_source = source_future.result()
-            target_snapshot, err_target = target_future.result()
+        pool = ProcessPoolExecutor(max_workers=2, initializer=ignore_sigint_in_worker)
+        source_future = pool.submit(_deserialize_model_worker, str(source), 0, progress_queue, source_workers)
+        target_future = pool.submit(_deserialize_model_worker, str(target), 1, progress_queue, target_workers)
+        source_snapshot, err_source = source_future.result()
+        target_snapshot, err_target = target_future.result()
+    except KeyboardInterrupt:
+        if pool is not None:
+            shutdown_process_pool_now(pool)
+            pool = None
+        raise
     finally:
+        if pool is not None:
+            pool.shutdown()
         stop_event.set()
         progress_thread.join()
         source_progress_sink.close()
@@ -575,6 +586,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
             base_position=0,
             worker_count=1,
             leave=False,
+            thread_tracing_enabled=bool(getattr(args, "debug", False)),
         )
     ]
     if bool(args.log_file):
@@ -622,7 +634,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_export = sub.add_parser("export", help="Export model from TM1 to a folder")
-    _add_log_level(p_export)
+    _add_common_cli_options(p_export)
     p_export.add_argument("-s", "--server", type=str, required=True, help="TM1 server name from tm1servers config")
     p_export.add_argument(
         "-mo", "--model-output-folder",
@@ -635,8 +647,11 @@ def main():
     p_export.add_argument(
         "--max-workers",
         type=int,
-        default=_default_max_workers(),
-        help="Maximum worker count for export internals (default: cpu_count/2 + 1).",
+        default=None,
+        help=(
+            "CPU worker count. If defined, IO workers are 2x this value. "
+            "If omitted, CPU workers default to cpu_count/2 + 1 and IO workers to cpu_count*2."
+        ),
     )
     p_export.set_defaults(handler=_cmd_export)
 
@@ -645,7 +660,7 @@ def main():
         aliases=["filter"],
         help="Load a model folder, apply filter rules, write output folder",
     )
-    _add_log_level(p_filter)
+    _add_common_cli_options(p_filter)
     p_filter.add_argument("-m", "--model-folder", type=str, default="export", help="Input model folder")
     p_filter.add_argument(
         "-mo", "--model-output-folder",
@@ -663,7 +678,7 @@ def main():
     p_filter.set_defaults(handler=_cmd_filter)
 
     p_compare = sub.add_parser("compare", help="Compare two model folders and write a changeset file")
-    _add_log_level(p_compare)
+    _add_common_cli_options(p_compare)
     p_compare.add_argument(
         "--source",
         type=str,
@@ -705,16 +720,16 @@ def main():
     p_compare.add_argument(
         "--max-workers",
         type=int,
-        default=_default_max_workers(),
+        default=None,
         help=(
-            "Maximum combined worker count for compare deserialization (default: cpu_count/2 + 1). "
+            "CPU worker count for compare deserialization. If omitted, defaults to cpu_count/2 + 1. "
             "Workers are split between source and target; odd values assign one extra to target."
         ),
     )
     p_compare.set_defaults(handler=_cmd_compare)
 
     p_apply = sub.add_parser("apply", help="Apply a changeset file to a TM1 server")
-    _add_log_level(p_apply)
+    _add_common_cli_options(p_apply)
     p_apply.add_argument("-s", "--server", type=str, required=True, help="TM1 server name from tm1servers config")
     p_apply.add_argument(
         "-c", "--changeset",
@@ -741,7 +756,7 @@ def main():
         aliases=["changeset-filter"],
         help="Toggle apply flags in a changeset using filter rules",
     )
-    _add_log_level(p_changeset_filter)
+    _add_common_cli_options(p_changeset_filter)
     p_changeset_filter.add_argument(
         "--changeset-path",
         type=str,
@@ -758,13 +773,17 @@ def main():
 
     args = parser.parse_args()
     setup_logging(
-        args.log_level or "DEBUG",
+        "DEBUG" if bool(getattr(args, "debug", False)) else None,
         enable_console=bool(getattr(args, "console_logs", False)),
         log_file=getattr(args, "log_file", None),
         command_name=getattr(args, "command", None),
     )
     logger.info("Command started: %s", args.command)
-    args.handler(args)
+    try:
+        args.handler(args)
+    except KeyboardInterrupt:
+        logger.warning("Command interrupted by user")
+        sys.exit(130)
     logger.info("Command finished: %s", args.command)
 
 

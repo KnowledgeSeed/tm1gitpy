@@ -36,22 +36,7 @@ def _get_names_page(
     count: bool = False,
     **kwargs,
 ) -> DimensionNamesResult:
-    """Get one page of dimension names with optional filter and pagination controls.
-
-    Similar to TM1py DimensionService.get_all_names, with support for OData:
-    - $filter: Restrict returned dimensions
-    - $skip: Number of dimensions to skip
-    - $top: Maximum number of dimensions to return
-    - $count: Include total count in response when True
-
-    :param tm1_conn: TM1Service connection
-    :param filter: Optional OData filter expression (without "$filter=" prefix)
-    :param skip: Number of dimensions to skip (default 0)
-    :param top: Maximum number of dimensions to return (default None, not applied)
-    :param count: If True, request total count in response (default False)
-    :param kwargs: Passed through to REST GET (e.g. timeout)
-    :return: DimensionNamesResult with names and optional count
-    """
+    """Get one page of dimension names with optional filter and pagination controls."""
     base_url = format_url("/Dimensions?$select=Name")
 
     params: List[str] = []
@@ -91,19 +76,7 @@ def get_names(
     page_size: int = 1000,
     **kwargs,
 ) -> List[str]:
-    """Fetch all dimension names page-by-page.
-
-    Requests pages with $skip / $top until all rows are fetched. The first page
-    requests $count=true to determine total row count and terminate reliably when
-    count is reached.
-
-    :param tm1_conn: TM1Service connection
-    :param filter: Optional OData filter expression (without "$filter=" prefix)
-    :param page_size: Number of dimensions per page (default 1000)
-    :param kwargs: Passed through to REST GET (e.g. timeout)
-    :return: All fetched dimension names
-    """
-
+    """Fetch all dimension names page-by-page."""
     all_names: List[str] = []
 
     def _fetcher(

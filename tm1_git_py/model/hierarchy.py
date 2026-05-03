@@ -4,11 +4,14 @@ import logging
 import os
 import re
 import time
+import uuid
 from typing import List, Any, Dict, Optional, Tuple, MutableSequence, Iterator
 import TM1py
 from TM1py import TM1Service
 from TM1py.Utils import format_url
 from requests import Response
+
+from tm1_git_py.progress_reporting import ProgressEvent, ProgressSink
 
 # Keep CRUD helpers imported in module namespace for compatibility with existing patches/tests.
 from .element import Element, create_element, delete_element, update_element
@@ -70,48 +73,41 @@ class _HierarchyStagedWriter:
         self,
         model_output_dir: str,
         dimension_name: str,
-        hierarchy_name: str,
-        hierarchy_etag: Optional[str] = None,
-        elements_filter_rules: Optional[list[str]] = None,
-        edges_filter_rules: Optional[list[str]] = None,
-        subsets_filter_rules: Optional[list[str]] = None,
+        hierarchy: Any,
     ):
+        self.hierarchy = hierarchy
+        self.hierarchy_name = hierarchy.name
         final_parent_dir = os.path.join(model_output_dir, "dimensions", f"{dimension_name}.hierarchies")
         os.makedirs(final_parent_dir, exist_ok=True)
-        self.final_path = os.path.join(final_parent_dir, f"{hierarchy_name}.json")
-        self.inprogress_path = os.path.join(final_parent_dir, f".{hierarchy_name}.json.inprogress")
-        self.hierarchy_name = hierarchy_name
-        self.hierarchy_etag = hierarchy_etag
-        self.elements_filter_rules = list(elements_filter_rules or [])
-        self.edges_filter_rules = list(edges_filter_rules or [])
-        self.subsets_filter_rules = list(subsets_filter_rules or [])
-        if os.path.exists(self.inprogress_path):
-            os.remove(self.inprogress_path)
-        self.elements_ref: Optional[StoreBackedSequence[Element]] = None
-        self.edges_ref: Optional[StoreBackedSequence[Edge]] = None
-        self.subsets_ref: Optional[StoreBackedSequence[Subset]] = None
+        self.final_path = os.path.join(final_parent_dir, f"{self.hierarchy_name}.json")
+        self.inprogress_path = os.path.join(
+            final_parent_dir,
+            f".{self.hierarchy_name}.{uuid.uuid4().hex}.json.inprogress",
+        )
+        self.elements_ref: Any = None
+        self.edges_ref: Any = None
+        self.subsets_ref: Any = None
         self._finalized = False
 
-    def bind_collections(
-        self,
-        *,
-        elements: StoreBackedSequence[Element],
-        edges: StoreBackedSequence[Edge],
-        subsets: StoreBackedSequence[Subset],
-    ) -> None:
-        self.elements_ref = elements
-        self.edges_ref = edges
-        self.subsets_ref = subsets
+    def bind_collections(self) -> None:
+        self.elements_ref = self.hierarchy.elements
+        self.edges_ref = self.hierarchy.edges
+        self.subsets_ref = self.hierarchy.subsets
 
     def _write_payload_array_from_json_strings(
         self,
         fh,
         key: str,
         payload_json_iter: Iterator[str],
+        *,
+        progress_sink: Optional[ProgressSink] = None,
+        progress_message: Optional[str] = None,
+        progress_total: Optional[int] = None,
     ) -> int:
         fh.write(f'\t"{key}":\n\t[')
         first = True
         emitted = 0
+        progress_every = max(1, self.JSON_DUMP_PROGRESS_EVERY)
         for payload_json in payload_json_iter:
             if first:
                 fh.write("\n")
@@ -121,22 +117,66 @@ class _HierarchyStagedWriter:
             emitted += 1
             fh.write("\t\t")
             fh.write(payload_json)
+            if progress_sink is not None and emitted % progress_every == 0:
+                progress_sink.on_event(
+                    ProgressEvent.worker_line(
+                        current=emitted,
+                        total=progress_total,
+                        message=progress_message,
+                        path=self.final_path,
+                    )
+                )
         if first:
             fh.write("]")
         else:
             fh.write("\n\t]")
+        if progress_sink is not None:
+            progress_sink.on_event(
+                ProgressEvent.worker_line(
+                    current=emitted,
+                    total=progress_total,
+                    message=progress_message,
+                    path=self.final_path,
+                )
+            )
         return emitted
 
-    def _build_subset_links(self) -> list[str]:
+    def _build_subset_links(
+        self,
+        *,
+        progress_sink: Optional[ProgressSink] = None,
+        progress_total: Optional[int] = None,
+    ) -> list[str]:
         links: list[str] = []
         if self.subsets_ref is None:
             return links
+        progress_every = max(1, self.JSON_DUMP_PROGRESS_EVERY)
+        scanned = 0
         for payload_json in self.subsets_ref.iter_payload_json_strings(ordered_by_identity=True):
+            scanned += 1
             payload = _loads_json(payload_json)
             subset_name = payload.get("name") or payload.get("Name")
             if not subset_name:
                 continue
             links.append(format_url("{}.subsets/{}.json", self.hierarchy_name, subset_name))
+            if progress_sink is not None and scanned % progress_every == 0:
+                progress_sink.on_event(
+                    ProgressEvent.worker_line(
+                        current=scanned,
+                        total=progress_total,
+                        message=f"Building subset links ({self.hierarchy_name})",
+                        path=self.final_path,
+                    )
+                )
+        if progress_sink is not None:
+            progress_sink.on_event(
+                ProgressEvent.worker_line(
+                    current=scanned,
+                    total=progress_total,
+                    message=f"Building subset links ({self.hierarchy_name})",
+                    path=self.final_path,
+                )
+            )
         return links
 
     def _sort_staged_jsonls(self) -> None:
@@ -169,81 +209,95 @@ class _HierarchyStagedWriter:
             yield json.dumps(payload, ensure_ascii=False)
 
     @staticmethod
-    def _apply_group_metadata(
-        sequence: StoreBackedSequence[Any],
+    def _set_final_serialized_path_mtime(
+        sequence: Any,
         *,
         final_mtime_ns: int,
-        filter_rules: list[str],
-        etag: Optional[str],
     ) -> None:
-        sequence.set_source_json_mtime_ns(final_mtime_ns)
-        sequence.set_filter_rules(filter_rules)
-        
-        if etag is not None:
-            sequence.set_etag(etag)
+        if hasattr(sequence, "set_source_json_mtime_ns"):
+            sequence.set_source_json_mtime_ns(final_mtime_ns)
 
-    def finalize(self) -> str:
-        if not self._finalized or not os.path.exists(self.final_path):
+    def _finalize_sequence(
+        self,
+        sequence: Any,
+        *,
+        final_mtime_ns: int,
+        signature: Optional[tuple[int, str]] = None,
+    ) -> None:
+        self._set_final_serialized_path_mtime(sequence, final_mtime_ns=final_mtime_ns)
+        if signature is None or not hasattr(sequence, "_store"):
+            return
+        row_count, content_hash = signature
+        sequence._store.commit_group_content_signature(
+            sequence.group_id,
+            row_count=row_count,
+            content_hash=content_hash,
+        )
+
+    def finalize(
+        self,
+        *,
+        content_signatures: Optional[dict[str, tuple[int, str]]] = None,
+        assume_serialized: bool = False,
+    ) -> str:
+        if not os.path.exists(self.final_path):
             self.serialize_hierarchy_json()
+        elif not assume_serialized and not self._finalized:
+            self.serialize_hierarchy_json()
+        if not os.path.exists(self.final_path):
+            raise FileNotFoundError(self.final_path)
         final_mtime_ns = int(os.stat(self.final_path).st_mtime_ns)
+        signatures = content_signatures or {}
         if self.elements_ref is not None:
-            self._apply_group_metadata(
+            self._finalize_sequence(
                 self.elements_ref,
                 final_mtime_ns=final_mtime_ns,
-                filter_rules=self.elements_filter_rules,
-                etag=self.hierarchy_etag,
-            )
-            row_count, content_hash = self.elements_ref.recalculate_content_signature_parallel()
-            self.elements_ref._store.commit_group_content_signature(
-                self.elements_ref.group_id,
-                row_count=row_count,
-                content_hash=content_hash
+                signature=signatures.get("elements"),
             )
         
         if self.edges_ref is not None:
-            self._apply_group_metadata(
+            self._finalize_sequence(
                 self.edges_ref,
                 final_mtime_ns=final_mtime_ns,
-                filter_rules=self.edges_filter_rules,
-                etag=self.hierarchy_etag,
-            )
-            row_count, content_hash = self.edges_ref.recalculate_content_signature_parallel()
-            self.edges_ref._store.commit_group_content_signature(
-                self.edges_ref.group_id,
-                row_count=row_count,
-                content_hash=content_hash
+                signature=signatures.get("edges"),
             )
         if self.subsets_ref is not None:
-            self._apply_group_metadata(
+            self._finalize_sequence(
                 self.subsets_ref,
                 final_mtime_ns=final_mtime_ns,
-                filter_rules=self.subsets_filter_rules,
-                etag=self.hierarchy_etag,
-            )
-            row_count, content_hash = self.subsets_ref.recalculate_content_signature_parallel()
-            self.subsets_ref._store.commit_group_content_signature(
-                self.subsets_ref.group_id,
-                row_count=row_count,
-                content_hash=content_hash
+                signature=signatures.get("subsets"),
             )
         return self.final_path
 
-    def serialize_hierarchy_json(self) -> str:
-        if self._finalized:
+    def serialize_hierarchy_json(self, progress_sink: Optional[ProgressSink] = None) -> str:
+        if self._finalized and os.path.exists(self.final_path):
             logger.debug("Skipping finalize for hierarchy='%s' (already finalized)", self.hierarchy_name)
             return self.final_path
         total_started = time.perf_counter()
+        elements_count = len(self.elements_ref) if self.elements_ref is not None else 0
+        edges_count = len(self.edges_ref) if self.edges_ref is not None else 0
+        subsets_count = len(self.subsets_ref) if self.subsets_ref is not None else 0
+        total_rows = elements_count + edges_count + subsets_count
         logger.info(
             "Starting hierarchy finalization hierarchy='%s' target='%s'",
             self.hierarchy_name,
             self.final_path,
         )
+        if progress_sink is not None:
+            progress_sink.on_event(
+                ProgressEvent.worker_line(
+                    current=0,
+                    total=max(1, total_rows),
+                    message=f"Serializing hierarchy ({self.hierarchy_name})",
+                    path=self.final_path,
+                )
+            )
         # self._sort_staged_jsonls()
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")
             fh.write('\t"@type":' + json.dumps("Hierarchy", ensure_ascii=False) + ",\n")
             fh.write("\t\"Name\":" + json.dumps(self.hierarchy_name, ensure_ascii=False) + ",\n")
-            elements_empty = self.elements_ref is None or len(self.elements_ref) == 0
+            elements_empty = elements_count == 0
             if elements_empty:
                 fh.write('\t"Elements":[],\n')
             else:
@@ -256,6 +310,9 @@ class _HierarchyStagedWriter:
                         progress_label=f"{self.hierarchy_name}:Elements",
                         progress_every=self.JSON_DUMP_PROGRESS_EVERY,
                     ),
+                    progress_sink=progress_sink,
+                    progress_message=f"Writing elements ({self.hierarchy_name})",
+                    progress_total=elements_count,
                 )
                 logger.info(
                     "Hierarchy serialize elements write duration hierarchy='%s' duration_ms=%.3f",
@@ -263,7 +320,7 @@ class _HierarchyStagedWriter:
                     (time.perf_counter() - elements_started) * 1000,
                 )
                 fh.write(",\n")
-            edges_nonempty = self.edges_ref is not None and len(self.edges_ref) > 0
+            edges_nonempty = edges_count > 0
             if edges_nonempty:
                 edges_started = time.perf_counter()
                 self._write_payload_array_from_json_strings(
@@ -274,6 +331,9 @@ class _HierarchyStagedWriter:
                         progress_label=f"{self.hierarchy_name}:Edges",
                         progress_every=self.JSON_DUMP_PROGRESS_EVERY,
                     ),
+                    progress_sink=progress_sink,
+                    progress_message=f"Writing edges ({self.hierarchy_name})",
+                    progress_total=edges_count,
                 )
                 logger.info(
                     "Hierarchy serialize edges write duration hierarchy='%s' duration_ms=%.3f",
@@ -282,7 +342,10 @@ class _HierarchyStagedWriter:
                 )
                 fh.write(",\n")
             subset_links_started = time.perf_counter()
-            subset_links = self._build_subset_links()
+            subset_links = self._build_subset_links(
+                progress_sink=progress_sink,
+                progress_total=subsets_count,
+            )
             logger.info(
                 "Hierarchy serialize subset-links build duration hierarchy='%s' duration_ms=%.3f",
                 self.hierarchy_name,
@@ -290,7 +353,7 @@ class _HierarchyStagedWriter:
             )
             _write_hierarchy_subset_links_field(fh, subset_links)
             fh.write("}")
-            os.replace(self.inprogress_path, self.final_path)
+        os.replace(self.inprogress_path, self.final_path)
         
         logger.info(
             "Completed hierarchy finalization hierarchy='%s' target='%s'",
@@ -302,6 +365,15 @@ class _HierarchyStagedWriter:
             self.hierarchy_name,
             (time.perf_counter() - total_started) * 1000,
         )
+        if progress_sink is not None:
+            progress_sink.on_event(
+                ProgressEvent.worker_line(
+                    current=max(1, total_rows),
+                    total=max(1, total_rows),
+                    message=f"Serialized hierarchy ({self.hierarchy_name})",
+                    path=self.final_path,
+                )
+            )
         self._finalized = True
         return self.final_path
 
@@ -316,7 +388,6 @@ class Hierarchy:
         *,
         dimension_name: Optional[str] = None,
         model_id: Optional[str] = None,
-        model_output_dir: Optional[str] = None,
         serialize: bool = False,
         hierarchy_etag: Optional[str] = None,
         reuse_existing_store: bool = False,
@@ -324,7 +395,7 @@ class Hierarchy:
         edges_filter_rules: Optional[list[str]] = None,
         subsets_filter_rules: Optional[list[str]] = None,
     ):
-        self._staged_writer: Optional[_HierarchyStagedWriter] = None
+        _ = serialize, elements_filter_rules, edges_filter_rules, subsets_filter_rules
         if model_id:
             if not dimension_name:
                 raise ValueError("Hierarchy with model_id requires dimension_name.")
@@ -355,25 +426,10 @@ class Hierarchy:
                 elements.replace_with_payloads(())
                 edges.replace_with_payloads(())
                 subsets.replace_with_payloads(())
-            if serialize:
-                staged_output_dir = model_output_dir or str(model_id)
-                self._staged_writer = _HierarchyStagedWriter(
-                    model_output_dir=staged_output_dir,
-                    dimension_name=dimension_name,
-                    hierarchy_name=name,
-                    hierarchy_etag=hierarchy_etag,
-                    elements_filter_rules=elements_filter_rules,
-                    edges_filter_rules=edges_filter_rules,
-                    subsets_filter_rules=subsets_filter_rules,
-                )
-                self._staged_writer.bind_collections(
-                    elements=elements,
-                    edges=edges,
-                    subsets=subsets,
-                )
 
         self.type = 'Hierarchy'
         self.name = name
+        self.hierarchy_etag = hierarchy_etag
         self.elements = elements if elements is not None else []
         self.edges = edges if edges is not None else []
         self.subsets = subsets if subsets is not None else []
@@ -383,18 +439,17 @@ class Hierarchy:
         self.write_json(buf)
         return buf.getvalue()
 
-    def finalize(self) -> Optional[str]:
-        if not self._staged_writer:
-            return None
-        return self._staged_writer.finalize()
+    def persist_elements_etag(self) -> None:
+        if hasattr(self.elements, "set_etag"):
+            self.elements.set_etag(self.hierarchy_etag)
 
-    def serialize_hierarchy_json(self) -> Optional[str]:
-        if not self._staged_writer:
-            return None
-        return self._staged_writer.serialize_hierarchy_json()
+    def persist_edges_etag(self) -> None:
+        if hasattr(self.edges, "set_etag"):
+            self.edges.set_etag(self.hierarchy_etag)
 
-    def finalize_staged_json(self) -> Optional[str]:
-        return self.finalize()
+    def persist_subsets_etag(self) -> None:
+        if hasattr(self.subsets, "set_etag"):
+            self.subsets.set_etag(self.hierarchy_etag)
 
     def _write_array(self, fh, key: str, collection: MutableSequence[Any], *, indent: str = "\t") -> None:
         item_prefix = indent * 2
@@ -418,22 +473,6 @@ class Hierarchy:
             fh.write("]")
 
     def write_json(self, fh) -> None:
-        if self._staged_writer:
-            final_path = self.finalize()
-            target_path = getattr(fh, "name", None)
-            if isinstance(target_path, str):
-                try:
-                    if os.path.abspath(target_path) == os.path.abspath(final_path):
-                        return
-                except Exception:
-                    pass
-            with open(final_path, "r", encoding="utf-8") as src:
-                while True:
-                    chunk = src.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    fh.write(chunk)
-            return
         fh.write("{\n")
         fh.write("\t\"@type\":" + json.dumps(self.type, ensure_ascii=False) + ",\n")
         fh.write("\t\"Name\":" + json.dumps(self.name, ensure_ascii=False) + ",\n")

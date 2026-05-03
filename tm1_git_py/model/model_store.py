@@ -8,7 +8,8 @@ from pathlib import Path
 from contextlib import contextmanager
 from typing import Any, Callable, Iterable, Iterator, Optional
 import orjson
-import sqlite3
+
+from tm1_git_py._worker_db import WorkerDB
 
 
 DEFAULT_BULK_INSERT_BATCH_SIZE = 10_000
@@ -32,19 +33,18 @@ def _json_loads(raw: str) -> Any:
 def _identity_key_query_for_type(payload_table: str, normalized: str) -> str:
     if normalized in ("element", "elements"):
         return (
-            f"SELECT COALESCE(Name, ''), COALESCE(Type, ''), seq FROM {payload_table} "
-            "WHERE group_id=? ORDER BY COALESCE(Name, ''), seq LIMIT 1 OFFSET ?"
+            f"SELECT Name FROM {payload_table} "
+            "WHERE group_id=? ORDER BY Name LIMIT 1 OFFSET ?"
         )
     if normalized in ("edge", "edges"):
         return (
-            f"SELECT COALESCE(ParentName, ''), COALESCE(ComponentName, ''), "
-            f"COALESCE(CAST(Weight AS TEXT), ''), seq FROM {payload_table} "
-            "WHERE group_id=? ORDER BY COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq LIMIT 1 OFFSET ?"
+            f"SELECT ParentName, ComponentName FROM {payload_table} "
+            "WHERE group_id=? ORDER BY ParentName, ComponentName LIMIT 1 OFFSET ?"
         )
     if normalized in ("subset", "subsets"):
         return (
-            f"SELECT COALESCE(Name, ''), seq FROM {payload_table} "
-            "WHERE group_id=? ORDER BY COALESCE(Name, ''), seq LIMIT 1 OFFSET ?"
+            f"SELECT Name FROM {payload_table} "
+            "WHERE group_id=? ORDER BY Name LIMIT 1 OFFSET ?"
         )
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
 
@@ -52,31 +52,34 @@ def _identity_key_query_for_type(payload_table: str, normalized: str) -> str:
 def _identity_chunk_query_for_type(payload_table: str, normalized: str) -> str:
     if normalized in ("element", "elements"):
         return (
-            f"SELECT COALESCE(Name, ''), COALESCE(Type, ''), seq FROM {payload_table} "
-            "WHERE group_id=? ORDER BY COALESCE(Name, ''), seq LIMIT ? OFFSET ?"
+            f"SELECT Name, Type FROM {payload_table} "
+            "WHERE group_id=? ORDER BY Name LIMIT ? OFFSET ?"
         )
     if normalized in ("edge", "edges"):
         return (
-            f"SELECT COALESCE(ParentName, ''), COALESCE(ComponentName, ''), "
-            f"COALESCE(CAST(Weight AS TEXT), ''), seq FROM {payload_table} "
-            "WHERE group_id=? ORDER BY COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq LIMIT ? OFFSET ?"
+            f"SELECT ParentName, ComponentName, CAST(Weight AS TEXT) FROM {payload_table} "
+            "WHERE group_id=? ORDER BY ParentName, ComponentName LIMIT ? OFFSET ?"
         )
     if normalized in ("subset", "subsets"):
         return (
-            f"SELECT COALESCE(Name, ''), seq FROM {payload_table} "
-            "WHERE group_id=? ORDER BY COALESCE(Name, ''), seq LIMIT ? OFFSET ?"
+            f"SELECT Name FROM {payload_table} "
+            "WHERE group_id=? ORDER BY Name LIMIT ? OFFSET ?"
         )
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
 
 
 def _identity_line_for_type(normalized: str, row: tuple[Any, ...]) -> str:
     if normalized in ("element", "elements"):
-        return f"{row[0]}\x1f{row[1]}"
+        return f"{_empty_if_none(row[0])}\x1f{_empty_if_none(row[1])}"
     if normalized in ("edge", "edges"):
-        return f"{row[0]}\x1f{row[1]}\x1f{row[2]}"
+        return f"{_empty_if_none(row[0])}\x1f{_empty_if_none(row[1])}\x1f{_empty_if_none(row[2])}"
     if normalized in ("subset", "subsets"):
-        return str(row[0])
+        return str(_empty_if_none(row[0]))
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
+
+
+def _empty_if_none(value: Any) -> Any:
+    return "" if value is None else value
 
 
 
@@ -97,25 +100,36 @@ def _parallel_identity_chunk_hash_worker(
     if on_chunk_start is not None:
         on_chunk_start(fetch_batch_size)
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30.0)
+    db = WorkerDB(
+        db_path,
+        execute_init=("PRAGMA query_only=ON",),
+    )
     try:
-        conn.execute("PRAGMA query_only=ON")
         sql = _identity_chunk_query_for_type(payload_table, normalized)
-        cursor = conn.execute(sql, (group_id, chunk_limit, chunk_offset))
         hasher = hashlib.sha256()
         row_count = 0
-        while True:
-            rows = cursor.fetchmany(fetch_batch_size)
+        # Page through the chunk in `fetch_batch_size` slices to bound memory
+        # usage; SqliteWorker buffers the full result set per query.
+        local_offset = chunk_offset
+        remaining = chunk_limit
+        while remaining > 0:
+            page_limit = min(fetch_batch_size, remaining)
+            rows = db.fetch_all(sql, (group_id, page_limit, local_offset))
             if not rows:
                 break
             for row in rows:
                 hasher.update((_identity_line_for_type(normalized, tuple(row)) + "\n").encode("utf-8"))
                 row_count += 1
+            fetched = len(rows)
+            local_offset += fetched
+            remaining -= fetched
+            if fetched < page_limit:
+                break
         if on_chunk_end is not None:
             on_chunk_end(row_count)
         return chunk_idx, row_count, hasher.hexdigest()
     finally:
-        conn.close()
+        db.close()
 
 
 class ModelStore:
@@ -127,14 +141,20 @@ class ModelStore:
     def __init__(self, db_path: str):
         self.db_path = db_path
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        self._conn = sqlite3.connect(db_path, timeout=30.0, check_same_thread=False)
-        if hasattr(self._conn, "row_factory"):
-            try:
-                self._conn.row_factory = sqlite3.Row
-            except Exception:
-                pass
-        self._tx_depth = 0
+        self._conn = WorkerDB(
+            db_path,
+            execute_init=(
+                "PRAGMA foreign_keys=OFF",
+                "PRAGMA journal_mode=WAL",
+                "PRAGMA synchronous=NORMAL",
+                "PRAGMA temp_store=MEMORY",
+                "PRAGMA busy_timeout=30000",
+            ),
+        )
         self._initialize()
+
+    def close(self) -> None:
+        self._conn.close()
 
     @staticmethod
     def _cell(row: Any, key: str, index: int) -> Any:
@@ -165,26 +185,34 @@ class ModelStore:
         return created
 
     def _initialize(self) -> None:
-        self._conn.execute("PRAGMA foreign_keys=OFF")
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.execute("PRAGMA temp_store=MEMORY")
-        self._conn.execute("PRAGMA busy_timeout=30000")
         if self._schema_needs_reset():
             self._reset_schema()
         self._create_schema()
         self._conn.commit()
 
     def _table_columns(self, table_name: str) -> list[str]:
-        rows = self._conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-        return [str(self._cell(row, "name", 1)) for row in rows]
+        rows = self._conn.fetch_all(
+            "SELECT name FROM pragma_table_info(?)",
+            (table_name,),
+        )
+        return [str(row[0]) for row in rows]
 
     def _table_exists(self, table_name: str) -> bool:
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
             (table_name,),
-        ).fetchone()
+        )
         return row is not None
+
+    def _table_sql(self, table_name: str) -> str:
+        row = self._conn.fetch_one(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            (table_name,),
+        )
+        if row is None:
+            return ""
+        value = self._cell(row, "sql", 0)
+        return str(value or "")
 
     def _schema_needs_reset(self) -> bool:
         # Fresh DB: create schema normally.
@@ -207,14 +235,16 @@ class ModelStore:
         if actual_groups != expected_groups:
             return True
         expected_object_tables = {
-            "element_objects": {"group_id", "seq", "Name", "Type"},
-            "edge_objects": {"group_id", "seq", "ParentName", "ComponentName", "Weight"},
-            "subset_objects": {"group_id", "seq", "Name", "Expression"},
+            "element_objects": {"group_id", "Name", "Type"},
+            "edge_objects": {"group_id", "ParentName", "ComponentName", "Weight"},
+            "subset_objects": {"group_id", "Name", "Expression"},
         }
         for table_name, expected_cols in expected_object_tables.items():
             if not self._table_exists(table_name):
                 return True
             if set(self._table_columns(table_name)) != expected_cols:
+                return True
+            if "WITHOUT ROWID" not in self._table_sql(table_name).upper():
                 return True
         # Legacy table indicates pre-refactor layout; reset instead of migrating.
         if self._table_exists("objects"):
@@ -223,12 +253,11 @@ class ModelStore:
 
     def _reset_schema(self) -> None:
         logger.debug("ModelStore schema mismatch detected, discarding previous model store at '%s'", self.db_path)
-        with self.tx():
-            self._conn.execute("DROP TABLE IF EXISTS objects")
-            self._conn.execute("DROP TABLE IF EXISTS edge_objects")
-            self._conn.execute("DROP TABLE IF EXISTS element_objects")
-            self._conn.execute("DROP TABLE IF EXISTS subset_objects")
-            self._conn.execute("DROP TABLE IF EXISTS groups")
+        self._conn.execute("DROP TABLE IF EXISTS objects")
+        self._conn.execute("DROP TABLE IF EXISTS edge_objects")
+        self._conn.execute("DROP TABLE IF EXISTS element_objects")
+        self._conn.execute("DROP TABLE IF EXISTS subset_objects")
+        self._conn.execute("DROP TABLE IF EXISTS groups")
 
     def _create_schema(self) -> None:
         self._conn.execute(
@@ -253,63 +282,32 @@ class ModelStore:
             """
             CREATE TABLE IF NOT EXISTS element_objects (
                 group_id INTEGER NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
-                seq INTEGER NOT NULL,
-                Name TEXT NULL,
+                Name TEXT NOT NULL,
                 Type TEXT NULL,
-                PRIMARY KEY(group_id, seq)
-            )
+                PRIMARY KEY(group_id, Name)
+            ) WITHOUT ROWID
             """
         )
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS edge_objects (
                 group_id INTEGER NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
-                seq INTEGER NOT NULL,
-                ParentName TEXT NULL,
-                ComponentName TEXT NULL,
+                ParentName TEXT NOT NULL,
+                ComponentName TEXT NOT NULL,
                 Weight NUMERIC NULL,
-                PRIMARY KEY(group_id, seq)
-            )
+                PRIMARY KEY(group_id, ParentName, ComponentName)
+            ) WITHOUT ROWID
             """
         )
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS subset_objects (
                 group_id INTEGER NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
-                seq INTEGER NOT NULL,
-                Name TEXT NULL,
+                Name TEXT NOT NULL,
                 Expression TEXT NULL,
-                PRIMARY KEY(group_id, seq)
-            )
+                PRIMARY KEY(group_id, Name)
+            ) WITHOUT ROWID
             """
-        )
-        self._conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_element_objects_identity ON element_objects(
-                group_id,
-                Name
-            )
-            """
-        )
-        self._conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_edge_objects_identity ON edge_objects(
-                group_id,
-                ParentName,
-                ComponentName
-            )
-            """
-        )
-        self._conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_subset_objects_identity ON subset_objects(
-                group_id,
-                Name
-            )
-            """
-        )
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_groups_lookup ON groups(dimension_name, hierarchy_name, object_type)"
         )
         self._conn.commit()
 
@@ -325,10 +323,10 @@ class ModelStore:
         raise ValueError(f"Unsupported group object type for payload storage: '{object_type}'")
 
     def _object_type_for_group(self, group_id: int) -> str:
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             "SELECT object_type FROM groups WHERE group_id=?",
             (group_id,),
-        ).fetchone()
+        )
         if row is None:
             raise ValueError(f"Unknown group_id={group_id}")
         return str(self._cell(row, "object_type", 0))
@@ -345,32 +343,15 @@ class ModelStore:
 
     def _actual_row_count(self, group_id: int) -> int:
         table_name = self._object_table_for_group(group_id)
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             f"SELECT COUNT(*) FROM {table_name} WHERE group_id=?",
             (group_id,),
-        ).fetchone()
+        )
         return int(self._cell(row, "COUNT(*)", 0)) if row is not None else 0
-
-    def _next_append_seq(self, group_id: int) -> int:
-        """
-        Next ``seq`` for appending rows to this group without a full-table COUNT.
-
-        Uses ``MAX(seq)``, which is cheap with the primary key (group_id, seq).
-        Contiguous ``seq`` values 0..n-1 imply the next index is ``n``.
-        """
-        payload_table = self._object_table_for_group(group_id)
-        row = self._conn.execute(
-            f"SELECT COALESCE(MAX(seq), -1) AS max_seq FROM {payload_table} WHERE group_id=?",
-            (group_id,),
-        ).fetchone()
-        if row is None:
-            return 0
-        max_seq = int(self._cell(row, "max_seq", 0))
-        return max_seq + 1
 
     def _identity_order_clause_for_type(self, normalized: str) -> str:
         if normalized in ("element", "elements"):
-            return "Name, Type"
+            return "Name"
         if normalized in ("edge", "edges"):
             return "ParentName, ComponentName"
         if normalized in ("subset", "subsets"):
@@ -380,9 +361,11 @@ class ModelStore:
     @staticmethod
     def _parallel_identity_order_clause_for_type(normalized: str) -> str:
         if normalized in ("element", "elements"):
-            return "COALESCE(Name, ''), seq"
+            return "Name"
         if normalized in ("edge", "edges"):
-            return "COALESCE(ParentName, ''), COALESCE(ComponentName, ''), seq"
+            return "ParentName, ComponentName"
+        if normalized in ("subset", "subsets"):
+            return "Name"
         raise ValueError(f"Unsupported group object type for parallel identity ordering: '{normalized}'")
 
     def _payload_columns_for_type(self, normalized: str) -> tuple[str, ...]:
@@ -396,22 +379,40 @@ class ModelStore:
 
     def _payload_values_for_type(self, normalized: str, payload: dict[str, Any]) -> tuple[Any, ...]:
         if normalized in ("element", "elements"):
+            name = payload.get("Name")
+            if name is None:
+                name = payload.get("name")
             return (
-                payload.get("Name") or payload.get("name"),
+                "" if name is None else name,
                 payload.get("Type") or payload.get("type"),
             )
         if normalized in ("edge", "edges"):
             weight = payload.get("Weight")
             if weight is None:
                 weight = payload.get("weight")
+            parent_name = payload.get("ParentName")
+            if parent_name is None:
+                parent_name = payload.get("parentName")
+            if parent_name is None:
+                parent_name = payload.get("parent")
+            component_name = payload.get("ComponentName")
+            if component_name is None:
+                component_name = payload.get("componentName")
+            if component_name is None:
+                component_name = payload.get("name")
+            if component_name is None:
+                component_name = payload.get("Name")
             return (
-                payload.get("ParentName") or payload.get("parentName") or payload.get("parent"),
-                payload.get("ComponentName") or payload.get("componentName") or payload.get("name") or payload.get("Name"),
+                "" if parent_name is None else parent_name,
+                "" if component_name is None else component_name,
                 weight,
             )
         if normalized in ("subset", "subsets"):
+            name = payload.get("Name")
+            if name is None:
+                name = payload.get("name")
             return (
-                payload.get("Name") or payload.get("name"),
+                "" if name is None else name,
                 payload.get("Expression") or payload.get("expression"),
             )
         raise ValueError(f"Unsupported group object type: '{normalized}'")
@@ -476,44 +477,27 @@ class ModelStore:
     def _payload_json_from_row_for_type(self, normalized: str, row: Any) -> str:
         if normalized in ("element", "elements"):
             return (
-                "{"
-                f"\"Name\":{self._value_json(self._cell(row, 'Name', 0))},"
-                f"\"Type\":{self._value_json(self._cell(row, 'Type', 1))}"
-                "}"
+                "{\n"
+                f"\t\t\t\"Name\":{self._value_json(self._cell(row, 'Name', 0))},\n"
+                f"\t\t\t\"Type\":{self._value_json(self._cell(row, 'Type', 1))}\n"
+                "\t\t}"
             )
         if normalized in ("edge", "edges"):
             return (
-                "{"
-                f"\"ComponentName\":{self._value_json(self._cell(row, 'ComponentName', 1))},"
-                f"\"ParentName\":{self._value_json(self._cell(row, 'ParentName', 0))},"
-                f"\"Weight\":{self._value_json(self._cell(row, 'Weight', 2))}"
-                "}"
+                "{\n"
+                f"\t\t\t\"ComponentName\":{self._value_json(self._cell(row, 'ComponentName', 1))},\n"
+                f"\t\t\t\"ParentName\":{self._value_json(self._cell(row, 'ParentName', 0))},\n"
+                f"\t\t\t\"Weight\":{self._value_json(self._cell(row, 'Weight', 2))}\n"
+                "\t\t}"
             )
         if normalized in ("subset", "subsets"):
             return (
-                "{"
-                f"\"expression\":{self._value_json(self._cell(row, 'Expression', 1))},"
-                f"\"name\":{self._value_json(self._cell(row, 'Name', 0))}"
-                "}"
+                "{\n"
+                f"\t\t\t\"expression\":{self._value_json(self._cell(row, 'Expression', 1))},\n"
+                f"\t\t\t\"name\":{self._value_json(self._cell(row, 'Name', 0))}\n"
+                "\t\t}"
             )
         raise ValueError(f"Unsupported group object type: '{normalized}'")
-
-    @contextmanager
-    def tx(self) -> Iterator[sqlite3.Connection]:
-        # Use SAVEPOINT for all scopes to stay compatible with drivers that
-        # may start implicit transactions.
-        savepoint = f"sp_{self._tx_depth}_{time.time_ns()}"
-        self._conn.execute(f"SAVEPOINT {savepoint}")
-        self._tx_depth += 1
-        try:
-            yield self._conn
-            self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
-        except Exception:
-            self._conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-            self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
-            raise
-        finally:
-            self._tx_depth = max(0, self._tx_depth - 1)
 
     def ensure_group(
         self,
@@ -525,7 +509,7 @@ class ModelStore:
     ) -> int:
         _ = model_id
         now = time.time_ns()
-        self._conn.execute(
+        self._conn.execute_sync(
             """
             INSERT INTO groups(dimension_name, hierarchy_name, object_type, etag, filter_rules_json, row_count, content_hash, hash_algo, source_json_mtime_ns, updated_at_ns)
             VALUES (?, ?, ?, NULL, NULL, 0, ?, ?, NULL, ?)
@@ -533,13 +517,13 @@ class ModelStore:
             """,
             (dimension_name, hierarchy_name, object_type, self.EMPTY_CONTENT_HASH, self.HASH_ALGO, now),
         )
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             """
             SELECT group_id FROM groups
             WHERE dimension_name=? AND hierarchy_name=? AND object_type=?
             """,
             (dimension_name, hierarchy_name, object_type),
-        ).fetchone()
+        )
         self._conn.commit()
         if row is None:
             raise RuntimeError("Failed to create or resolve group id.")
@@ -547,7 +531,7 @@ class ModelStore:
 
     def get_hierarchy_etag(self, model_id: str, dimension_name: str, hierarchy_name: str) -> Optional[str]:
         _ = model_id
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             """
             SELECT etag
             FROM groups
@@ -556,7 +540,7 @@ class ModelStore:
             LIMIT 1
             """,
             (dimension_name, hierarchy_name),
-        ).fetchone()
+        )
         if row is None:
             return None
         value = self._cell(row, "etag", 0)
@@ -570,10 +554,10 @@ class ModelStore:
         self._conn.commit()
 
     def group_etag(self, group_id: int) -> Optional[str]:
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             "SELECT etag FROM groups WHERE group_id=?",
             (group_id,),
-        ).fetchone()
+        )
         if row is None:
             return None
         value = self._cell(row, "etag", 0)
@@ -588,10 +572,10 @@ class ModelStore:
         self._conn.commit()
 
     def group_filter_rules(self, group_id: int) -> list[str]:
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             "SELECT filter_rules_json FROM groups WHERE group_id=?",
             (group_id,),
-        ).fetchone()
+        )
         if row is None:
             return []
         raw = self._cell(row, "filter_rules_json", 0)
@@ -614,7 +598,7 @@ class ModelStore:
         object_type: str,
     ) -> tuple[Optional[str], list[str]]:
         _ = model_id
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             """
             SELECT etag, filter_rules_json
             FROM groups
@@ -622,7 +606,7 @@ class ModelStore:
             LIMIT 1
             """,
             (dimension_name, hierarchy_name, object_type),
-        ).fetchone()
+        )
         if row is None:
             return None, []
         etag = self._cell(row, "etag", 0)
@@ -653,10 +637,6 @@ class ModelStore:
         progress_label: Optional[str] = None,
         progress_every: int = DEFAULT_ITER_PROGRESS_EVERY,
     ) -> int:
-        # Avoid COUNT(*) here: repeated appends (e.g. paged TM1 export) would scan
-        # the whole group each time. MAX(seq) matches append semantics for dense seq.
-        next_seq = self._next_append_seq(group_id)
-        row_count = next_seq
         object_type_normalized = self._object_type_normalized_for_group(group_id)
         payload_table = self._object_table_for_group(group_id)
         payload_columns = self._payload_columns_for_type(object_type_normalized)
@@ -664,8 +644,8 @@ class ModelStore:
         batch_size = max(1, int(batch_size))
         next_log_at = max(1, int(progress_every))
         insert_sql = (
-            f"INSERT INTO {payload_table}(group_id, seq, {', '.join(payload_columns)}) "
-            f"VALUES (?, ?, {', '.join(['?'] * len(payload_columns))})"
+            f"INSERT INTO {payload_table}(group_id, {', '.join(payload_columns)}) "
+            f"VALUES (?, {', '.join(['?'] * len(payload_columns))})"
         )
         if progress_label:
             logger.info(
@@ -677,16 +657,14 @@ class ModelStore:
         pending_rows: list[tuple[Any, ...]] = []
 
         def _flush_pending_rows() -> None:
-            nonlocal pending_rows, row_count, next_log_at
+            nonlocal pending_rows, next_log_at
             if not pending_rows:
                 return
             batch_count = len(pending_rows)
-            with self.tx():
-                self._conn.executemany(
-                    insert_sql,
-                    pending_rows,
-                )
-            row_count += batch_count
+            self._conn.executemany(
+                insert_sql,
+                pending_rows,
+            )
             pending_rows = []
             if progress_label and inserted >= next_log_at:
                 logger.info(
@@ -699,28 +677,28 @@ class ModelStore:
                     next_log_at += max(1, int(progress_every))
 
         for payload in payloads:
-            pending_rows.append((group_id, next_seq, *self._payload_values_for_type(object_type_normalized, payload)))
-            next_seq += 1
+            pending_rows.append((group_id, *self._payload_values_for_type(object_type_normalized, payload)))
             inserted += 1
             if len(pending_rows) >= batch_size:
                 _flush_pending_rows()
         _flush_pending_rows()
+        
         now = time.time_ns()
         self._conn.execute(
-            """
+            f"""
             UPDATE groups
-            SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
+            SET row_count=(SELECT COUNT(*) FROM {payload_table} WHERE group_id=?),
+                content_hash=?, hash_algo=?, updated_at_ns=?
             WHERE group_id=?
             """,
             (
-                row_count,
+                group_id,
                 self.EMPTY_CONTENT_HASH,
                 self.PARALLEL_HASH_ALGO,
                 now,
                 group_id,
             ),
         )
-        self._conn.commit()
         if progress_label:
             logger.info(
                 "Completed DB append '%s' group_id=%d inserted=%d",
@@ -742,29 +720,46 @@ class ModelStore:
         payload_table = self._object_table_for_group(group_id)
         payload_columns = self._payload_columns_for_type(object_type_normalized)
         now = time.time_ns()
-        with self.tx():
-            self._conn.execute(f"DELETE FROM {payload_table} WHERE group_id=?", (group_id,))
-            for payload in payloads:
-                self._conn.execute(
-                    (
-                        f"INSERT INTO {payload_table}(group_id, seq, {', '.join(payload_columns)}) "
-                        f"VALUES (?, ?, {', '.join(['?'] * len(payload_columns))})"
-                    ),
-                    (group_id, row_count, *self._payload_values_for_type(object_type_normalized, payload)),
-                )
-                row_count += 1
+        # with self.tx():
+        self._conn.execute(f"DELETE FROM {payload_table} WHERE group_id=?", (group_id,))
+        for payload in payloads:
+            self._conn.execute(
+                (
+                    f"INSERT OR REPLACE INTO {payload_table}(group_id, {', '.join(payload_columns)}) "
+                    f"VALUES (?, {', '.join(['?'] * len(payload_columns))})"
+                ),
+                (group_id, *self._payload_values_for_type(object_type_normalized, payload)),
+            )
+            row_count += 1
+        row_count = self._actual_row_count(group_id)
+        if source_json_mtime_ns is None:
             self._conn.execute(
                 """
                 UPDATE groups
-                SET row_count=?, content_hash=?, hash_algo=?,
-                    source_json_mtime_ns=COALESCE(?, source_json_mtime_ns), updated_at_ns=?
+                SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
                 WHERE group_id=?
                 """,
                 (
                     row_count,
                     self.EMPTY_CONTENT_HASH,
                     self.PARALLEL_HASH_ALGO,
-                    str(int(source_json_mtime_ns)) if source_json_mtime_ns is not None else None,
+                    now,
+                    group_id,
+                ),
+            )
+        else:
+            self._conn.execute(
+                """
+                UPDATE groups
+                SET row_count=?, content_hash=?, hash_algo=?,
+                    source_json_mtime_ns=?, updated_at_ns=?
+                WHERE group_id=?
+                """,
+                (
+                    row_count,
+                    self.EMPTY_CONTENT_HASH,
+                    self.PARALLEL_HASH_ALGO,
+                    str(int(source_json_mtime_ns)),
                     now,
                     group_id,
                 ),
@@ -781,7 +776,7 @@ class ModelStore:
     ) -> Iterator[dict[str, Any]]:
         payload_table = self._object_table_for_group(group_id)
         object_type_normalized = self._object_type_normalized_for_group(group_id)
-        order_clause = self._identity_order_clause_for_type(object_type_normalized) if ordered_by_identity else "seq"
+        order_clause = self._identity_order_clause_for_type(object_type_normalized)
         total = self.row_count(group_id)
         if progress_label:
             logger.debug(
@@ -795,14 +790,11 @@ class ModelStore:
         next_log_at = max(1, progress_every)
         emitted = 0
         payload_columns = self._payload_columns_for_type(object_type_normalized)
-        cursor = self._conn.execute(
+        rows = self._conn.fetch_all(
             f"SELECT {', '.join(payload_columns)} FROM {payload_table} WHERE group_id=? ORDER BY {order_clause}",
             (group_id,),
         )
-        while True:
-            row = cursor.fetchone()
-            if row is None:
-                break
+        for row in rows:
             emitted += 1
             if progress_label and emitted >= next_log_at:
                 logger.debug(
@@ -834,7 +826,7 @@ class ModelStore:
     ) -> Iterator[str]:
         payload_table = self._object_table_for_group(group_id)
         object_type_normalized = self._object_type_normalized_for_group(group_id)
-        order_clause = self._identity_order_clause_for_type(object_type_normalized) if ordered_by_identity else "seq"
+        order_clause = self._identity_order_clause_for_type(object_type_normalized)
         total = self.row_count(group_id)
         if progress_label:
             logger.debug(
@@ -848,14 +840,11 @@ class ModelStore:
         next_log_at = max(1, progress_every)
         emitted = 0
         payload_columns = self._payload_columns_for_type(object_type_normalized)
-        cursor = self._conn.execute(
+        rows = self._conn.fetch_all(
             f"SELECT {', '.join(payload_columns)} FROM {payload_table} WHERE group_id=? ORDER BY {order_clause}",
             (group_id,),
         )
-        while True:
-            row = cursor.fetchone()
-            if row is None:
-                break
+        for row in rows:
             emitted += 1
             if progress_label and emitted >= next_log_at:
                 logger.debug(
@@ -878,10 +867,10 @@ class ModelStore:
             )
 
     def _identity_key_at_offset(self, payload_table: str, normalized: str, group_id: int, offset: int) -> tuple[Any, ...]:
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             _identity_key_query_for_type(payload_table, normalized),
             (group_id, int(offset)),
-        ).fetchone()
+        )
         if row is None:
             raise RuntimeError(
                 f"Failed to resolve identity key at offset={offset} for group_id={group_id}"
@@ -925,10 +914,10 @@ class ModelStore:
         return self._actual_row_count(group_id)
 
     def content_signature(self, group_id: int) -> Optional[tuple[int, str]]:
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             "SELECT content_hash FROM groups WHERE group_id=?",
             (group_id,),
-        ).fetchone()
+        )
         if row is None:
             return None
         return self._actual_row_count(group_id), str(self._cell(row, "content_hash", 0))
@@ -952,10 +941,10 @@ class ModelStore:
         self._conn.commit()
 
     def source_json_mtime_ns(self, group_id: int) -> Optional[int]:
-        row = self._conn.execute(
+        row = self._conn.fetch_one(
             "SELECT source_json_mtime_ns FROM groups WHERE group_id=?",
             (group_id,),
-        ).fetchone()
+        )
         if row is None:
             return None
         value = self._cell(row, "source_json_mtime_ns", 0)

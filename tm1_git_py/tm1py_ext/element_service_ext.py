@@ -1,7 +1,7 @@
 """Element-related utilities using TM1py, including paginated element retrieval."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, List, Optional, MutableSequence, Callable
+from typing import TYPE_CHECKING, Any, Callable, List, MutableSequence, Optional
 
 from TM1py.Utils import format_url
 
@@ -177,5 +177,5 @@ def get_elements_count(
     )
     if filter:
         url = f"{url}?$filter={filter}"
-    response = tm1_conn.connection.GET(url, **kwargs)
+    response = tm1_conn.connection.GET(url, **kwargs, async_requests_mode=True)
     return int(response.text.strip())

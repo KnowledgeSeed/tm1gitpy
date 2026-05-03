@@ -1,34 +1,21 @@
-import concurrent
 import json
 import logging
-import os
 import re
-import sys
-import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from concurrent.futures import Future, ThreadPoolExecutor
-from queue import Empty, Queue
+from dataclasses import dataclass, field
+from concurrent.futures import Future, wait
 import threading
-from typing import Dict, List, MutableSequence, Optional, Any
-from warnings import catch_warnings
+from typing import Callable, Dict, List, MutableSequence, Optional
 from TM1py import TM1Service
 import TM1py
 
-from tm1_git_py.model import element
-try:
-    from tqdm import tqdm  # type: ignore[reportMissingModuleSource]
-except Exception:  # pragma: no cover - optional runtime fallback
-    tqdm = None
-
-from functools import reduce
+from tm1_git_py.priority_thread_pool_executor import PriorityThreadPoolExecutor
 
 from tm1_git_py import filter as filter_module
+from tm1_git_py.content_hash_calculator import ContentHashCalculator
 from tm1_git_py.filter import EntityType, FilterRules, with_default_leaves_ignore, with_technical_objects_ignore
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
-from tm1_git_py.model.edge import Edge
-from tm1_git_py.model.element import Element
 from tm1_git_py.model.hierarchy import Hierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.model import Model
@@ -36,10 +23,10 @@ from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
 from tm1_git_py.model.model_store import ModelStore
-from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 from tm1_git_py.progress_reporting import (
+    MultiProcessProgressManager,
     NoopProgressSink,
     ProgressEvent,
     ProgressKind,
@@ -47,18 +34,16 @@ from tm1_git_py.progress_reporting import (
     ProgressSink,
     ProgressUnit,
 )
+from tm1_git_py.worker_config import resolve_worker_counts
 
 from tm1_git_py.tm1py_ext import (
     get_cube_names,
-    get_edges,
     get_edges_count,
-    get_elements,
     get_elements_count,
     _get_elements_page,
     _get_edges_page,
     _get_subsets_page,
     get_process_names,
-    get_subsets,
     get_subsets_count,
     get_views,
 )
@@ -68,99 +53,129 @@ from tm1_git_py.tm1py_ext.hierarchy_service_ext import get_all_names as get_hier
 
 logger = logging.getLogger(__name__)
 
-class ThreadSafeCounter:
+
+def _native_view_from_tm1py(view: TM1py.Objects.NativeView) -> NativeView:
+    raw_view = getattr(view, "_tm1git_raw_view_dict", None)
+    if isinstance(raw_view, dict):
+        return NativeView(
+            name=raw_view.get("Name") or view.name,
+            columns=raw_view.get("Columns") or [],
+            rows=raw_view.get("Rows") or [],
+            titles=raw_view.get("Titles") or [],
+            suppress_empty_columns=raw_view.get("SuppressEmptyColumns", view.suppress_empty_columns),
+            suppress_empty_rows=raw_view.get("SuppressEmptyRows", view.suppress_empty_rows),
+            format_string=raw_view.get("FormatString", view.format_string),
+        )
+    return NativeView(
+        name=view.name,
+        columns=view.columns,
+        rows=view.rows,
+        titles=view.titles,
+        suppress_empty_columns=view.suppress_empty_columns,
+        suppress_empty_rows=view.suppress_empty_rows,
+        format_string=view.format_string,
+    )
+
+
+@dataclass
+class PageFuture:
+    skip: int
+    future: Future
+
+
+@dataclass
+class HierarchyFuture:
+    dimension_name: str
+    hierarchy: Hierarchy
+    element_pages: list[PageFuture] = field(default_factory=list)
+    edge_pages: list[PageFuture] = field(default_factory=list)
+    subset_pages: list[PageFuture] = field(default_factory=list)
+    _elements_done_callbacks: list[Callable[["HierarchyFuture"], None]] = field(default_factory=list)
+    _edges_done_callbacks: list[Callable[["HierarchyFuture"], None]] = field(default_factory=list)
+    _subset_done_callbacks: list[Callable[["HierarchyFuture"], None]] = field(default_factory=list)
+
+    @property
+    def all_futures(self) -> list[Future]:
+        return [
+            page.future
+            for pages in (self.element_pages, self.edge_pages, self.subset_pages)
+            for page in pages
+        ]
+
+    def pages_for(self, page_kind: str) -> list[PageFuture]:
+        if page_kind == "elements":
+            return self.element_pages
+        if page_kind == "edges":
+            return self.edge_pages
+        if page_kind == "subsets":
+            return self.subset_pages
+        raise ValueError(f"Unsupported page kind: {page_kind}")
+
+    @property
+    def elements_done(self) -> bool:
+        return all(page.future.done() for page in self.element_pages)
+
+    @property
+    def edges_done(self) -> bool:
+        return all(page.future.done() for page in self.edge_pages)
+
+    @property
+    def subset_done(self) -> bool:
+        return all(page.future.done() for page in self.subset_pages)
+
+    def add_page(self, page_kind: str, *, skip: int, future: Future) -> None:
+        self.pages_for(page_kind).append(PageFuture(skip=skip, future=future))
+        future.add_done_callback(lambda _future: self._maybe_notify_done(page_kind))
+
+    def add_elements_done_callback(self, fn: Callable[["HierarchyFuture"], None]) -> None:
+        if self.elements_done:
+            fn(self)
+            return
+        self._elements_done_callbacks.append(fn)
+
+    def add_edges_done_callback(self, fn: Callable[["HierarchyFuture"], None]) -> None:
+        if self.edges_done:
+            fn(self)
+            return
+        self._edges_done_callbacks.append(fn)
+
+    def add_subset_done_callback(self, fn: Callable[["HierarchyFuture"], None]) -> None:
+        if self.subset_done:
+            fn(self)
+            return
+        self._subset_done_callbacks.append(fn)
+
+    def _notify_callbacks(self, callbacks: list[Callable[["HierarchyFuture"], None]]) -> None:
+        for callback in callbacks:
+            callback(self)
+
+    def _maybe_notify_done(self, page_kind: str) -> None:
+        if page_kind == "elements" and self.elements_done and self._elements_done_callbacks:
+            callbacks = self._elements_done_callbacks
+            self._elements_done_callbacks = []
+            self._notify_callbacks(callbacks)
+        elif page_kind == "edges" and self.edges_done and self._edges_done_callbacks:
+            callbacks = self._edges_done_callbacks
+            self._edges_done_callbacks = []
+            self._notify_callbacks(callbacks)
+        elif page_kind == "subsets" and self.subset_done and self._subset_done_callbacks:
+            callbacks = self._subset_done_callbacks
+            self._subset_done_callbacks = []
+            self._notify_callbacks(callbacks)
+
+
+class TotalCounter:
     def __init__(self):
-        self.big_total = 0
+        self._value = 0
         self.lock = threading.Lock()
 
     def increment_by(self, value: int):
-        with self.lock:  # Acquire lock before modifying the counter
-            self.big_total += value
+        with self.lock:
+            self._value += value
+        return self._value
 
     def get_value(self):
-        return self.big_total
-
-def _default_max_workers() -> int:
-    return max(1, ((os.cpu_count() or 1) // 2) + 1)
-
-
-# class TqdmExportProgress(ProgressSink):
-#     def __init__(self):
-#         self._overall_bar = None
-#         self._current_bar = None
-
-#     def on_event(self, event: ProgressEvent) -> None:
-#         if tqdm is None or not sys.stderr.isatty():
-#             return
-#         if self._overall_bar is None:
-#             self._overall_bar = tqdm(
-#                 total=1,
-#                 desc="Export overall",
-#                 unit="row",
-#                 leave=False,
-#                 dynamic_ncols=True,
-#                 position=0,
-#             )
-#         if self._current_bar is None:
-#             self._current_bar = tqdm(
-#                 total=1,
-#                 desc="Current",
-#                 unit="row",
-#                 leave=False,
-#                 dynamic_ncols=True,
-#                 position=1,
-#             )
-
-#         if event.scope == ProgressScope.TOTAL:
-#             if event.kind == ProgressKind.START:
-#                 total = max(1, int(event.total or 0))
-#                 current = min(max(0, int(event.current or 0)), total)
-#                 self._overall_bar.reset(total=total)
-#                 self._overall_bar.unit = event.unit.value
-#                 self._overall_bar.set_description_str(event.message or "Export overall", refresh=True)
-#                 self._overall_bar.n = current
-#                 self._overall_bar.refresh()
-#                 return
-#             if event.kind == ProgressKind.UPDATE:
-#                 if event.total is not None:
-#                     new_total = max(1, int(event.total))
-#                     if int(self._overall_bar.total or 1) != new_total:
-#                         self._overall_bar.reset(total=new_total)
-#                 total = int(self._overall_bar.total or 1)
-#                 self._overall_bar.n = min(max(0, int(event.current or 0)), total)
-#                 self._overall_bar.refresh()
-#                 return
-#         if event.scope == ProgressScope.WORKER:
-#             if event.kind == ProgressKind.START:
-#                 total = max(1, int(event.total or 0))
-#                 current = min(max(0, int(event.current or 0)), total)
-#                 self._current_bar.reset(total=total)
-#                 self._current_bar.unit = event.unit.value
-#                 self._current_bar.set_description_str(event.message or "Current", refresh=True)
-#                 self._current_bar.n = current
-#                 self._current_bar.refresh()
-#                 return
-#             if event.kind == ProgressKind.UPDATE:
-#                 if event.total is not None:
-#                     new_total = max(1, int(event.total))
-#                     if int(self._current_bar.total or 1) != new_total:
-#                         self._current_bar.reset(total=new_total)
-#                 total = int(self._current_bar.total or 1)
-#                 self._current_bar.n = min(max(0, int(event.current or 0)), total)
-#                 self._current_bar.refresh()
-#                 return
-
-#     def close(self) -> None:
-#         if self._current_bar is not None:
-#             self._current_bar.close()
-#             self._current_bar = None
-#         if self._overall_bar is not None:
-#             self._overall_bar.close()
-#             self._overall_bar = None
-
-
-def _emit_progress_event(progress_sink: ProgressSink, event: ProgressEvent) -> None:
-    progress_sink.on_event(event)
+        return self._value
 
 
 def export(
@@ -168,83 +183,61 @@ def export(
     model_id: str,
     filter_rules_list: Optional[list[str]] = None,
     *,
-    serialize: bool = False,
-    model_output_dir: Optional[str] = None,
     progress_sink: Optional[ProgressSink] = None,
     max_workers: Optional[int] = None,
 ) -> tuple[Model, Dict[str, str]]:
-    active_progress_sink: ProgressSink = progress_sink if progress_sink is not None else NoopProgressSink()
-    include_progress_kwarg = progress_sink is not None
-    effective_model_output_dir = model_output_dir or str(model_id)
 
-    logger.info("TM1 export started")
+    progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
+    if max_workers is not None and max_workers > 1:
+        multi_process_progress_manager = MultiProcessProgressManager(progress_sink)
+        multi_process_progress_manager.start()
+        active_progress_sink = multi_process_progress_manager.get_multi_process_progress_queue_sink()
+    else:
+        multi_process_progress_manager = progress_sink
+        active_progress_sink = progress_sink
+
+    total_counter = TotalCounter()
+
     effective_rules = with_default_leaves_ignore(filter_rules_list)
     effective_rules.extend(with_technical_objects_ignore(filter_rules_list))
     filter_rules = FilterRules(effective_rules)
-    logger.info(
-        "Export filters configured additional_rules=%d effective_rules=%d",
-        len(filter_rules_list or []),
-        len(effective_rules),
-    )
-
+    
     try:
-        if include_progress_kwarg:
-            _dimensions, _dim_errors = dimensions_to_model(
-                tm1_conn,
-                model_id=model_id,
-                filter_rules=filter_rules,
-                serialize=serialize,
-                model_output_dir=effective_model_output_dir,
-                progress_sink=active_progress_sink,
-                max_workers=max_workers,
-            )
-            _cubes, _cube_errors = cubes_to_model(
-                tm1_conn,
-                _dimensions,
-                filter_rules=filter_rules,
-                progress_sink=active_progress_sink,
-            )
-            _processes, _process_errors = procs_to_model(
-                tm1_conn,
-                filter_rules=filter_rules,
-                progress_sink=active_progress_sink,
-            )
-            _chores, _chore_errors = chores_to_model(
-                tm1_conn,
-                filter_rules=filter_rules,
-                progress_sink=active_progress_sink,
-            )
-        else:
-            _dimensions, _dim_errors = dimensions_to_model(
-                tm1_conn,
-                model_id=model_id,
-                filter_rules=filter_rules,
-                serialize=serialize,
-                model_output_dir=effective_model_output_dir,
-                max_workers=max_workers,
-            )
-            _cubes, _cube_errors = cubes_to_model(
-                tm1_conn,
-                _dimensions,
-                filter_rules=filter_rules,
-            )
-            _processes, _process_errors = procs_to_model(
-                tm1_conn,
-                filter_rules=filter_rules,
-            )
-            _chores, _chore_errors = chores_to_model(
-                tm1_conn,
-                filter_rules=filter_rules,
-            )
+        _dimensions, _dim_errors = dimensions_to_model(
+            tm1_conn,
+            model_id=model_id,
+            filter_rules=filter_rules,
+            progress_sink=active_progress_sink,
+            total_counter=total_counter,
+            max_workers=max_workers,
+        )
+        _cubes, _cube_errors = cubes_to_model(
+            tm1_conn,
+            _dimensions,
+            filter_rules=filter_rules,
+            progress_sink=active_progress_sink,
+            total_counter=total_counter,
+        )
+        _processes, _process_errors = procs_to_model(
+            tm1_conn,
+            filter_rules=filter_rules,
+            progress_sink=active_progress_sink,
+            total_counter=total_counter,
+        )
+        _chores, _chore_errors = chores_to_model(
+            tm1_conn,
+            filter_rules=filter_rules,
+            progress_sink=active_progress_sink,
+            total_counter=total_counter,
+        )
     finally:
-        active_progress_sink.close()
+        multi_process_progress_manager.close()
 
     _model = Model(
         cubes=list(_cubes.values()),
         dimensions=list(_dimensions.values()),
         processes=list(_processes.values()),
         chores=list(_chores.values()),
-        model_id=model_id,
     )
     logger.info(
         "TM1 export model assembled dimensions=%d cubes=%d processes=%d chores=%d",
@@ -278,6 +271,8 @@ def chores_to_model(
     tm1_conn,
     filter_rules: FilterRules,
     progress_sink: Optional[ProgressSink] = None,
+    *,
+    total_counter: TotalCounter,
 ) -> tuple[Dict[str, Chore], Dict[str, str]]:
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     all_chores = tm1_conn.chores.get_all_names()
@@ -286,19 +281,10 @@ def chores_to_model(
     skipped_chores = 0
     skipped_tasks = 0
     logger.info("Exporting %d chores", len(all_chores))
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.START,
-            scope=ProgressScope.WORKER,
-            current=0,
-            total=len(all_chores),
-            unit=ProgressUnit.LINE,
-            message="exporting chores",
-        ),
-    )
+    progress_sink.on_event(ProgressEvent.total_line(total=total_counter.increment_by(len(all_chores))))
 
     for idx, chore_name in enumerate(all_chores, start=1):
+        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Fetching chore {chore_name}"))
         try:
             chore_url = Chore.uri_for(chore_name)
             if filter_rules.should_exclude(chore_url):
@@ -339,17 +325,8 @@ def chores_to_model(
             )
             _chores[chore.name] = _chore
         finally:
-            _emit_progress_event(
-                progress_sink,
-                ProgressEvent.make(
-                    kind=ProgressKind.UPDATE,
-                    scope=ProgressScope.WORKER,
-                    current=idx,
-                    total=len(all_chores),
-                    unit=ProgressUnit.LINE,
-                    message="exporting chores",
-                ),
-            )
+            progress_sink.on_event(ProgressEvent.total_line(current_delta=1))
+            progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Fetching chore {chore_name}"))
 
     logger.info(
         "Chore export assembly finished total=%d kept=%d skipped_chores=%d skipped_tasks=%d",
@@ -358,17 +335,6 @@ def chores_to_model(
         skipped_chores,
         skipped_tasks,
     )
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.UPDATE,
-            scope=ProgressScope.WORKER,
-            current=len(all_chores),
-            total=len(all_chores),
-            unit=ProgressUnit.LINE,
-            message="exporting chores",
-        ),
-    )
     return _chores, _errors
 
 
@@ -376,6 +342,8 @@ def procs_to_model(
     tm1_conn :TM1Service,
     filter_rules: FilterRules,
     progress_sink: Optional[ProgressSink] = None,
+    *,
+    total_counter: TotalCounter
 ) -> tuple[Dict[str, Process], Dict[str, str]]:
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     processes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.PROCESS)
@@ -387,18 +355,10 @@ def procs_to_model(
     _processes: Dict[str, Process] = {}
     _errors: Dict[str, str] = {}
     logger.info("Exporting %d processes", len(filtered_process_names))
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.START,
-            scope=ProgressScope.WORKER,
-            current=0,
-            total=len(filtered_process_names),
-            unit=ProgressUnit.LINE,
-            message="exporting processes",
-        ),
-    )
+
+    progress_sink.on_event(ProgressEvent.total_line(total=total_counter.increment_by(len(filtered_process_names))))
     for idx, process_name in enumerate(filtered_process_names, start=1):
+        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Fetching process {process_name}"))
         try:
             process = tm1_conn.processes.get(name_process=process_name)
 
@@ -412,32 +372,12 @@ def procs_to_model(
                                parameters=process.parameters, variables=process.variables, ti=_ti)
             _processes[process.name] = _process
         finally:
-            _emit_progress_event(
-                progress_sink,
-                ProgressEvent.make(
-                    kind=ProgressKind.UPDATE,
-                    scope=ProgressScope.WORKER,
-                    current=idx,
-                    total=len(filtered_process_names),
-                    unit=ProgressUnit.LINE,
-                    message="exporting processes",
-                ),
-            )
+            progress_sink.on_event(ProgressEvent.total_line(current_delta=1))
+            progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Fetching process {process_name}"))
     logger.info(
         "Process export assembly finished total=%d kept=%d",
         len(filtered_process_names),
         len(_processes)
-    )
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.UPDATE,
-            scope=ProgressScope.WORKER,
-            current=len(filtered_process_names),
-            total=len(filtered_process_names),
-            unit=ProgressUnit.LINE,
-            message="exporting processes",
-        ),
     )
     return _processes, _errors
 
@@ -446,9 +386,9 @@ def cubes_to_model(
     tm1_conn: TM1Service,
     _dimensions: Dict[str, Dimension],
     filter_rules: FilterRules,
-    progress_sink: Optional[ProgressSink] = None,
+    progress_sink: ProgressSink,
+    total_counter: TotalCounter,
 ) -> tuple[Dict[str, Cube], Dict[str, str]]:
-    progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     cubes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.CUBE)
     filtered_cube_names = [] if cubes_tm1_filter.skip_all else get_cube_names(
         tm1_conn,
@@ -459,22 +399,14 @@ def cubes_to_model(
     _errors: Dict[str, str] = {}
     skipped_rules = 0
     skipped_views = 0
-    logger.info("Exporting %d cubes", len(filtered_cube_names))
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.START,
-            scope=ProgressScope.WORKER,
-            current=0,
-            total=len(filtered_cube_names),
-            unit=ProgressUnit.LINE,
-            message="exporting cubes",
-        ),
-    )
 
+    progress_sink.on_event(ProgressEvent.total_line(total=total_counter.increment_by(len(filtered_cube_names))))
+    progress_sink.on_event(ProgressEvent.worker_line(current=0, total=len(filtered_cube_names), message=f"Fetching cubes"))
+   
     for idx, cube_name in enumerate(filtered_cube_names, start=1):
-        
+        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Fetching Cube {cube_name}"))
         try:
+
             cube = tm1_conn.cubes.get(cube_name=cube_name)
 
             rule_text = ""
@@ -548,15 +480,7 @@ def cubes_to_model(
                             mdx=view.mdx,
                         )
                     elif isinstance(view, TM1py.Objects.NativeView):
-                        _view = NativeView(
-                            name=view.name,
-                            columns=view.columns,
-                            rows=view.rows,
-                            titles=view.titles,
-                            suppress_empty_columns=view.suppress_empty_columns,
-                            suppress_empty_rows=view.suppress_empty_rows,
-                            format_string=view.format_string,
-                        )
+                        _view = _native_view_from_tm1py(view)
                     else:
                         continue
                     _cube.views.append(_view)
@@ -566,17 +490,9 @@ def cubes_to_model(
             logger.error("Failed to export cube '%s'", cube_name, exc_info=True)
             _errors[cube_name] = str(e)
         finally:
-            _emit_progress_event(
-                progress_sink,
-                ProgressEvent.make(
-                    kind=ProgressKind.UPDATE,
-                    scope=ProgressScope.WORKER,
-                    current=idx,
-                    total=len(filtered_cube_names),
-                    unit=ProgressUnit.LINE,
-                    message="exporting cubes",
-                ),
-            )
+            progress_sink.on_event(ProgressEvent.total_line(current_delta=1))
+            progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Fetching Cube {cube_name}"))
+            
 
     logger.info(
         "Cube export assembly finished total=%d kept=%d skipped_rules=%d skipped_views=%d",
@@ -585,17 +501,7 @@ def cubes_to_model(
         skipped_rules,
         skipped_views,
     )
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.UPDATE,
-            scope=ProgressScope.WORKER,
-            current=len(filtered_cube_names),
-            total=len(filtered_cube_names),
-            unit=ProgressUnit.LINE,
-            message="exporting cubes",
-        ),
-    )
+   
     return _cubes, _errors
 
 
@@ -604,12 +510,11 @@ def dimensions_to_model(
     model_id: str,
     filter_rules: FilterRules,
     *,
-    serialize: bool = False,
-    model_output_dir: Optional[str] = None,
-    progress_sink: Optional[ProgressSink] = None,
+    progress_sink: ProgressSink,
     max_workers: Optional[int] = None,
+    total_counter: TotalCounter,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
-    progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
+
     dimensions_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.DIMENSION)
     all_dims = [] if dimensions_tm1_filter.skip_all else get_dimension_names(
         tm1_conn,
@@ -619,231 +524,103 @@ def dimensions_to_model(
     _dimensions: Dict[str, Dimension] = {}
     model_store = ModelStore.for_model_id(model_id)
 
-    big_total = ThreadSafeCounter()
-    # group key: (dimension, hierarchy, object_group)
-    group_totals: Dict[tuple[str, str, str], Optional[int]] = {}
-    group_processed: Dict[tuple[str, str, str], int] = {}
-    group_complete_waiting_total: set[tuple[str, str, str]] = set()
-    count_queue: Queue[tuple[tuple[str, str, str], Optional[int], Optional[Exception]]] = Queue()
-    overall_total_rows = 0
-    overall_processed_rows = 0
-    io_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
+    worker_counts = resolve_worker_counts(max_workers)
+    cpu_workers = worker_counts.cpu_workers
+    io_workers = worker_counts.io_workers
 
-    def _emit_overall_update() -> None:
-        _emit_progress_event(
-            progress_sink,
-            ProgressEvent.make(
-                kind=ProgressKind.UPDATE,
-                scope=ProgressScope.TOTAL,
-                current=overall_processed_rows,
-                total=overall_total_rows,
-                unit=ProgressUnit.LINE,
-                message="Export overall",
-            ),
-        )
+    with ContentHashCalculator(db_path=model_store.db_path, max_workers=cpu_workers, progress_sink=progress_sink) as content_hash_calculator, \
+            PriorityThreadPoolExecutor(max_workers=io_workers, thread_name_prefix="dim_executor") as executor:
+        hierarchy_futures: list[HierarchyFuture] = []
+        count_futures: list[tuple[HierarchyFuture, str, Future]] = []
 
-    def _register_group_total(group_key: tuple[str, str, str], total: int) -> None:
-        nonlocal overall_total_rows, overall_processed_rows
-        normalized_total = max(0, int(total))
-        prior_total = group_totals.get(group_key)
-        prior_effective = 0 if prior_total is None else int(prior_total)
-        current_processed = int(group_processed.get(group_key, 0))
-        if normalized_total < current_processed:
-            normalized_total = current_processed
-        delta_total = normalized_total - prior_effective
-        if delta_total != 0:
-            overall_total_rows += delta_total
-        group_totals[group_key] = normalized_total
-        if group_key in group_complete_waiting_total:
-            missing = normalized_total - current_processed
-            if missing > 0:
-                group_processed[group_key] = current_processed + missing
-                overall_processed_rows += missing
-            group_complete_waiting_total.discard(group_key)
-        _emit_overall_update()
+        def _compute_and_commit_hash(group_id: int, page_kind: str) -> tuple[int, str]:
+            progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Calculating hash {group_id}"))
+            row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
+                group_id=group_id,
+                object_type=page_kind,
+            )
+            progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))
+            model_store.commit_group_content_signature(
+                group_id,
+                row_count=row_count,
+                content_hash=content_hash,
+            )
+            return row_count, content_hash
 
-    def _advance_group_processed(group_key: tuple[str, str, str], delta_rows: int) -> None:
-        nonlocal overall_processed_rows
-        if delta_rows <= 0:
-            return
-        group_processed[group_key] = int(group_processed.get(group_key, 0)) + int(delta_rows)
-        overall_processed_rows += int(delta_rows)
-        _emit_overall_update()
+        def _make_kind_done_callback(
+            page_kind: str,
+            etag_persister: Callable[[Hierarchy], None],
+            group_id: Optional[int],
+            sequence: MutableSequence,
+            filter_rules_for_sequence: list[str],
+        ) -> Callable[[HierarchyFuture], None]:
+            def _on_done(done_hf: HierarchyFuture) -> None:
+                pages = done_hf.pages_for(page_kind)
+                if any(page.future.exception() is not None for page in pages):
+                    return
+                etag_persister(done_hf.hierarchy)
+                if hasattr(sequence, "set_filter_rules"):
+                    sequence.set_filter_rules(filter_rules_for_sequence)
+                if group_id is None:
+                    return
+                _compute_and_commit_hash(group_id, page_kind)
+                
+            return _on_done
 
-    def _mark_group_complete(group_key: tuple[str, str, str]) -> None:
-        total = group_totals.get(group_key)
-        processed = int(group_processed.get(group_key, 0))
-        if total is None:
-            group_complete_waiting_total.add(group_key)
-            return
-        missing = int(total) - processed
-        if missing > 0:
-            _advance_group_processed(group_key, missing)
-
-    def _drain_count_queue() -> None:
-        while True:
-            try:
-                group_key, total, error = count_queue.get_nowait()
-            except Empty:
-                break
-            if error is not None:
-                logger.warning("Failed to collect count for %s: %s", group_key, error)
-                _register_group_total(group_key, int(group_processed.get(group_key, 0)))
+        def _start_page(fn, tm1_conn, dim_name, hierarchy_name, filter_expr, skip, top, total, mutable_list: MutableSequence) -> None:
+            hierarchy_uri = Hierarchy.uri_for(dimension_name=dim_name, hierarchy_name=hierarchy_name)
+            progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Fetching {hierarchy_uri} page {int(skip / top)}"))
+            page = fn(tm1_conn=tm1_conn, dimension_name=dim_name, hierarchy_name=hierarchy_name, filter=filter_expr, skip=skip, top=top, count=True)
+            progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))
+            if hasattr(mutable_list, "extend_payloads"):
+                mutable_list.extend_payloads(page.raw_rows)
             else:
-                _register_group_total(group_key, int(total or 0))
+                mutable_list.extend(page.objects)
+            progress_sink.on_event(ProgressEvent.total_line(current_delta=len(page.objects)))
 
-    def _start_current(activity: str, total_rows: int) -> None:
-        _emit_progress_event(
-            progress_sink,
-            ProgressEvent.make(
-                kind=ProgressKind.START,
-                scope=ProgressScope.WORKER,
-                current=0,
-                total=total_rows,
-                unit=ProgressUnit.LINE,
-                message=activity,
-            ),
-        )
+        def _count_and_submit_pages(
+            hierarchy_future: HierarchyFuture,
+            page_kind: str,
+            count_fn,
+            page_fn,
+            dim_name: str,
+            hierarchy_name: str,
+            filter_expr: Optional[str],
+            skip_all: bool,
+            can_reuse: bool,
+            mutable_list: MutableSequence,
+            done_callback: Callable[[HierarchyFuture], None],
+        ) -> int:
+            hierarchy_uri = Hierarchy.uri_for(dimension_name=dim_name, hierarchy_name=hierarchy_name)
+            progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Counting {hierarchy_uri} total objects"))
+            count = count_fn(tm1_conn, dim_name, hierarchy_name, filter=filter_expr)
+            progress_sink.on_event(ProgressEvent.total_line(total=total_counter.increment_by(count)))
+            if not can_reuse and not skip_all:
+                for i in range(0, count, 100_000):
+                    future = executor.submit(
+                        _start_page,
+                        page_fn,
+                        tm1_conn,
+                        dim_name,
+                        hierarchy_name,
+                        filter_expr,
+                        i,
+                        100_000,
+                        count,
+                        mutable_list,
+                        priority=100,
+                    )
+                    hierarchy_future.add_page(page_kind, skip=i, future=future)
+                done_callback(hierarchy_future)
+            else:
+                progress_sink.on_event(ProgressEvent.total_line(current_delta=count))
+            return count
 
-    def _update_current(activity: str, current_rows: int, total_rows: int) -> None:
-        _emit_progress_event(
-            progress_sink,
-            ProgressEvent.make(
-                kind=ProgressKind.UPDATE,
-                scope=ProgressScope.WORKER,
-                current=current_rows,
-                total=total_rows,
-                unit=ProgressUnit.LINE,
-                message=activity,
-            ),
-        )
-
-    def _complete_current(activity: str, current_rows: int, total_rows: int) -> None:
-        _emit_progress_event(
-            progress_sink,
-            ProgressEvent.make(
-                kind=ProgressKind.UPDATE,
-                scope=ProgressScope.WORKER,
-                current=current_rows,
-                total=total_rows,
-                unit=ProgressUnit.LINE,
-                message=activity,
-            ),
-        )
-
-    def _submit_count_jobs(
-        executor: ThreadPoolExecutor,
-        dim_name: str,
-        hierarchy_name: str,
-        elements_filter_expr: Optional[str],
-        subsets_filter_expr: Optional[str],
-        edges_filter_expr: Optional[str],
-        elements_skip_all: bool,
-        subsets_skip_all: bool,
-        edges_skip_all: bool,
-    ) -> None:
-        def _submit(group_name: str, fn, *args, **kwargs) -> None:
-            key = (dim_name, hierarchy_name, group_name)
-            group_totals[key] = None
-            group_processed[key] = 0
-            activity = f"collecting count {group_name} {dim_name}/{hierarchy_name}"
-            logger.info("%s", activity)
-            _emit_progress_event(
-                progress_sink,
-                ProgressEvent.make(
-                    kind=ProgressKind.UPDATE,
-                    scope=ProgressScope.WORKER,
-                    current=0,
-                    total=1,
-                    unit=ProgressUnit.LINE,
-                    message=activity,
-                ),
-            )
-
-            def _runner() -> int:
-                return int(fn(*args, **kwargs))
-
-            future = executor.submit(_runner)
-
-            def _done_callback(done_future):
-                try:
-                    value = int(done_future.result())
-                    count_queue.put((key, value, None))
-                except Exception as ex:
-                    count_queue.put((key, None, ex))
-
-            future.add_done_callback(_done_callback)
-
-        if elements_skip_all:
-            _register_group_total((dim_name, hierarchy_name, "elements"), 0)
-        else:
-            _submit(
-                "elements",
-                get_elements_count,
-                tm1_conn,
-                dim_name,
-                hierarchy_name,
-                filter=elements_filter_expr,
-            )
-        if subsets_skip_all:
-            _register_group_total((dim_name, hierarchy_name, "subsets"), 0)
-        else:
-            _submit(
-                "subsets",
-                get_subsets_count,
-                tm1_conn,
-                dimension_name=dim_name,
-                hierarchy_name=hierarchy_name,
-                filter=subsets_filter_expr,
-            )
-        if edges_skip_all:
-            _register_group_total((dim_name, hierarchy_name, "edges"), 0)
-        else:
-            _submit(
-                "edges",
-                get_edges_count,
-                tm1_conn,
-                dim_name,
-                hierarchy_name,
-                filter=edges_filter_expr,
-            )
-
-    logger.info("Exporting %d dimensions", len(all_dims))
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.START,
-            scope=ProgressScope.TOTAL,
-            current=0,
-            total=0,
-            unit=ProgressUnit.LINE,
-            message="Export overall",
-        ),
-    )
-    _emit_progress_event(
-        progress_sink,
-        ProgressEvent.make(
-            kind=ProgressKind.START,
-            scope=ProgressScope.WORKER,
-            current=0,
-            total=len(all_dims),
-            unit=ProgressUnit.LINE,
-            message="exporting dimensions",
-        ),
-    )
-
-    
-    with ThreadPoolExecutor(max_workers=io_workers, thread_name_prefix="dim_io_executor") as io_executor:
-
-        total = 0;
         for dim_index, dim_name in enumerate(all_dims, start=1):
             try:
                 hierarchies_tm1_filter = filter_rules.to_tm1_hierarchy_name_filter(dim_name)
                 hierarchy_identities = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(tm1_conn, dim_name, filter=hierarchies_tm1_filter.filter_expr)
                 hierarchy_list: List[Hierarchy] = []
-
-                hierarchy_futures = []
-                hierarchy_names = {}
 
                 for idx, hierarchy_identity in enumerate(hierarchy_identities):
                     hierarchy_name = hierarchy_identity.name
@@ -864,18 +641,16 @@ def dimensions_to_model(
                         can_reuse_edges = (existing_edges_etag == incoming_hierarchy_etag and existing_edges_rules == edges_tm1_filter.applicable_rules)
 
                     hierarchy = Hierarchy(
-                            name=hierarchy_name,
-                            dimension_name=dim_name,
-                            model_id=model_id,
-                            model_output_dir=model_output_dir,
-                            serialize=serialize,
-                            hierarchy_etag=incoming_hierarchy_etag,
-                            reuse_existing_store=True,
-                            elements_filter_rules=elements_tm1_filter.applicable_rules,
-                            edges_filter_rules=edges_tm1_filter.applicable_rules,
-                            subsets_filter_rules=subsets_tm1_filter.applicable_rules,
-                        )
-                    hierarchy_names[hierarchy_name] = hierarchy
+                        name=hierarchy_name,
+                        dimension_name=dim_name,
+                        model_id=model_id,
+                        hierarchy_etag=incoming_hierarchy_etag,
+                        reuse_existing_store=True,
+                        elements_filter_rules=elements_tm1_filter.applicable_rules,
+                        edges_filter_rules=edges_tm1_filter.applicable_rules,
+                        subsets_filter_rules=subsets_tm1_filter.applicable_rules,
+                    )
+                    hierarchy_list.append(hierarchy)
 
                     if not can_reuse_elements and hasattr(hierarchy.elements, "replace_with_payloads"):
                         hierarchy.elements.replace_with_payloads(())
@@ -884,89 +659,76 @@ def dimensions_to_model(
                     if not can_reuse_edges and hasattr(hierarchy.edges, "replace_with_payloads"):
                         hierarchy.edges.replace_with_payloads(())
 
-                    def _start_page(fn, tm1_conn, dim_name, hierarchy_name, filter_expr, skip, top, total, mutable_list: MutableSequence):
-                        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"counting hierarchies ({dim_name}), page {skip} of {total}"))
-                        page = fn(tm1_conn=tm1_conn, dimension_name=dim_name, hierarchy_name=hierarchy_name, filter=filter_expr, skip=skip, top=top, count=True)
-                        progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))    
-                        return (page, mutable_list)
+                    hierarchy_future = HierarchyFuture(dimension_name=dim_name, hierarchy=hierarchy)
+                    hierarchy_futures.append(hierarchy_future)
 
-                    # parallel fetching of elements pages
-                    elements_count = get_elements_count(tm1_conn, dim_name, hierarchy_name, filter=elements_tm1_filter.filter_expr)
-                    big_total.increment_by(elements_count)
-                    futures = []
-                    progress_sink.on_event(ProgressEvent.total_line(total=big_total.get_value()))
-                    if not can_reuse_elements and not elements_tm1_filter.skip_all:
-                        for i in range(0, elements_count, 100_000):
-                            future = io_executor.submit(_start_page, _get_elements_page, tm1_conn, dim_name, hierarchy_name, elements_tm1_filter.filter_expr, i, 100_000, elements_count, hierarchy.elements)
-                            futures.append(future)
-                    else:
-                        progress_sink.on_event(ProgressEvent.total_line(current_delta=elements_count))
+                    collection_jobs = (
+                        (
+                            "elements",
+                            get_elements_count,
+                            _get_elements_page,
+                            elements_tm1_filter,
+                            can_reuse_elements,
+                            hierarchy.elements,
+                            lambda h: h.persist_elements_etag(),
+                            HierarchyFuture.add_elements_done_callback,
+                        ),
+                        (
+                            "edges",
+                            get_edges_count,
+                            _get_edges_page,
+                            edges_tm1_filter,
+                            can_reuse_edges,
+                            hierarchy.edges,
+                            lambda h: h.persist_edges_etag(),
+                            HierarchyFuture.add_edges_done_callback,
+                        ),
+                        (
+                            "subsets",
+                            get_subsets_count,
+                            _get_subsets_page,
+                            subsets_tm1_filter,
+                            can_reuse_subsets,
+                            hierarchy.subsets,
+                            lambda h: h.persist_subsets_etag(),
+                            HierarchyFuture.add_subset_done_callback,
+                        ),
+                    )
+                    for (
+                        page_kind,
+                        count_fn,
+                        page_fn,
+                        tm1_filter,
+                        can_reuse,
+                        sequence,
+                        etag_persister,
+                        add_done_callback,
+                    ) in collection_jobs:
+                        kind_callback = _make_kind_done_callback(
+                            page_kind,
+                            etag_persister,
+                            getattr(sequence, "group_id", None),
+                            sequence,
+                            tm1_filter.applicable_rules,
+                        )
+                        count_future = executor.submit(
+                            _count_and_submit_pages,
+                            hierarchy_future,
+                            page_kind,
+                            count_fn,
+                            page_fn,
+                            dim_name,
+                            hierarchy_name,
+                            tm1_filter.filter_expr,
+                            tm1_filter.skip_all,
+                            can_reuse,
+                            sequence,
+                            lambda hf, _cb=kind_callback, _add_done=add_done_callback: _add_done(hf, _cb),
+                            priority=0,
+                        )
+                        count_futures.append((hierarchy_future, page_kind, count_future))
 
-                    # parallel fetching of edge pages
-                    edges_count = get_edges_count(tm1_conn, dim_name, hierarchy_name, filter=edges_tm1_filter.filter_expr)
-                    big_total.increment_by(edges_count)
-                    progress_sink.on_event(ProgressEvent.total_line(total=big_total.get_value()))
-                    if not can_reuse_edges and not edges_tm1_filter.skip_all:
-                        for i in range(0, edges_count, 100_000):
-                            future = io_executor.submit(_start_page, _get_edges_page, tm1_conn, dim_name, hierarchy_name, edges_tm1_filter.filter_expr, i, 100_000, edges_count, hierarchy.edges)
-                            futures.append(future)
-                    else:
-                        progress_sink.on_event(ProgressEvent.total_line(current_delta=edges_count))
-
-                    # parallel fetching of subset pages
-                    subsets_count = get_subsets_count(tm1_conn, dim_name, hierarchy_name, filter=subsets_tm1_filter.filter_expr)
-                    big_total.increment_by(subsets_count)
-                    progress_sink.on_event(ProgressEvent.total_line(total=big_total.get_value()))
-                    if not can_reuse_subsets and not subsets_tm1_filter.skip_all:
-                        for i in range(0, subsets_count, 100_000):
-                            future = io_executor.submit(_start_page, _get_subsets_page, tm1_conn, dim_name, hierarchy_name, subsets_tm1_filter.filter_expr, i, 100_000, subsets_count, hierarchy.subsets)
-                            futures.append(future)
-                    else:
-                        progress_sink.on_event(ProgressEvent.total_line(current_delta=subsets_count))
-
-                    # write to sqlite on main (single thread)
-                    for future in concurrent.futures.as_completed(futures):
-                        try:
-                            page, collector = future.result()
-                            merged_count = len(page.objects)
-                            merge_started = time.perf_counter()
-                            if hasattr(collector, "extend_payloads"):
-                                collector.extend_payloads(page.raw_rows)
-                                merge_mode = "payload"
-                            else:
-                                collector.extend(page.objects)
-                                merge_mode = "object"
-                            logger.info(
-                                "Hierarchy page merge completed dimension='%s' hierarchy='%s' rows=%d mode=%s elapsed_ms=%.3f",
-                                dim_name,
-                                hierarchy_name,
-                                merged_count,
-                                merge_mode,
-                                (time.perf_counter() - merge_started) * 1000,
-                            )
-                            progress_sink.on_event(ProgressEvent.total_line(current_delta=merged_count))
-                        except Exception as exc:
-                            print(f'Task generated an exception: {exc}')
-
-                    def _start_serialize_hierarchy(hierarchy: Hierarchy):
-                        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Dumping hierarchy to JSON"))
-                        hierarchy.serialize_hierarchy_json()
-                        return hierarchy.name
-
-                    hierarchy_futures.append(io_executor.submit(_start_serialize_hierarchy, hierarchy))
-
-                for future in concurrent.futures.as_completed(hierarchy_futures):
-                    try:
-                        hierarchy_name = future.result()
-                        hierarchy = hierarchy_names[hierarchy_name]
-                        progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Recalculating hash and signature"))
-                        hierarchy.finalize()
-                        progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Recalculating hash and signature"))
-                        hierarchy_list.append(hierarchy)
-                    except Exception as exc:
-                        print(f'Task generated an exception: {exc}')
-
-                if len(hierarchy_list) > 0:
+                if hierarchy_list:
                     _dimension = Dimension(
                         name=dim_name,
                         hierarchies=hierarchy_list,
@@ -977,25 +739,41 @@ def dimensions_to_model(
                     _dimension = Dimension(
                         name=dim_name,
                         hierarchies=[empty_hierarchy],
-                        defaultHierarchy=empty_hierarchy,
+                        defaultHierarchy=empty_hierarchy,   
                     )
                 _dimensions[dim_name] = _dimension
             except Exception as e:
                 logger.error("Failed to export dimension '%s'", dim_name, exc_info=True)
                 _errors[dim_name] = str(e)
-            finally:
-                _drain_count_queue()
-                _emit_progress_event(
-                    progress_sink,
-                    ProgressEvent.make(
-                        kind=ProgressKind.UPDATE,
-                        scope=ProgressScope.WORKER,
-                        current=dim_index,
-                        total=len(all_dims),
-                        unit=ProgressUnit.LINE,
-                        message="exporting dimensions",
-                    ),
-                )   
+
+        failed_hierarchy_ids: set[int] = set()
+        if count_futures:
+            wait([future for _, _, future in count_futures])
+            for hierarchy_future, page_kind, future in count_futures:
+                try:
+                    future.result()
+                except Exception as e:
+                    failed_hierarchy_ids.add(id(hierarchy_future))
+                    key = f"{hierarchy_future.dimension_name}/{hierarchy_future.hierarchy.name}/{page_kind}:count"
+                    logger.error("Failed to count hierarchy pages '%s'", key, exc_info=True)
+                    _errors[key] = str(e)
+
+        page_futures = [
+            (hierarchy_future, future)
+            for hierarchy_future in hierarchy_futures
+            for future in hierarchy_future.all_futures
+        ]
+        if page_futures:
+            wait([future for _, future in page_futures])
+            for hierarchy_future, future in page_futures:
+                try:
+                    future.result()
+                except Exception as e:
+                    failed_hierarchy_ids.add(id(hierarchy_future))
+                    key = f"{hierarchy_future.dimension_name}/{hierarchy_future.hierarchy.name}"
+                    logger.error("Failed to export hierarchy page '%s'", key, exc_info=True)
+                    _errors[key] = str(e)
+
     return _dimensions, _errors
 
 

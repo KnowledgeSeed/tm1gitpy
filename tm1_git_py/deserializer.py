@@ -32,6 +32,7 @@ from tm1_git_py.model.rule import Rule
 from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
+from tm1_git_py.process_pool import ignore_sigint_in_worker, shutdown_process_pool_now
 from tm1_git_py.progress_reporting import (
     NoopProgressSink,
     ProgressKind,
@@ -40,14 +41,11 @@ from tm1_git_py.progress_reporting import (
     ProgressSink,
     ProgressUnit,
 )
+from tm1_git_py.worker_config import resolve_worker_counts
 
 
 logger = logging.getLogger(__name__)
 DESERIALIZE_PROGRESS_EVERY = 100_000
-
-
-def _default_max_workers() -> int:
-    return max(1, ((os.cpu_count() or 1) // 2) + 1)
 
 
 def _json_load_text(raw: str) -> Any:
@@ -761,11 +759,14 @@ def deserialize_model(
         )
     )
     total_object_count = 0
-    effective_max_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
+    effective_max_workers = resolve_worker_counts(max_workers).cpu_workers
     hash_pool: Optional[ProcessPoolExecutor] = None
     if effective_max_workers > 1:
         try:
-            hash_pool = ProcessPoolExecutor(max_workers=effective_max_workers - 1)
+            hash_pool = ProcessPoolExecutor(
+                max_workers=effective_max_workers - 1,
+                initializer=ignore_sigint_in_worker,
+            )
         except (OSError, PermissionError, NotImplementedError):
             logger.warning(
                 "Falling back to single-process hashing; failed to initialize ProcessPoolExecutor",
@@ -804,6 +805,11 @@ def deserialize_model(
             progress=progress,
             count_callback=_add_object_count,
         )
+    except KeyboardInterrupt:
+        if hash_pool is not None:
+            shutdown_process_pool_now(hash_pool)
+            hash_pool = None
+        raise
     finally:
         if hash_pool is not None:
             hash_pool.shutdown(wait=True)
@@ -1004,7 +1010,7 @@ def deserialize_dimensions(
     logger.debug("Deserializing dimensions from '%s'", dimension_dir)
 
     files = directory_to_dict(dimension_dir)
-    effective_max_workers = max(1, int(max_workers if max_workers is not None else _default_max_workers()))
+    effective_max_workers = resolve_worker_counts(max_workers).cpu_workers
     hash_slot_counter = count(start=0)
 
     for file_name in sorted(list(files.keys())):

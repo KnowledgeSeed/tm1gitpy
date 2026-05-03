@@ -1,12 +1,8 @@
 """Generic paginator for TM1 OData-style name collections."""
 
-import gc
 import logging
 import time
-import tracemalloc
 from typing import TYPE_CHECKING, Callable, List, Optional, TypeVar
-
-from TM1py import MonitoringService
 
 logger = logging.getLogger(__name__)
 
@@ -27,20 +23,6 @@ def paginate_by_pages(
     page_size: int = 1000,
     **kwargs,
 ) -> Optional[int]:
-    """Paginate through a TM1 collection using a caller-provided fetcher.
-
-    - Calls on_page_fetched(tm1_conn, filter=filter, skip=skip, top=page_size, **kwargs)
-    - Expects (items, total_count) in return
-    - Stops when items empty, skip>=total_count, or len(items)<page_size
-
-    :param tm1_conn: TM1Service connection
-    :param on_page_fetched: Callable that performs one page fetch. Signature:
-        (tm1_conn, filter, skip, top, **kwargs) -> (items, total_count)
-    :param filter: Optional OData filter expression
-    :param page_size: Items per page (default 1000)
-    :param kwargs: Passed through to on_page_fetched (e.g. dimension_name for hierarchies)
-    :return: Total count from first page, or None if no pages fetched
-    """
     if page_size <= 0:
         raise ValueError("page_size must be greater than 0")
 
@@ -51,20 +33,6 @@ def paginate_by_pages(
         kwargs_for_fetch = {k: v for k, v in kwargs.items() if k != "entity_type"}
         t0 = time.perf_counter()
 
-        # if skip % 1000000 == 0:
-        #     logger.info("Closing session")
-        #     # tm1_conn.connection.logout();
-        #     # tm1_conn._tm1_rest._s.cookies.clear_session_cookies()
-        #     # tm1_conn._tm1_rest.connect();
-        #     snapshot = tracemalloc.take_snapshot()
-        #     top_stats = snapshot.statistics('lineno')
-
-        #     print("[ Top 10 ]")
-        #     for stat in top_stats[:10]:
-        #         print(stat)
-        #     gc.collect(2)
-            
-            
         items, total_count_val = on_page_fetched(
             tm1_conn,
             filter=filter,
@@ -93,8 +61,6 @@ def paginate_by_pages(
             total_count if total_count is not None else "?",
             elapsed,
         )
-
-        
 
         if not items:
             break

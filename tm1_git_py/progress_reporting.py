@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 import hashlib
+from multiprocessing import Manager, Queue
+import multiprocessing
 import os
+import queue
 import shutil
 import sys
 import threading
@@ -132,6 +135,74 @@ class ProgressEvent:
             timestamp_ns=time.time_ns(),
         )
 
+class MultiProcessProgressQueueSink(Protocol):
+    
+    progress_queue: Queue
+    
+    def __init__(self, progress_queue : Queue):
+        self.progress_queue = progress_queue
+
+    def on_event(self, event: ProgressEvent) -> None:
+        self.progress_queue.put(event)
+
+
+class MultiProcessProgressManager:
+
+    progress_sink: ProgressSink
+
+    def  __init__(self, progress_sink: ProgressSink):
+        self.progress_sink = progress_sink
+        
+        self._manager = Manager()
+        self.progress_queue : Queue = self._manager.Queue()
+        self.stop_event = threading.Event()
+        self.progress_thread = threading.Thread(
+            name="MultiProcessProgressSink",
+            target=self._consume_compare_progress_events,
+            daemon=True,
+        )
+
+    def get_multi_process_progress_queue_sink(self) -> MultiProcessProgressQueueSink:
+        return MultiProcessProgressQueueSink(self.progress_queue)
+
+    def _consume_compare_progress_events(
+        self
+    ) -> None:
+        while True:
+            try:
+                if self.stop_event.is_set():
+                    try:
+                        event = self.progress_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                else:
+                    try:
+                        event = self.progress_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+            except (BrokenPipeError, EOFError, OSError):
+                # Manager queue can disappear during shutdown; exit silently.
+                break
+            if event is None:
+                if self.stop_event.is_set():
+                    break
+                continue
+            
+            self.progress_sink.on_event(event)
+
+    def start(self):
+        self.progress_thread.start()
+
+
+    def close(self) -> None:
+        self.stop_event.set()
+        try:
+            self.progress_queue.put(None)
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+        self._manager.shutdown()
+        self.progress_thread.join()
+        
 
 class ProgressSink(Protocol):
     def on_event(self, event: ProgressEvent) -> None:
@@ -216,10 +287,12 @@ class TqdmProgressSink:
         worker_count: int,
         base_position: int = 0,
         leave: bool = False,
+        thread_tracing_enabled: bool = False,
     ):
-        self._lock = threading.Lock()
+        self._lock = multiprocessing.Lock()
         self.worker_count = max(1, int(worker_count))
-        self.slot_height = self.worker_count + 1
+        self.thread_tracing_enabled = bool(thread_tracing_enabled)
+        self.slot_height = self.worker_count + 1 if self.thread_tracing_enabled else 1
         self.base_position = max(0, int(base_position))
         self.worker_bar_dict: dict[str, Any] = {}
         self._worker_bar_index: dict[str, int] = {}
@@ -238,23 +311,26 @@ class TqdmProgressSink:
                 unit_divisor=1024,
                 leave=self._leave,
                 dynamic_ncols=True,
+                bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
                 ncols=terminal_width,
                 position=self.base_position,
             )
-            for idx in range(self.worker_count):
-                worker_bar = tqdm(
-                    total=1,
-                    ascii=' =',
-                    desc=f"Worker {idx}",
-                    unit="item",
-                    leave=self._leave,
-                    dynamic_ncols=True,
-                    ncols=terminal_width,
-                    position=self.base_position + 1 + idx,
-                )
-                self._worker_bars.append(worker_bar)
+            if self.thread_tracing_enabled:
+                for idx in range(self.worker_count):
+                    worker_bar = tqdm(
+                        total=1,
+                        ascii=' =',
+                        desc=f"Worker {idx}",
+                        unit="item",
+                        leave=self._leave,
+                        dynamic_ncols=True,
+                        bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}",
+                        ncols=terminal_width,
+                        position=self.base_position + 1 + idx,
+                    )
+                    self._worker_bars.append(worker_bar)
         else:
-            self._worker_bars = [None] * self.worker_count
+            self._worker_bars = [None] * self.worker_count if self.thread_tracing_enabled else []
 
     def _render_worker(self, worker_bar: Any, event: ProgressEvent) -> None:
         if worker_bar is None:
@@ -311,7 +387,7 @@ class TqdmProgressSink:
             self._total_bar.n = min(max(0, int(event.current)), target_total)
         else:
             self._total_bar.n = min(max(0, int(self._total_bar.n) + int(event.current_delta or 0)), target_total)
-        desc = str(event.message) if event.message else f"{self._total_desc} {event.kind.value} {event.scope.value} {int(self._total_bar.n)}/{int(self._total_bar.total or target_total)}"
+        desc = str(event.message) if event.message else "Completed"
         self._total_bar.set_description_str(desc, refresh=False)
         self._total_bar.refresh()
 
@@ -349,6 +425,8 @@ class TqdmProgressSink:
         with self._lock:
             if event.scope == ProgressScope.TOTAL:
                 self._render_total(event)
+                return
+            if not self.thread_tracing_enabled:
                 return
             worker_bar = self._resolve_worker_bar(event)
             self._render_worker(worker_bar, event)

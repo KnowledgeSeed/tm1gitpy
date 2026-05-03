@@ -19,7 +19,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         object_type: str,
         item_from_payload: Callable[[dict[str, Any]], T],
         payload_from_item: Callable[[T], dict[str, Any]],
-        on_append: Optional[Callable[[list[dict[str, Any]]], None]] = None,
     ):
         self._store = store
         self._dimension_name = dimension_name
@@ -27,7 +26,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         self._object_type = object_type
         self._item_from_payload = item_from_payload
         self._payload_from_item = payload_from_item
-        self._on_append = on_append
         self.group_id = self._store.ensure_group(
             dimension_name,
             hierarchy_name,
@@ -43,7 +41,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         model_id: Optional[str] = None,
         dimension_name: str,
         hierarchy_name: str,
-        on_append: Optional[Callable[[list[dict[str, Any]]], None]] = None,
     ) -> "StoreBackedSequence[Element]":
         return cls(
             store=store,
@@ -53,7 +50,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             object_type="elements",
             item_from_payload=Element.from_dict,
             payload_from_item=lambda item: item.to_dict(),
-            on_append=on_append,
         )
 
     @classmethod
@@ -64,7 +60,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         model_id: Optional[str] = None,
         dimension_name: str,
         hierarchy_name: str,
-        on_append: Optional[Callable[[list[dict[str, Any]]], None]] = None,
     ) -> "StoreBackedSequence[Edge]":
         return cls(
             store=store,
@@ -74,7 +69,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             object_type="edges",
             item_from_payload=Edge.from_dict,
             payload_from_item=lambda item: item.to_dict(),
-            on_append=on_append,
         )
 
     @classmethod
@@ -85,7 +79,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         model_id: Optional[str] = None,
         dimension_name: str,
         hierarchy_name: str,
-        on_append: Optional[Callable[[list[dict[str, Any]]], None]] = None,
     ) -> "StoreBackedSequence[Subset]":
         return cls(
             store=store,
@@ -95,7 +88,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             object_type="subsets",
             item_from_payload=Subset.from_dict,
             payload_from_item=lambda item: item.to_dict(),
-            on_append=on_append,
         )
 
     def __len__(self) -> int:
@@ -133,8 +125,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             self.group_id,
             payloads,
         )
-        if self._on_append:
-            self._on_append(payloads)
 
     def extend_payloads(self, payloads: Iterable[dict[str, Any]]) -> None:
         """
@@ -149,8 +139,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         if not batch:
             return
         self._store.append_payloads(self.group_id, batch)
-        if self._on_append:
-            self._on_append(batch)
 
     def iter_payloads(self, *, ordered_by_identity: bool = False) -> Iterator[dict[str, Any]]:
         yield from self._store.iter_payloads(self.group_id, progress_label=True, ordered_by_identity=ordered_by_identity)
@@ -180,12 +168,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             self.group_id,
             payloads,
         )
-        row_count, content_hash = self.recalculate_content_signature_parallel()
-        self._store.commit_group_content_signature(
-            self.group_id,
-            row_count=row_count,
-            content_hash=content_hash
-    )
+        self.recalculate_content_signature_parallel()
 
     def filter_in_place(self, predicate: Callable[[T], bool]) -> int:
         kept_payloads = []
@@ -209,12 +192,18 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
     def recalculate_content_signature_parallel(self) -> tuple[int, str]:
         from tm1_git_py.deserializer import recalculate_group_content_signature_parallel
 
-        return recalculate_group_content_signature_parallel(
+        row_count, content_hash = recalculate_group_content_signature_parallel(
             store=self._store,
             group_id=self.group_id,
             ordered_by_identity=True,
             progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
         )
+        self._store.commit_group_content_signature(
+            self.group_id,
+            row_count=row_count,
+            content_hash=content_hash
+        )
+        return row_count, content_hash
 
     def set_source_json_mtime_ns(self, source_json_mtime_ns: int) -> None:
         self._store.set_source_json_mtime_ns(self.group_id, source_json_mtime_ns)

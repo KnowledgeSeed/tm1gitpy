@@ -164,6 +164,15 @@ def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
 
         if hierarchy_bind:
             subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
+        elif isinstance(subset_dict.get("Hierarchy"), dict):
+            hierarchy = subset_dict["Hierarchy"]
+            dimension = hierarchy.get("Dimension")
+            dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
+            hierarchy_name = hierarchy.get("Name")
+            if dimension_name and hierarchy_name:
+                subset_dict["Hierarchy"] = {
+                    "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+                }
 
         body["Subset"] = subset_dict
 
@@ -183,6 +192,15 @@ def view_title_selection_to_dict(title_selection) -> Dict[str, Any]:
 
         if hierarchy_bind:
             subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
+        elif isinstance(subset_dict.get("Hierarchy"), dict):
+            hierarchy = subset_dict["Hierarchy"]
+            dimension = hierarchy.get("Dimension")
+            dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
+            hierarchy_name = hierarchy.get("Name")
+            if dimension_name and hierarchy_name:
+                subset_dict["Hierarchy"] = {
+                    "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+                }
 
         body["Subset"] = subset_dict
 

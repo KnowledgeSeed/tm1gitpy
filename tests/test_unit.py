@@ -3,6 +3,7 @@ import os.path
 import shutil
 import sqlite3
 import types
+from concurrent.futures import ProcessPoolExecutor
 from unittest import mock
 from pathlib import Path
 from typing import TypeVar
@@ -99,7 +100,7 @@ class TestDeserializer:
         assert errors == {}
 
     def test_tqdm_deserializer_sink_uses_dynamic_worker_slots(self, tmp_path):
-        sink = TqdmProgressSink(worker_count=6)
+        sink = TqdmProgressSink(worker_count=6, thread_tracing_enabled=True)
         try:
             assert sink.worker_count == 6
             assert len(sink._worker_bars) == 6
@@ -107,7 +108,7 @@ class TestDeserializer:
             sink.close()
 
     def test_tqdm_deserializer_sink_extends_generic_sink(self, tmp_path):
-        sink = TqdmProgressSink(worker_count=3)
+        sink = TqdmProgressSink(worker_count=3, thread_tracing_enabled=True)
         try:
             assert isinstance(sink, TqdmProgressSink)
             assert sink.worker_count == 3
@@ -722,6 +723,175 @@ class TestDeserializer:
         )
         assert sig_a == sig_b
 
+    @pytest.mark.parametrize(
+        ("object_type", "payloads"),
+        [
+            (
+                "elements",
+                [
+                    {"Name": "C", "Type": "Numeric"},
+                    {"Name": "A", "Type": "String"},
+                    {"Name": "B", "Type": "Numeric"},
+                ],
+            ),
+            (
+                "edges",
+                [
+                    {"ParentName": "P2", "ComponentName": "C2", "Weight": 1},
+                    {"ParentName": "P1", "ComponentName": "C1", "Weight": 2},
+                    {"ParentName": "P1", "ComponentName": "C3", "Weight": 3},
+                ],
+            ),
+            (
+                "subsets",
+                [
+                    {"Name": "Subset_B", "Expression": "{B}"},
+                    {"Name": "Subset_A", "Expression": "{A}"},
+                ],
+            ),
+        ],
+    )
+    def test_plain_sqlite_hash_calculator_matches_existing_calculator(self, object_type, payloads):
+        import uuid
+        from tm1_git_py.content_hash_calculator import calculate_group_content_signature
+
+        model_id = f"hash_calc_{object_type}_{uuid.uuid4().hex}"
+        store = ModelStore.for_model_id(model_id)
+        if object_type == "elements":
+            seq = StoreBackedSequence.for_elements_sink(
+                store=store,
+                model_id=model_id,
+                dimension_name="MyDim",
+                hierarchy_name="MyHier",
+            )
+        elif object_type == "edges":
+            seq = StoreBackedSequence.for_edges_sink(
+                store=store,
+                model_id=model_id,
+                dimension_name="MyDim",
+                hierarchy_name="MyHier",
+            )
+        else:
+            seq = StoreBackedSequence.for_subsets_sink(
+                store=store,
+                model_id=model_id,
+                dimension_name="MyDim",
+                hierarchy_name="MyHier",
+            )
+
+        seq.replace_with_payloads(payloads)
+        existing_signature = deserializer_module.recalculate_group_content_signature_parallel(
+            store=store,
+            group_id=seq.group_id,
+            ordered_by_identity=True,
+            chunk_size=1,
+            progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
+        )
+        plain_sqlite_signature = calculate_group_content_signature(
+            db_path=store.db_path,
+            group_id=seq.group_id,
+            object_type=object_type,
+            chunk_size=1,
+        )
+
+        assert plain_sqlite_signature == existing_signature
+
+    def test_plain_sqlite_hash_calculator_parallel_matches_existing_parallel_calculator(self):
+        import uuid
+        from tm1_git_py.content_hash_calculator import calculate_group_content_signature
+
+        model_id = f"hash_calc_parallel_{uuid.uuid4().hex}"
+        store = ModelStore.for_model_id(model_id)
+        seq = StoreBackedSequence.for_edges_sink(
+            store=store,
+            model_id=model_id,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
+        )
+        seq.replace_with_payloads(
+            [
+                {"ParentName": f"P{i % 5}", "ComponentName": f"C{i}", "Weight": i}
+                for i in range(12)
+            ]
+        )
+
+        try:
+            with ProcessPoolExecutor(max_workers=2) as process_pool:
+                existing_signature = deserializer_module.recalculate_group_content_signature_parallel(
+                    store=store,
+                    group_id=seq.group_id,
+                    ordered_by_identity=True,
+                    chunk_size=3,
+                    progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
+                    process_pool=process_pool,
+                )
+        except (OSError, NotImplementedError) as exc:
+            pytest.skip(f"ProcessPoolExecutor unavailable in this environment: {exc}")
+        plain_sqlite_signature = calculate_group_content_signature(
+            db_path=store.db_path,
+            group_id=seq.group_id,
+            object_type="edges",
+            chunk_size=3,
+            max_workers=2,
+        )
+
+        assert plain_sqlite_signature == existing_signature
+
+    def test_plain_sqlite_hash_calculator_max_workers_one_runs_chunks_inline(self, monkeypatch):
+        import uuid
+        import tm1_git_py.content_hash_calculator as hash_module
+
+        model_id = f"hash_calc_inline_{uuid.uuid4().hex}"
+        store = ModelStore.for_model_id(model_id)
+        seq = StoreBackedSequence.for_edges_sink(
+            store=store,
+            model_id=model_id,
+            dimension_name="MyDim",
+            hierarchy_name="MyHier",
+        )
+        seq.replace_with_payloads(
+            [
+                {"ParentName": f"P{i % 2}", "ComponentName": f"C{i}", "Weight": i}
+                for i in range(5)
+            ]
+        )
+
+        original_worker = hash_module._hash_chunk_worker
+        chunk_indices = []
+
+        def spy_hash_chunk_worker(job, progress_sink):
+            chunk_indices.append(int(job["chunk_idx"]))
+            return original_worker(job, progress_sink)
+
+        try:
+            with ProcessPoolExecutor(max_workers=2) as process_pool:
+                existing_signature = deserializer_module.recalculate_group_content_signature_parallel(
+                    store=store,
+                    group_id=seq.group_id,
+                    ordered_by_identity=True,
+                    chunk_size=2,
+                    progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
+                    process_pool=process_pool,
+                )
+        except (OSError, NotImplementedError) as exc:
+            pytest.skip(f"ProcessPoolExecutor unavailable in this environment: {exc}")
+
+        process_pool_ctor = mock.Mock(side_effect=AssertionError("process pool should not be created"))
+        monkeypatch.setattr(hash_module, "ProcessPoolExecutor", process_pool_ctor)
+        monkeypatch.setattr(hash_module, "_hash_chunk_worker", spy_hash_chunk_worker)
+
+        plain_sqlite_signature = hash_module.calculate_group_content_signature(
+            db_path=store.db_path,
+            group_id=seq.group_id,
+            object_type="edges",
+            chunk_size=2,
+            max_workers=1,
+        )
+
+        assert plain_sqlite_signature == existing_signature
+        assert chunk_indices == [0, 1, 2]
+        process_pool_ctor.assert_not_called()
+
     def test_store_backed_sequence_extend_payloads_round_trip_element(self, tmp_path):
         store = ModelStore.for_model_id(tmp_path.name)
         seq = StoreBackedSequence.for_elements_sink(
@@ -732,6 +902,34 @@ class TestDeserializer:
         seq.extend_payloads([{"Name": "A", "Type": "Numeric"}])
         assert len(seq) == 1
         assert seq[0] == Element(name="A", type="Numeric")
+
+    def test_store_backed_sequence_persists_empty_string_for_null_identity_fields(self, tmp_path):
+        store = ModelStore.for_model_id(tmp_path.name + "_empty_identity")
+        elements = StoreBackedSequence.for_elements_sink(
+            store=store,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        edges = StoreBackedSequence.for_edges_sink(
+            store=store,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        subsets = StoreBackedSequence.for_subsets_sink(
+            store=store,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+
+        elements.extend_payloads([{"Name": None, "Type": "Numeric"}])
+        edges.extend_payloads([{"ParentName": None, "ComponentName": None, "Weight": 1}])
+        subsets.extend_payloads([{"Name": None, "Expression": "{A}"}])
+
+        assert list(elements.iter_payloads(ordered_by_identity=True))[0]["Name"] == ""
+        edge_payload = list(edges.iter_payloads(ordered_by_identity=True))[0]
+        assert edge_payload["ParentName"] == ""
+        assert edge_payload["ComponentName"] == ""
+        assert list(subsets.iter_payloads(ordered_by_identity=True))[0]["name"] == ""
 
     def test_store_backed_sequence_extend_payloads_matches_extend_elements(self, tmp_path):
         store_e = ModelStore.for_model_id(tmp_path.name + "_e")
@@ -877,6 +1075,34 @@ class TestSerializer:
         serialize_model(model, str(tmp_path))
         model_deserialized, errors = deserialize_model(str(tmp_path))
         assert model.to_dict() == model_deserialized.to_dict()
+
+    def test_serialize_dimensions_updates_store_backed_source_json_mtime(self, tmp_path):
+        import uuid
+
+        model_id = f"serialize_mtime_{uuid.uuid4().hex}"
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            model_id=model_id,
+        )
+        hierarchy_obj.elements.extend([Element(name="E1", type="Numeric")])
+        hierarchy_obj.edges.extend([Edge(parent="E1", component_name="E2", weight=1)])
+        hierarchy_obj.subsets.extend([Subset(name="S1", expression="{[MyDim].[MyHier].Members}")])
+        dimension_obj = Dimension(
+            name="MyDim",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+
+        dim_dir = tmp_path / "dimensions"
+        dim_dir.mkdir()
+        serialize_dimensions([dimension_obj], str(dim_dir))
+
+        hierarchy_path = dim_dir / "MyDim.hierarchies" / "MyHier.json"
+        expected_mtime_ns = int(hierarchy_path.stat().st_mtime_ns)
+        assert hierarchy_obj.elements.source_json_mtime_ns() == expected_mtime_ns
+        assert hierarchy_obj.edges.source_json_mtime_ns() == expected_mtime_ns
+        assert hierarchy_obj.subsets.source_json_mtime_ns() == expected_mtime_ns
 
         
     def test_serialize_dimensions_creates_hierarchy_and_subset_files(self, tmp_path):
@@ -1661,6 +1887,17 @@ class TestComparator:
 
 class TestExporter:
 
+    def test_worker_count_resolution(self):
+        from tm1_git_py.worker_config import resolve_worker_counts
+
+        explicit = resolve_worker_counts(4, cpu_cores=16)
+        assert explicit.cpu_workers == 4
+        assert explicit.io_workers == 8
+
+        defaulted = resolve_worker_counts(None, cpu_cores=16)
+        assert defaulted.cpu_workers == 9
+        assert defaulted.io_workers == 32
+
     def test_export_forwards_max_workers_to_dimensions(self):
         tm1_conn = mock.Mock()
         with mock.patch.object(exporter_module, "dimensions_to_model", return_value=({}, {})) as mock_dims, \
@@ -1669,6 +1906,92 @@ class TestExporter:
              mock.patch.object(exporter_module, "chores_to_model", return_value=({}, {})):
             exporter_module.export(tm1_conn, model_id="unit-export", max_workers=9)
         assert mock_dims.call_args.kwargs.get("max_workers") == 9
+
+    def test_dimensions_to_model_uses_cpu_workers_for_hash_and_io_workers_for_fetch(self, monkeypatch):
+        seen: dict[str, int] = {}
+
+        class FakeContentHashCalculator:
+            def __init__(self, *, db_path, max_workers):
+                seen["cpu_workers"] = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return None
+
+        class FakePriorityThreadPoolExecutor:
+            def __init__(self, *, max_workers, thread_name_prefix):
+                seen["io_workers"] = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return None
+
+        monkeypatch.setattr(exporter_module, "ContentHashCalculator", FakeContentHashCalculator)
+        monkeypatch.setattr(exporter_module, "PriorityThreadPoolExecutor", FakePriorityThreadPoolExecutor)
+        monkeypatch.setattr(exporter_module, "get_dimension_names", lambda *args, **kwargs: [])
+        monkeypatch.setattr(exporter_module.ModelStore, "for_model_id", classmethod(lambda cls, model_id: mock.Mock()))
+
+        exporter_module.dimensions_to_model(
+            mock.Mock(),
+            model_id="unit-worker-split",
+            filter_rules=FilterRules([]),
+            max_workers=3,
+        )
+
+        assert seen == {"cpu_workers": 3, "io_workers": 6}
+
+    def test_export_no_longer_accepts_serialize(self):
+        import inspect
+
+        assert "serialize" not in inspect.signature(exporter_module.export).parameters
+        assert "serialize" not in inspect.signature(exporter_module.dimensions_to_model).parameters
+
+    def test_cmd_export_calls_export_without_serialize_then_serializes(self, monkeypatch, tmp_path):
+        captured_export_kwargs = {}
+        serialized: list[tuple[object, str, dict]] = []
+        fake_model = Model(cubes=[], dimensions=[], processes=[], chores=[], model_id="out")
+
+        def fake_export(*args, **kwargs):
+            captured_export_kwargs.update(kwargs)
+            return fake_model, {}
+
+        monkeypatch.setattr(main_module, "TM1ServersConfig", lambda: mock.Mock(load=lambda: None))
+        monkeypatch.setattr(main_module, "_tm1_connection_from_config", lambda *args, **kwargs: mock.Mock())
+        monkeypatch.setattr(main_module, "_prepare_model_folder", lambda *args, **kwargs: None)
+        monkeypatch.setattr(main_module, "_load_filter_rules", lambda *args, **kwargs: [])
+        monkeypatch.setattr(main_module.ModelStore, "for_model_id", classmethod(lambda cls, model_id: mock.Mock()))
+        monkeypatch.setattr(main_module, "TqdmProgressSink", mock.Mock())
+        monkeypatch.setattr(main_module, "export", fake_export)
+        monkeypatch.setattr(
+            main_module,
+            "serialize_model",
+            lambda model, path, **kwargs: serialized.append((model, path, kwargs)),
+        )
+
+        output_dir = str(tmp_path / "out")
+        args = types.SimpleNamespace(
+            server="server",
+            model_output_folder=output_dir,
+            overwrite=True,
+            filter=None,
+            max_workers=1,
+            log_file=None,
+            debug=False,
+        )
+
+        main_module._cmd_export(args)
+
+        assert "serialize" not in captured_export_kwargs
+        assert captured_export_kwargs["max_workers"] == 1
+        assert main_module.TqdmProgressSink.call_args_list == [
+            mock.call(worker_count=3, base_position=0, leave=True, thread_tracing_enabled=False),
+            mock.call(worker_count=3, base_position=0, leave=True, thread_tracing_enabled=False),
+        ]
+        assert serialized == [(fake_model, output_dir, {"progress_sink": mock.ANY, "max_workers": 1})]
 
     def test_compare_worker_split_helper(self):
         assert main_module._split_compare_workers(8) == (4, 4)
@@ -1834,6 +2157,89 @@ class TestExporter:
         assert "&$filter=startswith(Name,'Main')" in first_url
         assert "/Cubes('Sales')/Views?" in second_url
         assert "&$filter=startswith(Name,'Main')" in second_url
+
+    def test_view_service_normalizes_null_native_view_title_selected(self, mocker):
+        tm1_conn = mocker.Mock()
+        native_from_dict = mocker.patch.object(
+            view_service_ext.NativeView,
+            "from_dict",
+            return_value=types.SimpleNamespace(name="N1"),
+        )
+        tm1_conn.connection.GET.side_effect = [
+            mocker.Mock(json=mocker.Mock(return_value={"value": []})),
+            mocker.Mock(
+                json=mocker.Mock(
+                    return_value={
+                        "value": [
+                            {
+                                "@odata.type": "#ibm.tm1.api.v1.NativeView",
+                                "Name": "N1",
+                                "Titles": [
+                                    {
+                                        "Selected": None,
+                                        "Subset": {
+                                            "Elements": [
+                                                {"Name": "Fallback"}
+                                            ]
+                                        },
+                                    }
+                                ],
+                                "Columns": [],
+                                "Rows": [],
+                            }
+                        ]
+                    }
+                )
+            ),
+        ]
+
+        private_views, public_views = view_service_ext.get_all(tm1_conn, cube_name="Sales")
+
+        assert private_views == []
+        assert len(public_views) == 1
+        view_payload = native_from_dict.call_args.args[0]
+        assert view_payload["Titles"][0]["Selected"] == {"Name": "Fallback"}
+        assert public_views[0]._tm1git_raw_view_dict["Titles"][0]["Selected"] is None
+
+    def test_exporter_preserves_raw_native_view_null_title_selected(self):
+        from tm1_git_py.exporter import _native_view_from_tm1py
+
+        tm1py_view = types.SimpleNamespace(
+            name="N1",
+            columns=[],
+            rows=[],
+            titles=[],
+            suppress_empty_columns=False,
+            suppress_empty_rows=False,
+            format_string="0.#########",
+            _tm1git_raw_view_dict={
+                "Name": "N1",
+                "Columns": [],
+                "Rows": [],
+                "Titles": [
+                    {
+                        "Selected": None,
+                        "Subset": {
+                            "Hierarchy": {
+                                "Name": "H1",
+                                "Dimension": {"Name": "D1"},
+                            },
+                            "Elements": [],
+                        },
+                    }
+                ],
+                "SuppressEmptyColumns": False,
+                "SuppressEmptyRows": False,
+                "FormatString": "0.#########",
+            },
+        )
+
+        native_view = _native_view_from_tm1py(tm1py_view)
+
+        assert native_view.titles[0]["Selected"] is None
+        assert native_view.titles[0]["Subset"]["Hierarchy"] == {
+            "@id": "Dimensions('D1')/Hierarchies('H1')"
+        }
 
     def test_cubes_to_model_uses_view_service_ext(self, mocker):
         from tm1_git_py.exporter import cubes_to_model

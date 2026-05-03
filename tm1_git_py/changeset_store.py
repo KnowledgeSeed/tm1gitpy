@@ -1,6 +1,23 @@
-import sqlite3
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
+
+from tm1_git_py._worker_db import WorkerDB
+
+
+_QUERY_COLUMNS = (
+    "seq",
+    "change_type",
+    "object_type",
+    "uri",
+    "apply",
+    "body_json",
+    "dim_name",
+    "hier_name",
+    "object_name",
+    "cube_name",
+    "process_name",
+    "chore_name",
+)
 
 
 class ChangesetStore:
@@ -18,22 +35,32 @@ class ChangesetStore:
         if require_exists and not self.db_path.exists():
             raise FileNotFoundError(f"Changeset store not found for id '{changeset_id}': {self.db_path}")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path), timeout=30.0)
-        try:
-            self._conn.row_factory = sqlite3.Row
-        except Exception:
-            pass
+        self._db = WorkerDB(
+            str(self.db_path),
+            execute_init=(
+                "PRAGMA journal_mode=WAL",
+                "PRAGMA synchronous=NORMAL",
+                "PRAGMA temp_store=MEMORY",
+                "PRAGMA busy_timeout=30000",
+            ),
+        )
         self._initialize()
 
+    def close(self) -> None:
+        self._db.close()
+
     def _table_columns(self, table_name: str) -> list[str]:
-        rows = self._conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-        return [str(row[1]) for row in rows]
+        rows = self._db.fetch_all(
+            "SELECT name FROM pragma_table_info(?)",
+            (table_name,),
+        )
+        return [str(row[0]) for row in rows]
 
     def _table_exists(self, table_name: str) -> bool:
-        row = self._conn.execute(
+        row = self._db.fetch_one(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
             (table_name,),
-        ).fetchone()
+        )
         return row is not None
 
     def _schema_needs_reset(self) -> bool:
@@ -59,13 +86,9 @@ class ChangesetStore:
         return set(self._table_columns("changes")) != expected
 
     def _initialize(self) -> None:
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.execute("PRAGMA temp_store=MEMORY")
-        self._conn.execute("PRAGMA busy_timeout=30000")
         if self._schema_needs_reset():
-            self._conn.execute("DROP TABLE IF EXISTS changes")
-        self._conn.execute(
+            self._db.execute("DROP TABLE IF EXISTS changes")
+        self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS changes (
                 seq INTEGER PRIMARY KEY,
@@ -86,31 +109,31 @@ class ChangesetStore:
             )
             """
         )
-        self._conn.execute(
+        self._db.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_changes_apply_sort
             ON changes(apply, type_rank, precedence_rank, body_name, uri, seq)
             """
         )
-        self._conn.execute(
+        self._db.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_changes_sort
             ON changes(type_rank, precedence_rank, body_name, uri, seq)
             """
         )
-        self._conn.execute(
+        self._db.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_changes_dim_hier_object_seq
             ON changes(dim_name, hier_name, object_name, seq)
             """
         )
-        self._conn.execute(
+        self._db.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_changes_cube_object_seq
             ON changes(cube_name, object_name, seq)
             """
         )
-        self._conn.commit()
+        self._db.commit()
 
     def _prepare_rows(self, rows: Iterable[dict[str, Any]]) -> list[tuple[Any, ...]]:
         prepared_rows: list[tuple[Any, ...]] = []
@@ -137,9 +160,9 @@ class ChangesetStore:
         return prepared_rows
 
     def replace_rows(self, rows: Iterable[dict[str, Any]]) -> None:
-        self._conn.execute("DELETE FROM changes")
+        self._db.execute("DELETE FROM changes")
         prepared_rows = self._prepare_rows(rows)
-        self._conn.executemany(
+        self._db.executemany(
             """
             INSERT INTO changes(
                 seq, change_type, object_type, uri, apply, body_json,
@@ -149,7 +172,7 @@ class ChangesetStore:
             """,
             prepared_rows,
         )
-        self._conn.commit()
+        self._db.commit()
 
     def append_rows(self, rows: Iterable[dict[str, Any]]) -> None:
         current_seq = self.count_rows()
@@ -159,7 +182,7 @@ class ChangesetStore:
             data["seq"] = current_seq + offset
             adjusted_rows.append(data)
         prepared_rows = self._prepare_rows(adjusted_rows)
-        self._conn.executemany(
+        self._db.executemany(
             """
             INSERT INTO changes(
                 seq, change_type, object_type, uri, apply, body_json,
@@ -169,21 +192,25 @@ class ChangesetStore:
             """,
             prepared_rows,
         )
-        self._conn.commit()
+        self._db.commit()
 
     def count_rows(self) -> int:
-        row = self._conn.execute("SELECT COUNT(*) FROM changes").fetchone()
+        row = self._db.fetch_one("SELECT COUNT(*) FROM changes")
         return int(row[0]) if row is not None else 0
 
     def clear(self) -> None:
-        self._conn.execute("DELETE FROM changes")
-        self._conn.commit()
+        self._db.execute("DELETE FROM changes")
+        self._db.commit()
 
     @staticmethod
     def _order_clause(sorted_order: bool) -> str:
         if not sorted_order:
             return "seq"
         return "type_rank, precedence_rank, body_name, uri, seq"
+
+    @staticmethod
+    def _row_to_dict(row: tuple[Any, ...]) -> dict[str, Any]:
+        return dict(zip(_QUERY_COLUMNS, row))
 
     def iter_rows(
         self,
@@ -192,8 +219,8 @@ class ChangesetStore:
         offset: int = 0,
         limit: Optional[int] = None,
         sorted_order: bool = True,
-    ) -> Iterator[sqlite3.Row]:
-        where_clauses = []
+    ) -> Iterator[dict[str, Any]]:
+        where_clauses: list[str] = []
         params: list[Any] = []
         if apply_only is not None:
             where_clauses.append("apply=?")
@@ -215,14 +242,10 @@ class ChangesetStore:
             sql += " LIMIT -1 OFFSET ?"
             params.append(max(0, int(offset)))
 
-        cursor = self._conn.execute(sql, tuple(params))
-        while True:
-            row = cursor.fetchone()
-            if row is None:
-                break
-            yield row
+        for row in self._db.fetch_all(sql, tuple(params)):
+            yield self._row_to_dict(row)
 
-    def row_at(self, index: int, *, sorted_order: bool = True) -> Optional[sqlite3.Row]:
+    def row_at(self, index: int, *, sorted_order: bool = True) -> Optional[dict[str, Any]]:
         if index < 0:
             return None
         sql = (
@@ -231,7 +254,8 @@ class ChangesetStore:
             "FROM changes "
             f"ORDER BY {self._order_clause(sorted_order)} LIMIT 1 OFFSET ?"
         )
-        return self._conn.execute(sql, (index,)).fetchone()
+        row = self._db.fetch_one(sql, (index,))
+        return self._row_to_dict(row) if row is not None else None
 
     @staticmethod
     def _is_uri_selected(uri: str, rules_json: str) -> int:
@@ -280,26 +304,6 @@ class ChangesetStore:
 
         return current
 
-    def _where_for_rules(
-        self,
-        *,
-        filter_rules: Optional[list[str]],
-        apply_only: Optional[bool],
-        params: list[Any],
-    ) -> str:
-        clauses: list[str] = []
-        if apply_only is not None:
-            clauses.append("apply=?")
-            params.append(1 if apply_only else 0)
-        if filter_rules:
-            import orjson
-
-            rules_json = orjson.dumps([str(rule) for rule in filter_rules]).decode("utf-8")
-            self._conn.create_function("uri_is_selected", 2, self._is_uri_selected)
-            clauses.append("uri_is_selected(uri, ?) = 1")
-            params.append(rules_json)
-        return "" if not clauses else (" WHERE " + " AND ".join(clauses))
-
     def query_rows(
         self,
         *,
@@ -308,28 +312,48 @@ class ChangesetStore:
         limit: Optional[int] = None,
         apply_only: Optional[bool] = None,
         sorted_order: bool = True,
-    ) -> Iterator[sqlite3.Row]:
+    ) -> Iterator[dict[str, Any]]:
+        where_clauses: list[str] = []
         params: list[Any] = []
-        where = self._where_for_rules(filter_rules=filter_rules, apply_only=apply_only, params=params)
+        if apply_only is not None:
+            where_clauses.append("apply=?")
+            params.append(1 if apply_only else 0)
+
         sql = (
             "SELECT seq, change_type, object_type, uri, apply, body_json, "
             "dim_name, hier_name, object_name, cube_name, process_name, chore_name "
             "FROM changes"
-            + where
-            + f" ORDER BY {self._order_clause(sorted_order)}"
         )
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+        sql += f" ORDER BY {self._order_clause(sorted_order)}"
+
+        # Filter-rule predicates use Python helpers, so we apply offset/limit
+        # in Python after the SQL projection rather than via SQL when the
+        # filter is active.
+        if filter_rules:
+            import orjson
+
+            rules_json = orjson.dumps([str(rule) for rule in filter_rules]).decode("utf-8")
+            rows = self._db.fetch_all(sql, tuple(params))
+            selected: list[tuple[Any, ...]] = [
+                row for row in rows if self._is_uri_selected(str(row[3]), rules_json) == 1
+            ]
+            start = max(0, int(offset))
+            end = (start + max(0, int(limit))) if limit is not None else len(selected)
+            for row in selected[start:end]:
+                yield self._row_to_dict(row)
+            return
+
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params.extend([int(limit), max(0, int(offset))])
         elif offset > 0:
             sql += " LIMIT -1 OFFSET ?"
             params.append(max(0, int(offset)))
-        cursor = self._conn.execute(sql, tuple(params))
-        while True:
-            row = cursor.fetchone()
-            if row is None:
-                break
-            yield row
+
+        for row in self._db.fetch_all(sql, tuple(params)):
+            yield self._row_to_dict(row)
 
     def toggle_apply(self, *, filter_rules: Optional[list[str]] = None) -> int:
         if not filter_rules:
@@ -339,22 +363,22 @@ class ChangesetStore:
         import orjson
 
         rules_json = orjson.dumps([str(rule) for rule in filter_rules]).decode("utf-8")
-        self._conn.create_function("desired_apply", 3, self._desired_apply)
-        cursor = self._conn.execute(
-            """
-            UPDATE changes
-            SET apply = desired_apply(uri, ?, apply)
-            WHERE apply != desired_apply(uri, ?, apply)
-            """,
-            (rules_json, rules_json),
-        )
-        self._conn.commit()
-        return int(cursor.rowcount or 0)
+        rows = self._db.fetch_all("SELECT seq, uri, apply FROM changes")
+        updates: list[tuple[int, int]] = []
+        for seq, uri, current_apply in rows:
+            desired = self._desired_apply(str(uri), rules_json, int(current_apply))
+            if int(current_apply) != desired:
+                updates.append((desired, int(seq)))
+        if not updates:
+            return 0
+        self._db.executemany("UPDATE changes SET apply = ? WHERE seq = ?", updates)
+        self._db.commit()
+        return len(updates)
 
     def summary_counts(self) -> dict[str, int]:
-        rows = self._conn.execute(
+        rows = self._db.fetch_all(
             "SELECT change_type, COUNT(*) AS cnt FROM changes GROUP BY change_type"
-        ).fetchall()
+        )
         summary = {"add": 0, "remove": 0, "modify": 0}
         for row in rows:
             change_type = str(row[0]).lower()

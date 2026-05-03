@@ -6,6 +6,7 @@ import pytest
 from TM1py import Cube, Dimension, Hierarchy, TM1Service
 
 from test_integration.test_base import (
+    DEFAULT_MAX_WORKERS,
     export_check_no_errors,
     load_fixture_model_tm1gitpy,
     tm1_service,
@@ -118,6 +119,7 @@ class TestChangesetApply:
         fixture_model, _errors = deserialize_model(
             fixture_dir,
             model_id=f"filtered_{uuid4().hex}",
+            max_workers=DEFAULT_MAX_WORKERS,
         )
         fixture_model = filter_model(fixture_model, filter_rules)
 

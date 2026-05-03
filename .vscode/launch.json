@@ -8,7 +8,7 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/tm1_git_py/main.py",
+            "program": "${workspaceFolder}/tm1_git_py/testprocesspool.py",
             "console": "integratedTerminal",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
@@ -17,7 +17,7 @@
             // "args": ["model-filter", "--model-folder=export", "--model-output-folder=export-filtered", "--filter-rules=file://examples/filter.txt", "--overwrite"]
             // "args": ["model-filter", "--model-folder=export", "--model-output-folder=export-filtered", "--filter-rules=Dimensions('}*'),!Dimensions('BW*')", "--overwrite"]
             // "args": ["changset-filter", "--changeset-path=changeset.yml", "--filter-rules=file://examples/filter.txt"]
-            "args": ["model-filter", "--filter-rules=file://examples/filter.txt", "--model-output-folder=export2", "--overwrite"]
+            // "args": ["model-filter", "--filter-rules=file://examples/filter.txt", "--model-output-folder=export2", "--overwrite"]
         },
         {
             "name": "Model Filter",
@@ -39,7 +39,16 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
-            "args": ["export", "--server=seederbpsp", "--model-output-folder=export2", "--filter=file://examples/filter.txt", "--overwrite"]
+            "args": [
+            "export",
+             "--server=seederbpsp",
+             "--model-output-folder=export2",
+             "--filter=file://examples/filter.txt",
+             "--overwrite",
+             "--max-workers=6",
+             "--debug",
+             "--log-file=export.log"
+            ]
         },
         {
             "name": "Compare",

@@ -29,11 +29,36 @@ DIMENSION_JSON_SPACED_COLON_KEYS: frozenset[str] = frozenset()
 # }
 
 class Dimension:
-    def __init__(self, name, hierarchies: List[Hierarchy], defaultHierarchy: Hierarchy):
+    def __init__(
+        self,
+        name,
+        hierarchies: Optional[List[Hierarchy]] = None,
+        defaultHierarchy: Optional[Hierarchy] = None,
+    ):
         self.type = 'Dimension'
         self.name = name
-        self.hierarchies = hierarchies
-        self.defaultHierarchy = defaultHierarchy
+        self.hierarchies = list(hierarchies or [])
+        self.defaultHierarchy = self._select_default_hierarchy(
+            dimension_name=name,
+            hierarchies=self.hierarchies,
+            default_hierarchy=defaultHierarchy,
+        )
+
+    @staticmethod
+    def _select_default_hierarchy(
+        *,
+        dimension_name: str,
+        hierarchies: List[Hierarchy],
+        default_hierarchy: Optional[Hierarchy],
+    ) -> Hierarchy:
+        matching_hierarchy = next((hier for hier in hierarchies if hier.name == dimension_name), None)
+        if matching_hierarchy is not None:
+            return matching_hierarchy
+        if default_hierarchy is not None:
+            return default_hierarchy
+        if hierarchies:
+            return hierarchies[0]
+        return Hierarchy(name=dimension_name, elements=[], edges=[], subsets=[])
 
     def as_json(self):
         payload: Dict[str, Any] = {

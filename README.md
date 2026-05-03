@@ -172,15 +172,29 @@ Options:
   -f, --filter FILE            Filter rules for export (file path, file:// URI, or comma-separated rules)
   -f, --filter-rules RULES     Filter rules for compare/model-filter/changset-filter
   --changeset-path PATH         Changeset path for changset-filter
-  --max-workers N              Worker budget for export/compare (default: cpu_count/2 + 1)
-  --log-level LEVEL            Log level: DEBUG, INFO, WARNING, ERROR
+  --max-workers N              CPU worker count for export/compare
+  --debug                      Enable DEBUG logging and show per-worker/thread progress bars
 ```
 
-Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment; `--log-level` takes precedence.
+Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment. Pass `--debug` to set the log level to `DEBUG` for that run.
 
-For `compare`, `--max-workers` is split between source and target model deserialization:
-- source workers = `max(1, max_workers // 2)`
-- target workers = `max(1, max_workers - source_workers)`
+Progress output shows a total progress bar by default. Pass `--debug` to also render detailed per-worker/thread progress bars.
+
+Worker counts are split into two worker types:
+- `cpu-worker`: process-based workers used for CPU-bound work such as content hashing.
+- `io-worker`: thread-based workers used for IO-bound work such as TM1 page fetching.
+
+`--max-workers` means CPU workers. When it is provided:
+- `cpu-worker = --max-workers`
+- `io-worker = --max-workers * 2`
+
+When `--max-workers` is omitted:
+- `cpu-worker = cpu_count // 2 + 1`
+- `io-worker = cpu_count * 2`
+
+For `export`, content hash calculation uses CPU workers and TM1 fetch/page work uses IO workers. For `compare`, the resolved CPU worker count is split between source and target model deserialization:
+- source workers = `max(1, cpu_workers // 2)`
+- target workers = `max(1, cpu_workers - source_workers)`
 - odd values give one extra worker to target
 
 ## Examples
