@@ -295,11 +295,13 @@ class Changeset:
             self,
             changeset_id: Optional[str] = None,
             *,
-            require_existing_store: bool = False
+            require_existing_store: bool = False,
+            base_dir: Optional[str] = None,
     ):
         self.changeset_id: str = (changeset_id or "").strip() or _generate_changeset_id()
         self.last_execution_id: str = '0'
         self._require_existing_store = bool(require_existing_store)
+        self._store_base_dir = base_dir
 
         self.errors: dict[str, list[Any]] = {}
         self._store: Optional[ChangesetStore] = None
@@ -307,13 +309,14 @@ class Changeset:
         self._changes = ChangesetSequence(self)
 
     @classmethod
-    def from_changeset_id(cls, changeset_id: str) -> "Changeset":
-        store_path = ChangesetStore.path_for(changeset_id=changeset_id)
+    def from_changeset_id(cls, changeset_id: str, *, base_dir: Optional[str] = None) -> "Changeset":
+        store_path = ChangesetStore.path_for(changeset_id=changeset_id, base_dir=base_dir)
         if not store_path.exists():
             raise FileNotFoundError(f"Changeset sqlite not found for id '{changeset_id}': {store_path}")
         changeset = cls(
             changeset_id=changeset_id,
             require_existing_store=True,
+            base_dir=base_dir,
         )
         # Fail fast if schema is unavailable/corrupt.
         _ = len(changeset.changes)
@@ -335,6 +338,7 @@ class Changeset:
         if self._store is None:
             self._store = ChangesetStore(
                 changeset_id=self.changeset_id,
+                base_dir=self._store_base_dir,
                 require_exists=self._require_existing_store,
             )
             if self._reset_store_on_first_open:
