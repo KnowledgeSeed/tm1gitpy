@@ -11,7 +11,7 @@ from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.subset import Subset
-from tm1_git_py.model.model_store import ModelStore
+from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.model.store_backed_sequence import StoreBackedSequence
 from tm1_git_py.model.ti import TI
 from tm1_git_py.model.rule import Rule

@@ -11,8 +11,8 @@ from test_integration.test_base import (
     export_check_no_errors,
     tm1_service,
 )
-from tm1_git_py.exporter import export
-from tm1_git_py.serializer import serialize_model
+from tm1_git_py.services.exporter import export
+from tm1_git_py.services.serializer import serialize_model
 
 
 @pytest.mark.usefixtures("tm1_service")

@@ -14,15 +14,15 @@ from testcontainers.compose import DockerCompose
 
 from tm1_git_py import serialize_model
 from tm1_git_py.config import TM1ServerConfig, TM1ServersConfig
-from tm1_git_py.deserializer import deserialize_model
-from tm1_git_py.exporter import export
+from tm1_git_py.services.deserializer import deserialize_model
+from tm1_git_py.services.exporter import export
 from tm1_git_py.main import _tm1_connection_from_config
 from tm1_git_py.model.model import Model
-from tm1_git_py.filter import filter
+from tm1_git_py.services.filter import filter
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_WORKERS = 1
+DEFAULT_MAX_WORKERS = 8
 
 # Directories under a serialized model root to compare in integration "no diff" checks.
 # Other paths (e.g. ``.internal`` internal artifacts) are ignored.
@@ -288,7 +288,7 @@ def export_check_no_errors(
     assert isinstance(model, Model)
     for category, category_errors in errors.items():
         assert not category_errors, f"Found errors in {category}: {category_errors}"
-    return filter(model, filter_rules) if filter_rules else model
+    return model
 
 
 def check_no_diff(expected_dir, model: Model):

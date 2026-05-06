@@ -172,7 +172,7 @@ Options:
   -f, --filter FILE            Filter rules for export (file path, file:// URI, or comma-separated rules)
   -f, --filter-rules RULES     Filter rules for compare/model-filter/changset-filter
   --changeset-path PATH         Changeset path for changset-filter
-  --max-workers N              CPU worker count for export/compare
+  --max-workers N              Total CPU + IO worker count for export/compare
   --debug                      Enable DEBUG logging and show per-worker/thread progress bars
 ```
 
@@ -184,13 +184,16 @@ Worker counts are split into two worker types:
 - `cpu-worker`: process-based workers used for CPU-bound work such as content hashing.
 - `io-worker`: thread-based workers used for IO-bound work such as TM1 page fetching.
 
-`--max-workers` means CPU workers. When it is provided:
-- `cpu-worker = --max-workers`
-- `io-worker = --max-workers * 2`
+`--max-workers` means the total CPU + IO worker budget. When it is provided:
+- `cpu-worker ~= --max-workers / 4`
+- `io-worker = --max-workers - cpu-worker`
+- the split is rounded to stay near a 1:3 CPU/IO ratio
 
 When `--max-workers` is omitted:
 - `cpu-worker = cpu_count // 2 + 1`
-- `io-worker = cpu_count * 2`
+- `io-worker = cpu-worker * 3`
+
+When the resolved CPU worker count is `1`, content hashing and model serialization run serially.
 
 For `export`, content hash calculation uses CPU workers and TM1 fetch/page work uses IO workers. For `compare`, the resolved CPU worker count is split between source and target model deserialization:
 - source workers = `max(1, cpu_workers // 2)`

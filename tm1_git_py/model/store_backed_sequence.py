@@ -2,10 +2,8 @@ from typing import Any, Callable, Generic, Iterable, Iterator, MutableSequence, 
 
 from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.element import Element
-from tm1_git_py.model.model_store import ModelStore
+from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.model.subset import Subset
-from tm1_git_py.progress_reporting import CallbackProgressSink
-
 T = TypeVar("T")
 
 class StoreBackedSequence(MutableSequence[T], Generic[T]):
@@ -21,17 +19,24 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         payload_from_item: Callable[[T], dict[str, Any]],
     ):
         self._store = store
+        self._store_db_path = store.db_path
         self._dimension_name = dimension_name
         self._hierarchy_name = hierarchy_name
         self._object_type = object_type
+        self._model_id = model_id
         self._item_from_payload = item_from_payload
         self._payload_from_item = payload_from_item
-        self.group_id = self._store.ensure_group(
+        self.group_id = self._active_store().ensure_group(
             dimension_name,
             hierarchy_name,
             object_type,
             model_id=model_id,
         )
+
+    def _active_store(self) -> ModelStore:
+        if getattr(self._store, "_closed", False):
+            self._store = ModelStore.for_db_path(self._store_db_path)
+        return self._store
 
     @classmethod
     def for_elements_sink(
@@ -91,7 +96,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         )
 
     def __len__(self) -> int:
-        return self._store.row_count(self.group_id)
+        return self._active_store().row_count(self.group_id)
 
     def __iter__(self) -> Iterator[T]:
         for payload in self.iter_payloads():
@@ -121,7 +126,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         payloads = [self._payload_from_item(item) for item in values]
         if not payloads:
             return
-        self._store.append_payloads(
+        self._active_store().append_payloads(
             self.group_id,
             payloads,
         )
@@ -138,10 +143,10 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         batch = list(payloads)
         if not batch:
             return
-        self._store.append_payloads(self.group_id, batch)
+        self._active_store().append_payloads(self.group_id, batch)
 
     def iter_payloads(self, *, ordered_by_identity: bool = False) -> Iterator[dict[str, Any]]:
-        yield from self._store.iter_payloads(self.group_id, progress_label=True, ordered_by_identity=ordered_by_identity)
+        yield from self._active_store().iter_payloads(self.group_id, progress_label=True, ordered_by_identity=ordered_by_identity)
 
     def iter_payload_json_strings(
         self,
@@ -150,7 +155,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         progress_label: Optional[str] = None,
         progress_every: int = 10_000,
     ) -> Iterator[str]:
-        yield from self._store.iter_payload_json_strings(
+        yield from self._active_store().iter_payload_json_strings(
             self.group_id,
             ordered_by_identity=ordered_by_identity,
             progress_label=progress_label,
@@ -164,7 +169,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         self,
         payloads: Iterable[dict[str, Any]],
     ) -> None:
-        self._store.replace_group_payloads(
+        self._active_store().replace_group_payloads(
             self.group_id,
             payloads,
         )
@@ -180,45 +185,47 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         return len(kept_payloads)
 
     def sidecar_content_signature(self) -> Optional[tuple[int, str]]:
-        return self._store.content_signature(self.group_id)
+        return self._active_store().content_signature(self.group_id)
 
     def set_content_signature(self, *, row_count: int, content_hash: str) -> None:
-        self._store.set_content_signature(
+        self._active_store().set_content_signature(
             self.group_id,
             row_count=row_count,
             content_hash=content_hash,
         )
 
     def recalculate_content_signature_parallel(self) -> tuple[int, str]:
-        from tm1_git_py.deserializer import recalculate_group_content_signature_parallel
+        from tm1_git_py.internal.content_hash_calculator import calculate_group_content_signature
 
-        row_count, content_hash = recalculate_group_content_signature_parallel(
-            store=self._store,
+        store = self._active_store()
+        normalized, _, _ = store.resolve_parallel_hash_inputs(self.group_id)
+        row_count, content_hash = calculate_group_content_signature(
+            db_path=store.db_path,
             group_id=self.group_id,
-            ordered_by_identity=True,
-            progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
+            object_type=normalized,
+            max_workers=1,
         )
-        self._store.commit_group_content_signature(
+        store.commit_group_content_signature(
             self.group_id,
             row_count=row_count,
-            content_hash=content_hash
+            content_hash=content_hash,
         )
         return row_count, content_hash
 
     def set_source_json_mtime_ns(self, source_json_mtime_ns: int) -> None:
-        self._store.set_source_json_mtime_ns(self.group_id, source_json_mtime_ns)
+        self._active_store().set_source_json_mtime_ns(self.group_id, source_json_mtime_ns)
 
     def source_json_mtime_ns(self) -> Optional[int]:
-        return self._store.source_json_mtime_ns(self.group_id)
+        return self._active_store().source_json_mtime_ns(self.group_id)
 
     def set_etag(self, etag: Optional[str]) -> None:
-        self._store.set_group_etag(self.group_id, etag)
+        self._active_store().set_group_etag(self.group_id, etag)
 
     def etag(self) -> Optional[str]:
-        return self._store.group_etag(self.group_id)
+        return self._active_store().group_etag(self.group_id)
 
     def set_filter_rules(self, filter_rules: list[str]) -> None:
-        self._store.set_group_filter_rules(self.group_id, filter_rules)
+        self._active_store().set_group_filter_rules(self.group_id, filter_rules)
 
     def filter_rules(self) -> list[str]:
-        return self._store.group_filter_rules(self.group_id)
+        return self._active_store().group_filter_rules(self.group_id)

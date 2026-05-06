@@ -44,3 +44,5 @@ dist/
 
 **/License.xml
 .internal
+
+test_integration/test_create_and_delete.json

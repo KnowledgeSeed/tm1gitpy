@@ -13,25 +13,21 @@ from typing import Any
 from TM1py import TM1Service
 
 from tm1_git_py import Changeset
-from tm1_git_py.changeset import import_changeset
-from tm1_git_py.comparator import Comparator, TqdmComparatorProgressSink
 from tm1_git_py.config import TM1ServersConfig
-from tm1_git_py.deserializer import deserialize_model
-from tm1_git_py.exporter import export
-from tm1_git_py.filter import filter, import_filter
-from tm1_git_py.logging_config import setup_logging
+from tm1_git_py.config.logging_config import setup_logging
+from tm1_git_py.db.model_store import ModelStore
+from tm1_git_py.internal.process_pool import ignore_sigint_in_worker, shutdown_process_pool_now
+from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.model import Model
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.hierarchy import Hierarchy
 from tm1_git_py.model.mdxview import MDXView
-from tm1_git_py.model.model_store import ModelStore
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
-from tm1_git_py.process_pool import ignore_sigint_in_worker, shutdown_process_pool_now
-from tm1_git_py.progress_reporting import (
+from tm1_git_py.reporting.progress_reporting import (
     CallbackProgressSink,
     CompositeProgressSink,
     LoggingProgressSink,
@@ -39,8 +35,12 @@ from tm1_git_py.progress_reporting import (
     ProgressSink,
     TqdmProgressSink,
 )
-from tm1_git_py.serializer import serialize_model
-from tm1_git_py.worker_config import resolve_worker_counts
+from tm1_git_py.services.changeset import import_changeset
+from tm1_git_py.services.comparator import Comparator, TqdmComparatorProgressSink
+from tm1_git_py.services.deserializer import deserialize_model
+from tm1_git_py.services.exporter import export
+from tm1_git_py.services.filter import filter, import_filter
+from tm1_git_py.services.serializer import serialize_model
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,10 @@ def _split_compare_workers(max_workers: int) -> tuple[int, int]:
 
 
 def _rebind_model_store_handles(model: Model, model_root: Path) -> Model:
-    """Rebind hierarchy store-backed sequences to a connection in the current thread."""
+    """Rebind hierarchy store-backed sequences to a connection in the current thread.
+
+    Store handles are resolved through the process-wide Sqlite worker registry (:class:`WorkerDBRegistry`).
+    """
     model_id = (getattr(model, "model_id", None) or model_root.name).strip()
     if not model_id:
         model_id = "default"
@@ -250,7 +253,7 @@ def _deserialize_model_worker(
     model, errors = deserialize_model(
         model_dir,
         progress_sink=CallbackProgressSink(_emit_progress),
-        max_workers=max(1, int(max_workers)),
+        _resolved_cpu_workers=max(1, int(max_workers)),
     )
     return _model_to_compare_snapshot(model), errors
 
@@ -382,21 +385,18 @@ def _cmd_export(args: argparse.Namespace) -> None:
     model_id = model_output_path.name.strip()
     if not model_id:
         raise ValueError("model_id must not be empty")
-    ModelStore.for_model_id(model_id)
     requested_max_workers = _normalize_max_workers(args.max_workers)
-    worker_counts = resolve_worker_counts(requested_max_workers)
 
-    # sinkks
     debug_progress = bool(getattr(args, "debug", False))
-    tqdm_export_sink = TqdmProgressSink(worker_count=worker_counts.cpu_workers + worker_counts.io_workers, base_position=0, leave=True, thread_tracing_enabled=debug_progress)
-    export_sink: list[ProgressSink] = [tqdm_export_sink]
+    tqdm_sink = TqdmProgressSink(worker_count=requested_max_workers, base_position=0, leave=True, thread_tracing_enabled=debug_progress)
+    sink_list: list[ProgressSink] = [tqdm_sink]
     if bool(args.log_file):
-        export_sink.append(LoggingProgressSink(logger))
-    export_progress_sink: ProgressSink = (
-        export_sink[0] if len(export_sink) == 1 else CompositeProgressSink(export_sink)
+        sink_list.append(LoggingProgressSink(logger))
+    main_sink: ProgressSink = (
+        sink_list[0] if len(sink_list) == 1 else CompositeProgressSink(sink_list)
     )
-    exported_model, export_errors = export(tm1_service, model_id=model_id, filter_rules_list=filter_rules, progress_sink=export_progress_sink, max_workers=requested_max_workers)
-    tqdm_export_sink.close()
+    exported_model, export_errors = export(tm1_service, model_id=model_id, filter_rules_list=filter_rules, progress_sink=main_sink, max_workers=requested_max_workers)
+    tqdm_sink.reset_bars()
 
     if export_errors and any(export_errors.values()):
         logger.warning("Export errors encountered")
@@ -406,15 +406,8 @@ def _cmd_export(args: argparse.Namespace) -> None:
     else:
         logger.info("Export completed successfully with no errors")
 
-    tqdm_serialize_sink = TqdmProgressSink(worker_count=worker_counts.cpu_workers + worker_counts.io_workers, base_position=0, leave=True, thread_tracing_enabled=debug_progress)
-    serialize_sinks: list[ProgressSink] = [tqdm_serialize_sink]
-    if bool(args.log_file):
-        serialize_sinks.append(LoggingProgressSink(logger))
-    serialize_progress_sink: ProgressSink = (
-        serialize_sinks[0] if len(serialize_sinks) == 1 else CompositeProgressSink(serialize_sinks)
-    )
-    serialize_model(exported_model, model_output_folder, progress_sink=serialize_progress_sink, max_workers=requested_max_workers)
-    tqdm_serialize_sink.close()
+    serialize_model(exported_model, model_output_folder, progress_sink=main_sink, max_workers=requested_max_workers)
+    
     logger.info("Model serialized to: %s", model_output_folder)
 
 def _cmd_filter(args: argparse.Namespace) -> None:
@@ -461,114 +454,119 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         logger.error("Target model path is not a directory: %s", target)
         sys.exit(1)
 
-    ModelStore.for_model_id(source.name)
-    ModelStore.for_model_id(target.name)
-
-    requested_max_workers = _normalize_max_workers(args.max_workers)
-    worker_counts = resolve_worker_counts(requested_max_workers)
-    source_workers, target_workers = _split_compare_workers(worker_counts.cpu_workers)
-
-    source_tqdm = TqdmProgressSink(
-        # str(source),
-        worker_count=source_workers,
-        base_position=0,
-        leave=False,
-        thread_tracing_enabled=bool(getattr(args, "debug", False)),
-    )
-    target_tqdm = TqdmProgressSink(
-        # str(target),
-        worker_count=target_workers,
-        base_position=source_workers+1,
-        leave=False,
-        thread_tracing_enabled=bool(getattr(args, "debug", False)),
-    )
-    source_progress_sinks: list[ProgressSink] = [source_tqdm]
-    target_progress_sinks: list[ProgressSink] = [target_tqdm]
-    if bool(args.log_file):
-        source_progress_sinks.append(LoggingProgressSink(logger))
-        target_progress_sinks.append(LoggingProgressSink(logger))
-    source_progress_sink: ProgressSink = (
-        source_progress_sinks[0] if len(source_progress_sinks) == 1 else CompositeProgressSink(source_progress_sinks)
-    )
-    target_progress_sink: ProgressSink = (
-        target_progress_sinks[0] if len(target_progress_sinks) == 1 else CompositeProgressSink(target_progress_sinks)
-    )
-    manager = Manager()
-    progress_queue = manager.Queue()
-    stop_event = threading.Event()
-    progress_thread = threading.Thread(
-        target=_consume_compare_progress_events,
-        args=(progress_queue, source_progress_sink, target_progress_sink, stop_event),
-        daemon=True,
-    )
-    progress_thread.start()
-    logger.info("Loading source model from %s", source)
-    pool: ProcessPoolExecutor | None = None
+    changeset = None
     try:
-        pool = ProcessPoolExecutor(max_workers=2, initializer=ignore_sigint_in_worker)
-        source_future = pool.submit(_deserialize_model_worker, str(source), 0, progress_queue, source_workers)
-        target_future = pool.submit(_deserialize_model_worker, str(target), 1, progress_queue, target_workers)
-        source_snapshot, err_source = source_future.result()
-        target_snapshot, err_target = target_future.result()
-    except KeyboardInterrupt:
-        if pool is not None:
-            shutdown_process_pool_now(pool)
-            pool = None
-        raise
-    finally:
-        if pool is not None:
-            pool.shutdown()
-        stop_event.set()
-        progress_thread.join()
-        source_progress_sink.close()
-        target_progress_sink.close()
-        manager.shutdown()
-    model_source = _model_from_compare_snapshot(source_snapshot)
-    model_target = _model_from_compare_snapshot(target_snapshot)
-    model_source = _rebind_model_store_handles(model_source, source)
-    model_target = _rebind_model_store_handles(model_target, target)
+        requested_max_workers = _normalize_max_workers(args.max_workers)
+        source_workers, target_workers = _split_compare_workers(requested_max_workers)
 
-    if err_source:
-        logger.warning("Source deserialization reported %d error(s)", len(err_source))
-    logger.info("Loading target model from %s", target)
-    if err_target:
-        logger.warning("Target deserialization reported %d error(s)", len(err_target))
-
-    extra_filter = _load_filter_rules(args.filter_rules) if args.filter_rules else None
-
-    comparator = Comparator()
-    compare_tqdm = TqdmComparatorProgressSink(
-        enable_fallback_logs=bool(args.log_file),
-        preferred_slot_index=0,
-    )
-    compare_sinks: list[ProgressSink] = [compare_tqdm]
-    if bool(args.log_file):
-        compare_sinks.append(LoggingProgressSink(logger))
-    compare_progress_sink: ProgressSink = (
-        compare_sinks[0] if len(compare_sinks) == 1 else CompositeProgressSink(compare_sinks)
-    )
-    try:
-        changeset = comparator.compare(
-            model_source,
-            model_target,
-            mode=args.mode,
-            filter_rules=extra_filter,
-            progress_sink=compare_progress_sink,
+        source_tqdm = TqdmProgressSink(
+            # str(source),
+            worker_count=source_workers,
+            base_position=0,
+            leave=False,
+            thread_tracing_enabled=bool(getattr(args, "debug", False)),
         )
+        target_tqdm = TqdmProgressSink(
+            # str(target),
+            worker_count=target_workers,
+            base_position=source_workers+1,
+            leave=False,
+            thread_tracing_enabled=bool(getattr(args, "debug", False)),
+        )
+
+    
+
+        source_progress_sinks: list[ProgressSink] = [source_tqdm]
+        target_progress_sinks: list[ProgressSink] = [target_tqdm]
+        if bool(args.log_file):
+            source_progress_sinks.append(LoggingProgressSink(logger))
+            target_progress_sinks.append(LoggingProgressSink(logger))
+        source_progress_sink: ProgressSink = (
+            source_progress_sinks[0] if len(source_progress_sinks) == 1 else CompositeProgressSink(source_progress_sinks)
+        )
+        target_progress_sink: ProgressSink = (
+            target_progress_sinks[0] if len(target_progress_sinks) == 1 else CompositeProgressSink(target_progress_sinks)
+        )
+        manager = Manager()
+        progress_queue = manager.Queue()
+        stop_event = threading.Event()
+        progress_thread = threading.Thread(
+            target=_consume_compare_progress_events,
+            args=(progress_queue, source_progress_sink, target_progress_sink, stop_event),
+            daemon=True,
+        )
+        progress_thread.start()
+        logger.info("Loading source model from %s", source)
+        pool: ProcessPoolExecutor | None = None
+        try:
+            pool = ProcessPoolExecutor(max_workers=2, initializer=ignore_sigint_in_worker)
+            source_future = pool.submit(_deserialize_model_worker, str(source), 0, progress_queue, source_workers)
+            target_future = pool.submit(_deserialize_model_worker, str(target), 1, progress_queue, target_workers)
+            source_snapshot, err_source = source_future.result()
+            target_snapshot, err_target = target_future.result()
+        except KeyboardInterrupt:
+            if pool is not None:
+                shutdown_process_pool_now(pool)
+                pool = None
+            raise
+        finally:
+            if pool is not None:
+                pool.shutdown()
+            stop_event.set()
+            progress_thread.join()
+            source_progress_sink.close()
+            target_progress_sink.close()
+            manager.shutdown()
+        model_source = _model_from_compare_snapshot(source_snapshot)
+        model_target = _model_from_compare_snapshot(target_snapshot)
+
+        if err_source:
+            logger.warning("Source deserialization reported %d error(s)", len(err_source))
+        logger.info("Loading target model from %s", target)
+        if err_target:
+            logger.warning("Target deserialization reported %d error(s)", len(err_target))
+
+        extra_filter = _load_filter_rules(args.filter_rules) if args.filter_rules else None
+
+        comparator = Comparator()
+        compare_tqdm = TqdmComparatorProgressSink(
+            enable_fallback_logs=bool(args.log_file),
+            preferred_slot_index=0,
+        )
+        compare_sinks: list[ProgressSink] = [compare_tqdm]
+        if bool(args.log_file):
+            compare_sinks.append(LoggingProgressSink(logger))
+        compare_progress_sink: ProgressSink = (
+            compare_sinks[0] if len(compare_sinks) == 1 else CompositeProgressSink(compare_sinks)
+        )
+        model_source = _rebind_model_store_handles(model_source, source)
+        model_target = _rebind_model_store_handles(model_target, target)
+
+        try:
+            changeset = comparator.compare(
+                model_source,
+                model_target,
+                mode=args.mode,
+                filter_rules=extra_filter,
+                progress_sink=compare_progress_sink,
+            )
+        finally:
+            compare_progress_sink.close()
+
+        out = args.output
+        if not out:
+            out = "changeset.yaml" if args.format == "yaml" else "changeset.json"
+        output_path = Path(out).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        changeset.export(output_path)
+        if args.format == "json":
+            logger.info("Wrote JSON changeset (%d change(s)) to %s", len(changeset.changes), output_path)
+        else:
+            logger.info("Wrote YAML changeset (%d change(s)) to %s", len(changeset.changes), output_path)
     finally:
-        compare_progress_sink.close()
-
-    out = args.output
-    if not out:
-        out = "changeset.yaml" if args.format == "yaml" else "changeset.json"
-    output_path = Path(out).expanduser().resolve()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    changeset.export(output_path)
-    if args.format == "json":
-        logger.info("Wrote JSON changeset (%d change(s)) to %s", len(changeset.changes), output_path)
-    else:
-        logger.info("Wrote YAML changeset (%d change(s)) to %s", len(changeset.changes), output_path)
+        if changeset is not None:
+            changeset.close()
 
 
 def _cmd_apply(args: argparse.Namespace) -> None:
@@ -604,6 +602,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         )
     finally:
         apply_progress_sink.close()
+        changeset.close()
     if ok:
         logger.info("Apply finished successfully")
     else:
@@ -619,8 +618,11 @@ def _cmd_changeset_filter(args: argparse.Namespace) -> None:
 
     filter_rules = _load_filter_rules(args.filter_rules)
     changeset = import_changeset(changeset_path)
-    toggled_count = changeset.filter(filter_rules)
-    changeset.export(changeset_path)
+    try:
+        toggled_count = changeset.filter(filter_rules)
+        changeset.export(changeset_path)
+    finally:
+        changeset.close()
     logger.info(
         "Applied changeset filter rules and toggled apply for %d change(s): %s",
         toggled_count,
@@ -649,8 +651,8 @@ def main():
         type=int,
         default=None,
         help=(
-            "CPU worker count. If defined, IO workers are 2x this value. "
-            "If omitted, CPU workers default to cpu_count/2 + 1 and IO workers to cpu_count*2."
+            "Total CPU + IO worker count. If defined, workers are split near a 1:3 CPU/IO ratio. "
+            "If omitted, CPU workers default to cpu_count/2 + 1 and IO workers to 3x that value."
         ),
     )
     p_export.set_defaults(handler=_cmd_export)
@@ -722,8 +724,8 @@ def main():
         type=int,
         default=None,
         help=(
-            "CPU worker count for compare deserialization. If omitted, defaults to cpu_count/2 + 1. "
-            "Workers are split between source and target; odd values assign one extra to target."
+            "Total CPU + IO worker count. Compare uses the resolved CPU worker count for deserialization. "
+            "CPU workers are split between source and target; odd values assign one extra to target."
         ),
     )
     p_compare.set_defaults(handler=_cmd_compare)

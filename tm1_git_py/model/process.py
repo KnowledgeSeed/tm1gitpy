@@ -10,7 +10,6 @@ from requests import Response
 from tm1_git_py.model.ti import TI
 from tm1_git_py.model.tm1git_json import dump_as_tm1git
 
-# Importáljuk a TI osztályt a típus-ellenőrzéshez (type hinting)
 if TYPE_CHECKING:
     pass
 

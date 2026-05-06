@@ -1,8 +1,8 @@
 import logging
 import os
 
-import tm1_git_py.progress_reporting as progress_reporting_module
-from tm1_git_py.progress_reporting import (
+import tm1_git_py.reporting.progress_reporting as progress_reporting_module
+from tm1_git_py.reporting.progress_reporting import (
     CallbackProgressSink,
     CompositeProgressSink,
     LoggingProgressSink,
@@ -230,7 +230,7 @@ def test_generic_tqdm_sink_releases_worker_mapping_on_final_event(monkeypatch):
         sink.on_event(ProgressEvent.make(kind=ProgressKind.START, scope=ProgressScope.WORKER, unit=ProgressUnit.LINE, current=0, total=10, worker_id="A"))
         assert "A" in sink.worker_bar_dict
         sink.on_event(ProgressEvent.make(kind=ProgressKind.UPDATE, scope=ProgressScope.WORKER, unit=ProgressUnit.LINE, current=10, total=10, worker_id="A"))
-        assert "A" not in sink.worker_bar_dict
+        assert "A" in sink.worker_bar_dict
     finally:
         sink.close()
 

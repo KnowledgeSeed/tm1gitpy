@@ -10,9 +10,9 @@ from test_integration.test_base import (
     load_fixture_model_tm1gitpy,
     tm1_service,
 )
-from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
-from tm1_git_py.comparator import Comparator
-from tm1_git_py.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
+from tm1_git_py.services.changeset import ChangeType, Changeset, Change, ObjectType
+from tm1_git_py.services.comparator import Comparator
+from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
 from tm1_git_py.model import process as process_model, Model
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.process import Process

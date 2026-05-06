@@ -11,13 +11,13 @@ from TM1py import TM1Service
 from TM1py.Utils import format_url
 from requests import Response
 
-from tm1_git_py.progress_reporting import ProgressEvent, ProgressSink
+from tm1_git_py.reporting.progress_reporting import ProgressEvent, ProgressSink
 
 # Keep CRUD helpers imported in module namespace for compatibility with existing patches/tests.
 from .element import Element, create_element, delete_element, update_element
 from .edge import Edge
 from .subset import Subset
-from .model_store import ModelStore
+from tm1_git_py.db.model_store import ModelStore
 from .store_backed_sequence import StoreBackedSequence
 from .tm1git_json import dump_as_tm1git
 import orjson
@@ -106,9 +106,10 @@ class _HierarchyStagedWriter:
     ) -> int:
         fh.write(f'\t"{key}":\n\t[')
         first = True
-        emitted = 0
         progress_every = max(1, self.JSON_DUMP_PROGRESS_EVERY)
+        emitted = 0
         for payload_json in payload_json_iter:
+            
             if first:
                 fh.write("\n")
                 first = False
@@ -118,65 +119,26 @@ class _HierarchyStagedWriter:
             fh.write("\t\t")
             fh.write(payload_json)
             if progress_sink is not None and emitted % progress_every == 0:
-                progress_sink.on_event(
-                    ProgressEvent.worker_line(
-                        current=emitted,
-                        total=progress_total,
-                        message=progress_message,
-                        path=self.final_path,
-                    )
-                )
+                progress_sink.on_event(ProgressEvent.worker_line(current_delta=emitted))
+                emitted = 0
         if first:
             fh.write("]")
         else:
             fh.write("\n\t]")
         if progress_sink is not None:
-            progress_sink.on_event(
-                ProgressEvent.worker_line(
-                    current=emitted,
-                    total=progress_total,
-                    message=progress_message,
-                    path=self.final_path,
-                )
-            )
+            progress_sink.on_event(progress_sink.on_event(ProgressEvent.worker_line(current_delta=emitted)))
         return emitted
 
-    def _build_subset_links(
-        self,
-        *,
-        progress_sink: Optional[ProgressSink] = None,
-        progress_total: Optional[int] = None,
-    ) -> list[str]:
+    def _build_subset_links(self) -> list[str]:
         links: list[str] = []
         if self.subsets_ref is None:
             return links
-        progress_every = max(1, self.JSON_DUMP_PROGRESS_EVERY)
-        scanned = 0
         for payload_json in self.subsets_ref.iter_payload_json_strings(ordered_by_identity=True):
-            scanned += 1
             payload = _loads_json(payload_json)
             subset_name = payload.get("name") or payload.get("Name")
             if not subset_name:
                 continue
             links.append(format_url("{}.subsets/{}.json", self.hierarchy_name, subset_name))
-            if progress_sink is not None and scanned % progress_every == 0:
-                progress_sink.on_event(
-                    ProgressEvent.worker_line(
-                        current=scanned,
-                        total=progress_total,
-                        message=f"Building subset links ({self.hierarchy_name})",
-                        path=self.final_path,
-                    )
-                )
-        if progress_sink is not None:
-            progress_sink.on_event(
-                ProgressEvent.worker_line(
-                    current=scanned,
-                    total=progress_total,
-                    message=f"Building subset links ({self.hierarchy_name})",
-                    path=self.final_path,
-                )
-            )
         return links
 
     def _sort_staged_jsonls(self) -> None:
@@ -234,42 +196,7 @@ class _HierarchyStagedWriter:
             content_hash=content_hash,
         )
 
-    def finalize(
-        self,
-        *,
-        content_signatures: Optional[dict[str, tuple[int, str]]] = None,
-        assume_serialized: bool = False,
-    ) -> str:
-        if not os.path.exists(self.final_path):
-            self.serialize_hierarchy_json()
-        elif not assume_serialized and not self._finalized:
-            self.serialize_hierarchy_json()
-        if not os.path.exists(self.final_path):
-            raise FileNotFoundError(self.final_path)
-        final_mtime_ns = int(os.stat(self.final_path).st_mtime_ns)
-        signatures = content_signatures or {}
-        if self.elements_ref is not None:
-            self._finalize_sequence(
-                self.elements_ref,
-                final_mtime_ns=final_mtime_ns,
-                signature=signatures.get("elements"),
-            )
-        
-        if self.edges_ref is not None:
-            self._finalize_sequence(
-                self.edges_ref,
-                final_mtime_ns=final_mtime_ns,
-                signature=signatures.get("edges"),
-            )
-        if self.subsets_ref is not None:
-            self._finalize_sequence(
-                self.subsets_ref,
-                final_mtime_ns=final_mtime_ns,
-                signature=signatures.get("subsets"),
-            )
-        return self.final_path
-
-    def serialize_hierarchy_json(self, progress_sink: Optional[ProgressSink] = None) -> str:
+    def serialize_hierarchy_json(self, progress_sink: ProgressSink) -> str:
         if self._finalized and os.path.exists(self.final_path):
             logger.debug("Skipping finalize for hierarchy='%s' (already finalized)", self.hierarchy_name)
             return self.final_path
@@ -278,21 +205,9 @@ class _HierarchyStagedWriter:
         edges_count = len(self.edges_ref) if self.edges_ref is not None else 0
         subsets_count = len(self.subsets_ref) if self.subsets_ref is not None else 0
         total_rows = elements_count + edges_count + subsets_count
-        logger.info(
-            "Starting hierarchy finalization hierarchy='%s' target='%s'",
-            self.hierarchy_name,
-            self.final_path,
-        )
-        if progress_sink is not None:
-            progress_sink.on_event(
-                ProgressEvent.worker_line(
-                    current=0,
-                    total=max(1, total_rows),
-                    message=f"Serializing hierarchy ({self.hierarchy_name})",
-                    path=self.final_path,
-                )
-            )
-        # self._sort_staged_jsonls()
+
+        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=max(1, total_rows), message=f"Serializing hierarchy ({self.hierarchy_name})"))
+        
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")
             fh.write('\t"@type":' + json.dumps("Hierarchy", ensure_ascii=False) + ",\n")
@@ -301,7 +216,6 @@ class _HierarchyStagedWriter:
             if elements_empty:
                 fh.write('\t"Elements":[],\n')
             else:
-                elements_started = time.perf_counter()
                 self._write_payload_array_from_json_strings(
                     fh,
                     "Elements",
@@ -314,15 +228,9 @@ class _HierarchyStagedWriter:
                     progress_message=f"Writing elements ({self.hierarchy_name})",
                     progress_total=elements_count,
                 )
-                logger.info(
-                    "Hierarchy serialize elements write duration hierarchy='%s' duration_ms=%.3f",
-                    self.hierarchy_name,
-                    (time.perf_counter() - elements_started) * 1000,
-                )
                 fh.write(",\n")
             edges_nonempty = edges_count > 0
             if edges_nonempty:
-                edges_started = time.perf_counter()
                 self._write_payload_array_from_json_strings(
                     fh,
                     "Edges",
@@ -335,45 +243,14 @@ class _HierarchyStagedWriter:
                     progress_message=f"Writing edges ({self.hierarchy_name})",
                     progress_total=edges_count,
                 )
-                logger.info(
-                    "Hierarchy serialize edges write duration hierarchy='%s' duration_ms=%.3f",
-                    self.hierarchy_name,
-                    (time.perf_counter() - edges_started) * 1000,
-                )
                 fh.write(",\n")
-            subset_links_started = time.perf_counter()
-            subset_links = self._build_subset_links(
-                progress_sink=progress_sink,
-                progress_total=subsets_count,
-            )
-            logger.info(
-                "Hierarchy serialize subset-links build duration hierarchy='%s' duration_ms=%.3f",
-                self.hierarchy_name,
-                (time.perf_counter() - subset_links_started) * 1000,
-            )
+            subset_links = self._build_subset_links()
             _write_hierarchy_subset_links_field(fh, subset_links)
             fh.write("}")
         os.replace(self.inprogress_path, self.final_path)
-        
-        logger.info(
-            "Completed hierarchy finalization hierarchy='%s' target='%s'",
-            self.hierarchy_name,
-            self.final_path,
-        )
-        logger.info(
-            "Hierarchy serialize total duration hierarchy='%s' duration_ms=%.3f",
-            self.hierarchy_name,
-            (time.perf_counter() - total_started) * 1000,
-        )
-        if progress_sink is not None:
-            progress_sink.on_event(
-                ProgressEvent.worker_line(
-                    current=max(1, total_rows),
-                    total=max(1, total_rows),
-                    message=f"Serialized hierarchy ({self.hierarchy_name})",
-                    path=self.final_path,
-                )
-            )
+
+        progress_sink.on_event(ProgressEvent.total_line(current_delta=total_rows))
+        progress_sink.on_event(ProgressEvent.worker_line(current=total_rows, total=max(1, total_rows)))
         self._finalized = True
         return self.final_path
 
@@ -388,14 +265,13 @@ class Hierarchy:
         *,
         dimension_name: Optional[str] = None,
         model_id: Optional[str] = None,
-        serialize: bool = False,
         hierarchy_etag: Optional[str] = None,
         reuse_existing_store: bool = False,
         elements_filter_rules: Optional[list[str]] = None,
         edges_filter_rules: Optional[list[str]] = None,
         subsets_filter_rules: Optional[list[str]] = None,
     ):
-        _ = serialize, elements_filter_rules, edges_filter_rules, subsets_filter_rules
+        _ = elements_filter_rules, edges_filter_rules, subsets_filter_rules
         if model_id:
             if not dimension_name:
                 raise ValueError("Hierarchy with model_id requires dimension_name.")
@@ -430,6 +306,8 @@ class Hierarchy:
         self.type = 'Hierarchy'
         self.name = name
         self.hierarchy_etag = hierarchy_etag
+        self.model_id = model_id
+        self.dimension_name = dimension_name
         self.elements = elements if elements is not None else []
         self.edges = edges if edges is not None else []
         self.subsets = subsets if subsets is not None else []

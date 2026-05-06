@@ -1,0 +1,770 @@
+from tests.unit_common import *
+
+
+class TestExporter:
+
+    def test_worker_count_resolution(self):
+        from tm1_git_py.internal.worker_config import resolve_worker_counts
+
+        explicit = resolve_worker_counts(4, cpu_cores=16)
+        assert explicit.cpu_workers == 1
+        assert explicit.io_workers == 3
+
+        defaulted = resolve_worker_counts(None, cpu_cores=16)
+        assert defaulted.cpu_workers == 9
+        assert defaulted.io_workers == 27
+
+    def test_export_forwards_max_workers_to_dimensions(self):
+        tm1_conn = mock.Mock()
+        with mock.patch.object(exporter_module, "dimensions_to_model", return_value=({}, {})) as mock_dims, \
+             mock.patch.object(exporter_module, "cubes_to_model", return_value=({}, {})), \
+             mock.patch.object(exporter_module, "procs_to_model", return_value=({}, {})), \
+             mock.patch.object(exporter_module, "chores_to_model", return_value=({}, {})):
+            exporter_module.export(tm1_conn, model_id="unit-export", max_workers=9)
+        assert mock_dims.call_args.kwargs.get("max_workers") == 9
+
+    def test_dimensions_to_model_uses_cpu_workers_for_hash_and_io_workers_for_fetch(self, monkeypatch):
+        seen: dict[str, int] = {}
+
+        class FakeContentHashCalculator:
+            def __init__(self, *, db_path, max_workers, progress_sink=None):
+                seen["cpu_workers"] = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return None
+
+        class FakePriorityThreadPoolExecutor:
+            def __init__(self, *, max_workers, thread_name_prefix):
+                seen["io_workers"] = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return None
+
+        monkeypatch.setattr(exporter_module, "ContentHashCalculator", FakeContentHashCalculator)
+        monkeypatch.setattr(exporter_module, "PriorityThreadPoolExecutor", FakePriorityThreadPoolExecutor)
+        monkeypatch.setattr(exporter_module, "get_dimension_names", lambda *args, **kwargs: [])
+        monkeypatch.setattr(exporter_module.ModelStore, "for_model_id", classmethod(lambda cls, model_id: mock.Mock()))
+
+        exporter_module.dimensions_to_model(
+            mock.Mock(),
+            model_id="unit-worker-split",
+            filter_rules=FilterRules([]),
+            progress_sink=exporter_module.NoopProgressSink(),
+            total_counter=exporter_module.TotalCounter(),
+            max_workers=8,
+        )
+
+        assert seen == {"cpu_workers": 2, "io_workers": 6}
+
+    def test_export_no_longer_accepts_serialize(self):
+        import inspect
+
+        assert "serialize" not in inspect.signature(exporter_module.export).parameters
+        assert "serialize" not in inspect.signature(exporter_module.dimensions_to_model).parameters
+
+    def test_cmd_export_calls_export_without_serialize_then_serializes(self, monkeypatch, tmp_path):
+        captured_export_kwargs = {}
+        serialized: list[tuple[object, str, dict]] = []
+        fake_model = Model(cubes=[], dimensions=[], processes=[], chores=[], model_id="out")
+
+        def fake_export(*args, **kwargs):
+            captured_export_kwargs.update(kwargs)
+            return fake_model, {}
+
+        monkeypatch.setattr(main_module, "TM1ServersConfig", lambda: mock.Mock(load=lambda: None))
+        monkeypatch.setattr(main_module, "_tm1_connection_from_config", lambda *args, **kwargs: mock.Mock())
+        monkeypatch.setattr(main_module, "_prepare_model_folder", lambda *args, **kwargs: None)
+        monkeypatch.setattr(main_module, "_load_filter_rules", lambda *args, **kwargs: [])
+        monkeypatch.setattr(main_module.ModelStore, "for_model_id", classmethod(lambda cls, model_id: mock.Mock()))
+        monkeypatch.setattr(main_module, "TqdmProgressSink", mock.Mock())
+        monkeypatch.setattr(main_module, "export", fake_export)
+        monkeypatch.setattr(
+            main_module,
+            "serialize_model",
+            lambda model, path, **kwargs: serialized.append((model, path, kwargs)),
+        )
+
+        output_dir = str(tmp_path / "out")
+        args = types.SimpleNamespace(
+            server="server",
+            model_output_folder=output_dir,
+            overwrite=True,
+            filter=None,
+            max_workers=1,
+            log_file=None,
+            debug=False,
+        )
+
+        main_module._cmd_export(args)
+
+        assert "serialize" not in captured_export_kwargs
+        assert captured_export_kwargs["max_workers"] == 1
+        assert main_module.TqdmProgressSink.call_args_list == [
+            mock.call(worker_count=1, base_position=0, leave=True, thread_tracing_enabled=False),
+        ]
+        assert serialized == [(fake_model, output_dir, {"progress_sink": mock.ANY, "max_workers": 1})]
+
+    def test_compare_worker_split_helper(self):
+        assert main_module._split_compare_workers(8) == (4, 4)
+        assert main_module._split_compare_workers(7) == (3, 4)
+        assert main_module._split_compare_workers(1) == (1, 1)
+
+    def test_process_service_get_all_names_page_builds_query(self, mocker):
+        tm1_conn = mocker.Mock()
+        response = mocker.Mock()
+        response.json.return_value = {"value": [{"Name": "P1"}], "@odata.count": 10}
+        tm1_conn.connection.GET.return_value = response
+
+        result = process_service._get_all_names_page(
+            tm1_conn,
+            filter="contains(Name,'Load')",
+            skip=5,
+            top=25,
+            count=True,
+        )
+
+        tm1_conn.connection.GET.assert_called_once_with(
+            "/Processes?$select=Name&$filter=contains(Name,'Load')&$skip=5&$top=25&$count=true"
+        )
+        assert result.names == ["P1"]
+        assert result.count == 10
+        assert result.skip == 5
+        assert result.top == 25
+
+    def test_process_service_get_all_names_paginates(self, mocker):
+        tm1_conn = mocker.Mock()
+
+        mocker.patch.object(
+            process_service,
+            "_get_all_names_page",
+            side_effect=[
+                process_service.ProcessNamesResult(names=["P1"], count=2, skip=0, top=1),
+                process_service.ProcessNamesResult(names=["P2"], count=None, skip=1, top=1),
+            ],
+        )
+
+        result = process_service.get_all_names(
+            tm1_conn,
+            filter="contains(Name,'Load')",
+            page_size=1,
+        )
+
+        assert result == ["P1", "P2"]
+
+    def test_procs_to_model_uses_process_service_names(self, mocker):
+        from tm1_git_py.services.exporter import procs_to_model
+
+        tm1_conn = mocker.Mock()
+        tm1_conn.processes.get_all_names = mocker.Mock()
+        mock_get_process_names = mocker.patch(
+            "tm1_git_py.services.exporter.get_process_names",
+            return_value=["MyProcess"],
+        )
+
+        tm1_conn.processes.get.return_value = types.SimpleNamespace(
+            name="MyProcess",
+            has_security_access=True,
+            parameters=[],
+            variables=[],
+            prolog_procedure="",
+            metadata_procedure="",
+            data_procedure="",
+            epilog_procedure="",
+        )
+
+        processes, errors = procs_to_model(
+            tm1_conn,
+            filter_rules=FilterRules([]),
+        )
+
+        mock_get_process_names.assert_called_once_with(
+            tm1_conn,
+            filter=None,
+        )
+        tm1_conn.processes.get_all_names.assert_not_called()
+        assert "MyProcess" in processes
+        assert errors == {}
+
+    def test_cube_service_get_all_names_page_builds_query(self, mocker):
+        tm1_conn = mocker.Mock()
+        response = mocker.Mock()
+        response.json.return_value = {"value": [{"Name": "Sales"}], "@odata.count": 5}
+        tm1_conn.connection.GET.return_value = response
+
+        result = cube_service._get_all_names_page(
+            tm1_conn,
+            filter="startswith(Name,'Sales')",
+            skip=10,
+            top=50,
+            count=True,
+        )
+
+        tm1_conn.connection.GET.assert_called_once_with(
+            "/Cubes?$select=Name&$filter=startswith(Name,'Sales')&$skip=10&$top=50&$count=true"
+        )
+        assert result.names == ["Sales"]
+        assert result.count == 5
+        assert result.skip == 10
+        assert result.top == 50
+
+    def test_cubes_to_model_uses_cube_service_names(self, mocker):
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        tm1_conn.cubes.get_all_names = mocker.Mock()
+        mock_get_cube_names = mocker.patch(
+            "tm1_git_py.services.exporter.get_cube_names",
+            return_value=[],
+        )
+
+        cubes, errors = cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules(["Cubes('Sales*')"]),
+        )
+
+        assert cubes == {}
+        assert errors == {}
+        _, kwargs = mock_get_cube_names.call_args
+        assert kwargs["filter"] is not None
+        tm1_conn.cubes.get_all_names.assert_not_called()
+
+    def test_view_service_get_all_builds_filtered_urls(self, mocker):
+        tm1_conn = mocker.Mock()
+        mocker.patch.object(
+            view_service.MDXView,
+            "from_dict",
+            return_value=types.SimpleNamespace(name="V1"),
+        )
+        mocker.patch.object(
+            view_service.NativeView,
+            "from_dict",
+            return_value=types.SimpleNamespace(name="N1"),
+        )
+        tm1_conn.connection.GET.side_effect = [
+            mocker.Mock(
+                json=mocker.Mock(
+                    return_value={
+                        "value": [
+                            {"@odata.type": "#ibm.tm1.api.v1.MDXView", "Name": "V1", "MDX": "SELECT 1 ON 0"}
+                        ]
+                    }
+                )
+            ),
+            mocker.Mock(json=mocker.Mock(return_value={"value": []})),
+        ]
+
+        private_views, public_views = view_service.get_all(
+            tm1_conn,
+            cube_name="Sales",
+            filter="startswith(Name,'Main')",
+        )
+
+        assert len(private_views) == 1
+        assert len(public_views) == 0
+        first_url = tm1_conn.connection.GET.call_args_list[0].args[0]
+        second_url = tm1_conn.connection.GET.call_args_list[1].args[0]
+        assert "/Cubes('Sales')/PrivateViews?" in first_url
+        assert "&$filter=startswith(Name,'Main')" in first_url
+        assert "/Cubes('Sales')/Views?" in second_url
+        assert "&$filter=startswith(Name,'Main')" in second_url
+
+    def test_view_service_normalizes_null_native_view_title_selected(self, mocker):
+        tm1_conn = mocker.Mock()
+        native_from_dict = mocker.patch.object(
+            view_service.NativeView,
+            "from_dict",
+            return_value=types.SimpleNamespace(name="N1"),
+        )
+        tm1_conn.connection.GET.side_effect = [
+            mocker.Mock(json=mocker.Mock(return_value={"value": []})),
+            mocker.Mock(
+                json=mocker.Mock(
+                    return_value={
+                        "value": [
+                            {
+                                "@odata.type": "#ibm.tm1.api.v1.NativeView",
+                                "Name": "N1",
+                                "Titles": [
+                                    {
+                                        "Selected": None,
+                                        "Subset": {
+                                            "Elements": [
+                                                {"Name": "Fallback"}
+                                            ]
+                                        },
+                                    }
+                                ],
+                                "Columns": [],
+                                "Rows": [],
+                            }
+                        ]
+                    }
+                )
+            ),
+        ]
+
+        private_views, public_views = view_service.get_all(tm1_conn, cube_name="Sales")
+
+        assert private_views == []
+        assert len(public_views) == 1
+        view_payload = native_from_dict.call_args.args[0]
+        assert view_payload["Titles"][0]["Selected"] == {"Name": "Fallback"}
+
+    def test_exporter_preserves_raw_native_view_null_title_selected(self):
+        tm1py_view = types.SimpleNamespace(
+            name="N1",
+            columns=[],
+            rows=[],
+            titles=[],
+            suppress_empty_columns=False,
+            suppress_empty_rows=False,
+            format_string="0.#########",
+            _tm1git_raw_view_dict={
+                "Name": "N1",
+                "Columns": [],
+                "Rows": [],
+                "Titles": [
+                    {
+                        "Selected": None,
+                        "Subset": {
+                            "Hierarchy": {
+                                "Name": "H1",
+                                "Dimension": {"Name": "D1"},
+                            },
+                            "Elements": [],
+                        },
+                    }
+                ],
+                "SuppressEmptyColumns": False,
+                "SuppressEmptyRows": False,
+                "FormatString": "0.#########",
+            },
+        )
+
+        native_view = NativeView.from_tm1py(tm1py_view)
+
+        assert native_view.titles[0]["Selected"] is None
+        assert native_view.titles[0]["Subset"]["Hierarchy"] == {
+            "@id": "Dimensions('D1')/Hierarchies('H1')"
+        }
+
+    def test_cubes_to_model_uses_view_service(self, mocker):
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Sales"])
+        mock_get_views = mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.get.return_value = types.SimpleNamespace(
+            dimensions=[],
+            has_rules=False,
+            rules=types.SimpleNamespace(body=""),
+        )
+
+        cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules(["!Cubes('Sales')/Views('Main*')"]),
+        )
+
+        _, kwargs = mock_get_views.call_args
+        assert kwargs["cube_name"] == "Sales"
+        assert kwargs["filter"] is not None
+
+    def test_export_no_filter_rules_disables_skip_control_flags(self, mocker):
+        tm1_service = mocker.Mock()
+        mock_dimensions = mocker.patch("tm1_git_py.services.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.services.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
+        mock_chores = mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
+
+        model, errors = export(tm1_service, model_id="unit-export", filter_rules_list=None)
+
+        assert isinstance(model, Model)
+        assert errors == {"dim": {}, "cube": {}, "process": {}, "chore": {}}
+        mock_dimensions.assert_called_once()
+        args, kwargs = mock_dimensions.call_args
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(None) + with_technical_objects_ignore(None)
+        )
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+
+    def test_export_non_technical_filter_rules_keep_skip_control_disabled(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["Processes('MyProcess*')"]
+        mock_dimensions = mocker.patch("tm1_git_py.services.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.services.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
+        mock_dimensions.assert_called_once()
+        args, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_cubes.assert_called_once()
+        _, cube_kw = mock_cubes.call_args
+        assert cube_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_processes.assert_called_once()
+        _, proc_kw = mock_processes.call_args
+        assert proc_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+
+    def test_export_technical_intent_filter_rules_enable_skip_control_flags(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["Dimensions('}*')", "Cubes('}*')", "Processes('}*')"]
+        mock_dimensions = mocker.patch("tm1_git_py.services.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.services.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
+        mock_dimensions.assert_called_once()
+        args, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_cubes.assert_called_once()
+        _, cube_kw = mock_cubes.call_args
+        assert cube_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_processes.assert_called_once()
+        _, proc_kw = mock_processes.call_args
+        assert proc_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+
+    def test_export_custom_filter_rules_are_forwarded_as_is(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["Dimensions('TestDim1*')", "Cubes('TestCube1*')"]
+        mock_dimensions = mocker.patch("tm1_git_py.services.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.services.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
+        mock_dimensions.assert_called_once()
+        args, kwargs = mock_dimensions.call_args
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_cubes.assert_called_once()
+        _, cube_kw = mock_cubes.call_args
+        assert cube_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        _, proc_kw = mock_processes.call_args
+        assert proc_kw["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+        mock_processes.assert_called_once()
+        assert mock_processes.call_args.args == (tm1_service,)
+
+    def test_export_force_include_leaves_does_not_inject_default_leaves_exclude(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["!Dimensions('*')/Hierarchies('Leaves')"]
+        mock_dimensions = mocker.patch(
+            "tm1_git_py.services.exporter.dimensions_to_model",
+            return_value=({}, {}),
+        )
+        mocker.patch("tm1_git_py.services.exporter.cubes_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+
+        _, kwargs = mock_dimensions.call_args
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
+        assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
+
+    def test_should_exclude_path_supports_tm1project_filter_format(self):
+        filter_rules = [
+            "Cubes('views*')",
+            "Dimensions('product*')",
+            "Processes('zsys analogic operation version copy*')",
+        ]
+
+        assert should_exclude_path("Cubes('viewsSales')", filter_rules)
+        assert should_exclude_path("Dimensions('ProductHierarchy')", filter_rules)
+        assert should_exclude_path(
+            "Processes('zsys analogic operation version copy')",
+            filter_rules,
+        )
+        assert not should_exclude_path("Cubes('SalesCube')", filter_rules)
+
+    def test_import_filter_ignores_hash_comment_lines(self, tmp_path):
+        rules_file = tmp_path / "filter.txt"
+        rules_file.write_text(
+            "# comment line\n"
+            "Dimensions('A*')\n"
+            "   # spaced comment line\n"
+            "\n"
+            "Cubes('Sales*')\n",
+            encoding="utf-8",
+        )
+
+        rules = filter_module.import_filter(str(rules_file))
+        assert rules == ["Dimensions('A*')", "Cubes('Sales*')"]
+
+    def test_path_filter_should_exclude(self):
+        pf = FilterRules(["Dimensions('product*')", "Cubes('views*')"])
+        assert pf.should_exclude("Dimensions('ProductHierarchy')")
+        assert pf.should_exclude("Cubes('viewsSales')")
+        assert not pf.should_exclude("Cubes('SalesCube')")
+
+    def test_path_filter_force_include_element_keeps_parent_path_only(self):
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')",
+                "!Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')",
+            ]
+        )
+        assert not pf.should_exclude("Dimensions('Sales')")
+        assert not pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')")
+        assert not pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')")
+        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')/Elements('LeafB')")
+        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Other')")
+
+    def test_path_filter_force_include_hierarchy_keeps_only_related_hierarchy(self):
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')",
+                "!Dimensions('Sales')/Hierarchies('Main')",
+            ]
+        )
+        assert not pf.should_exclude("Dimensions('Sales')")
+        assert not pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')")
+        assert not pf.should_exclude("Dimensions('Sales')/Hierarchies('Main')/Elements('LeafA')")
+        assert pf.should_exclude("Dimensions('Sales')/Hierarchies('Other')")
+
+    def test_path_filter_element_validation_accepts_startswith_endswith(self):
+        """URL identifier patterns with * at start or end are valid."""
+        pf = FilterRules(["Dimensions('prod*')"])
+        assert pf.has_rules
+        pf2 = FilterRules(["Dimensions('*prod')"])
+        assert pf2.has_rules
+
+    def test_path_filter_element_validation_rejects_wildcard_in_middle(self):
+        """URL identifier patterns with * in middle are invalid and skipped."""
+        pf = FilterRules(["Dimensions('asd*asd')"])
+        assert not pf.has_rules
+
+    def test_get_relevant_name_rules_for_dimension(self):
+        pf = FilterRules(
+            [
+                "Dimensions('BW*')",
+                "!Dimensions('BW Comp*')",
+                "Cubes('Sales*')",
+                "Dimensions('Product')/Hierarchies('Main')",
+            ]
+        )
+
+        assert pf.get_rules_for_entity("dimension") == [
+            "Dimensions('BW*')",
+            "!Dimensions('BW Comp*')",
+        ]
+
+    def test_get_rules_for_entity_uses_entity_regex(self):
+        pf = FilterRules(
+            [
+                "Dimensions('*')/Hierarchies('}*')",
+                "!Dimensions('Sales')/Hierarchies('Main*')",
+                "Dimensions('Sales')/Hierarchies('Main*')/Elements('X*')",
+                "Chores('Daily*')/Tasks('LoadData')",
+            ]
+        )
+
+        assert pf.get_rules_for_entity("hierarchy") == [
+            "Dimensions('*')/Hierarchies('}*')",
+            "!Dimensions('Sales')/Hierarchies('Main*')",
+        ]
+        assert pf.get_rules_for_entity("task") == [
+            "Chores('Daily*')/Tasks('LoadData')",
+        ]
+
+    def test_to_tm1_name_filter_for_dimension_with_include_and_exclude(self):
+        pf = FilterRules(
+            [
+                "Dimensions('BW Comp*')",
+                "!Dimensions('BW*')",
+            ]
+        )
+
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr == "(not (startswith(Name, 'BW Comp'))) or (startswith(Name, 'BW'))"
+        assert result.skip_all is False
+
+    def test_to_tm1_name_filter_for_dimension_exclude_only(self):
+        pf = FilterRules(["Dimensions('BW Comp*')"])
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr == "not (startswith(Name, 'BW Comp'))"
+        assert result.skip_all is False
+
+    def test_to_tm1_name_filter_skip_all_when_exclude_all(self):
+        """Dimensions('*') as exclude sets skip_all=True."""
+        pf = FilterRules(["Dimensions('*')"])
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr is not None
+        assert result.skip_all is True
+
+    def test_to_tm1_dimension_filter_inherits_force_include_from_child_rules(self):
+        pf = FilterRules(
+            [
+                "Dimensions('*')",
+                "!Dimensions('BW Customers Bill To*')/Hierarchies('*')/Elements('(CH) CH AJACCIO*')",
+            ]
+        )
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr is not None
+        assert "startswith(Name, 'BW Customers Bill To')" in result.filter_expr
+        assert result.skip_all is False
+
+    def test_to_tm1_hierarchy_name_filter_scopes_to_current_dimension(self):
+        pf = FilterRules(
+            [
+                "Dimensions('*')/Hierarchies('}*')",
+                "!Dimensions('Sales')/Hierarchies('Main*')",
+                "Dimensions('Finance')/Hierarchies('Fin*')",
+            ]
+        )
+
+        sales_result = pf.to_tm1_hierarchy_name_filter("Sales")
+        assert sales_result.filter_expr == "(not (startswith(Name, '}'))) or (startswith(Name, 'Main'))"
+        assert sales_result.skip_all is False
+        marketing_result = pf.to_tm1_hierarchy_name_filter("Marketing")
+        assert marketing_result.filter_expr == "not (startswith(Name, '}'))"
+        assert marketing_result.skip_all is False
+
+    def test_to_tm1_hierarchy_name_filter_inherits_force_include_from_element_rules(self):
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')/Hierarchies('Main*')",
+                "Dimensions('Sales')/Hierarchies('Main*')/Elements('X*')",
+                "!Dimensions('Sales')/Hierarchies('LeafOnly')/Elements('LeafA')",
+            ]
+        )
+
+        result = pf.to_tm1_hierarchy_name_filter("Sales")
+        assert result.filter_expr is not None
+        assert "not (startswith(Name, 'Main'))" in result.filter_expr
+        assert "Name eq 'LeafOnly'" in result.filter_expr
+
+    def test_to_tm1_element_name_filter_uses_3_level_rules(self):
+        """3-level rules (dim/hier/elem) apply when building element filter. ! = include."""
+        pf = FilterRules(
+            [
+                "!Dimensions('Sales')/Hierarchies('Main')/Elements('X*')",
+                "Dimensions('Sales')/Hierarchies('Main')/Elements('Total*')",
+            ]
+        )
+        result = pf.to_tm1_element_name_filter("Sales", "Main")
+        assert result.filter_expr == "(not (startswith(Name, 'Total'))) or (startswith(Name, 'X'))"
+        assert result.skip_all is False
+
+    def test_to_tm1_element_name_filter_ignores_2_level_rules(self):
+        """2-level rules (dim/hier) do not affect element filter."""
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')/Hierarchies('Main*')",
+            ]
+        )
+        result = pf.to_tm1_element_name_filter("Sales", "Main")
+        assert result.filter_expr is None
+
+    def test_to_tm1_subset_name_filter_uses_3_level_rules(self):
+        """3-level rules (dim/hier/subset) apply when building subset filter. ! = include."""
+        pf = FilterRules(
+            [
+                "!Dimensions('Sales')/Hierarchies('Main')/Subsets('Default*')",
+            ]
+        )
+        result = pf.to_tm1_subset_name_filter("Sales", "Main")
+        assert result.filter_expr == "startswith(Name, 'Default')"
+        assert result.skip_all is False
+
+    def test_to_tm1_child_name_filter_with_parent_chain(self):
+        """to_tm1_child_name_filter accepts parent_chain for 3-level. ! = include."""
+        pf = FilterRules(
+            [
+                "!Dimensions('Sales')/Hierarchies('Main')/Elements('X*')",
+            ]
+        )
+        result = pf.to_tm1_child_name_filter(
+            parent_chain=[
+                (EntityType.DIMENSION, "Sales"),
+                (EntityType.HIERARCHY, "Main"),
+            ],
+            child_entity_type=EntityType.ELEMENT,
+        )
+        assert result.filter_expr == "startswith(Name, 'X')"
+
+    def test_to_tm1_name_filter_multiple_excludes_are_anded(self):
+        pf = FilterRules(
+            [
+                "Dimensions('BW*')",
+                "Dimensions('*Comp')",
+            ]
+        )
+
+        result = pf.to_tm1_name_filter("dimension")
+        assert result.filter_expr == "(not (startswith(Name, 'BW'))) and (not (endswith(Name, 'Comp')))"
+        assert result.skip_all is False
+
+    def test_to_tm1_edge_name_filter_parent_component_format(self):
+        """Edge rules use Edges('parentName'/'componentName') format."""
+        pf = FilterRules(
+            [
+                "Dimensions('Sales')/Hierarchies('Main')/Edges('Total*'/'*')",
+                "!Dimensions('Sales')/Hierarchies('Main')/Edges('*'/'Leaf*')",
+            ]
+        )
+        result = pf.to_tm1_edge_name_filter("Sales", "Main")
+        assert "ParentName" in result.filter_expr
+        assert "ComponentName" in result.filter_expr
+        assert "Total" in result.filter_expr
+        assert "Leaf" in result.filter_expr
+        assert result.skip_all is False
+
+    def test_to_tm1_edge_name_filter_wildcard_all(self):
+        """Edges('*') as exclude rule sets skip_all=True (no TM1 call needed)."""
+        pf = FilterRules(
+            ["Dimensions('*')/Hierarchies('*')/Edges('*')"]  # exclude all edges
+        )
+        result = pf.to_tm1_edge_name_filter("Dim", "Hier")
+        assert result.filter_expr is not None
+        assert result.skip_all is True
+
+    def test_to_tm1_filter_skip_all_false_when_include_present(self):
+        """skip_all is False when any include rule exists."""
+        pf = FilterRules(
+            ["!Dimensions('*')/Hierarchies('*')/Edges('*')"]  # include all
+        )
+        result = pf.to_tm1_edge_name_filter("Dim", "Hier")
+        assert result.skip_all is False
+
+    def test_filter_rules_raises_on_invalid_rule_when_strict(self):
+        """When raise_on_invalid_rule=True, invalid rules raise ValueError."""
+        with pytest.raises(ValueError, match="does not match any entity pattern"):
+            FilterRules(
+                ["Dimensions('BW*')", "InvalidRule('x')"],
+                raise_on_invalid_rule=True,
+            )
+
+    def test_filter_rules_skips_invalid_rule_when_not_strict(self):
+        """When raise_on_invalid_rule=False, invalid rules are silently skipped."""
+        pf = FilterRules(
+            ["Dimensions('BW*')", "InvalidRule('x')"],
+            raise_on_invalid_rule=False,
+        )
+        assert pf.get_rules_for_entity("dimension") == ["Dimensions('BW*')"]

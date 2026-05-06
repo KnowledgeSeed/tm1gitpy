@@ -45,7 +45,7 @@
              "--model-output-folder=export2",
              "--filter=file://examples/filter.txt",
              "--overwrite",
-             "--max-workers=6",
+             "--max-workers=8",
              "--debug",
              "--log-file=export.log"
             ]
