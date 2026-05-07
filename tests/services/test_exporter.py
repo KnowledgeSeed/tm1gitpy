@@ -56,7 +56,6 @@ class TestExporter:
             model_id="unit-worker-split",
             filter_rules=FilterRules([]),
             progress_sink=exporter_module.NoopProgressSink(),
-            total_counter=exporter_module.TotalCounter(),
             max_workers=8,
         )
 

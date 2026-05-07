@@ -34,7 +34,7 @@ class TestDeserializer:
 
         model, errors = deserializer_module.deserialize_model(str(tmp_path), max_workers=8)
         assert observed["max_workers"] == 8
-        assert observed["_resolved_cpu_workers"] == 2
+        assert observed["_resolved_cpu_workers"] == 8
         assert model.total_object_count == 0
         assert errors == {}
 
