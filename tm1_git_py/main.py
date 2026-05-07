@@ -8,7 +8,7 @@ from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Manager
 from pathlib import Path
 import tracemalloc
-from typing import Any
+from typing import Any, Optional
 
 from TM1py import TM1Service
 
@@ -31,6 +31,7 @@ from tm1_git_py.reporting.progress_reporting import (
     CallbackProgressSink,
     CompositeProgressSink,
     LoggingProgressSink,
+    MultiProcessProgressManager,
     ProgressEvent,
     ProgressSink,
     TqdmProgressSink,
@@ -216,7 +217,7 @@ def _model_from_compare_snapshot(snapshot: dict) -> Model:
                 dimensions.append(dim_obj)
             cube_dimensions.append(dim_obj)
         cube_rules = [
-            Rule.from_dict(payload, source_path=f"cubes/{cube_name}.rules", cube_name=cube_name)
+            Rule.from_dict(payload)
             for payload in cube_payload.get("rules", [])
         ]
         cube_views = []
@@ -243,17 +244,14 @@ def _model_from_compare_snapshot(snapshot: dict) -> Model:
 
 def _deserialize_model_worker(
     model_dir: str,
-    tqdm_group_index: int,
-    progress_queue: Any,
+    progress_sink: ProgressSink,
     max_workers: int,
 ) -> tuple[dict, dict[str, str]]:
-    def _emit_progress(event: ProgressEvent) -> None:
-        progress_queue.put((tqdm_group_index, event))
 
     model, errors = deserialize_model(
         model_dir,
-        progress_sink=CallbackProgressSink(_emit_progress),
-        _resolved_cpu_workers=max(1, int(max_workers)),
+        progress_sink=progress_sink,
+        max_workers=max_workers,
     )
     return _model_to_compare_snapshot(model), errors
 
@@ -457,53 +455,60 @@ def _cmd_compare(args: argparse.Namespace) -> None:
     changeset = None
     try:
         requested_max_workers = _normalize_max_workers(args.max_workers)
-        source_workers, target_workers = _split_compare_workers(requested_max_workers)
-
-        source_tqdm = TqdmProgressSink(
-            # str(source),
-            worker_count=source_workers,
+        
+        tqdm_sink = TqdmProgressSink(
+            worker_count=requested_max_workers,
             base_position=0,
             leave=False,
             thread_tracing_enabled=bool(getattr(args, "debug", False)),
         )
-        target_tqdm = TqdmProgressSink(
-            # str(target),
-            worker_count=target_workers,
-            base_position=source_workers+1,
-            leave=False,
-            thread_tracing_enabled=bool(getattr(args, "debug", False)),
-        )
-
-    
-
-        source_progress_sinks: list[ProgressSink] = [source_tqdm]
-        target_progress_sinks: list[ProgressSink] = [target_tqdm]
+        source_workers, target_workers = _split_compare_workers(requested_max_workers)
+        progress_sinks: list[ProgressSink] = [tqdm_sink]
         if bool(args.log_file):
-            source_progress_sinks.append(LoggingProgressSink(logger))
-            target_progress_sinks.append(LoggingProgressSink(logger))
-        source_progress_sink: ProgressSink = (
-            source_progress_sinks[0] if len(source_progress_sinks) == 1 else CompositeProgressSink(source_progress_sinks)
+            progress_sinks.append(LoggingProgressSink(logger))
+        queuing_progress_sink: ProgressSink = (
+            progress_sinks[0] if len(progress_sinks) == 1 else CompositeProgressSink(progress_sinks)
         )
-        target_progress_sink: ProgressSink = (
-            target_progress_sinks[0] if len(target_progress_sinks) == 1 else CompositeProgressSink(target_progress_sinks)
-        )
-        manager = Manager()
-        progress_queue = manager.Queue()
-        stop_event = threading.Event()
-        progress_thread = threading.Thread(
-            target=_consume_compare_progress_events,
-            args=(progress_queue, source_progress_sink, target_progress_sink, stop_event),
-            daemon=True,
-        )
-        progress_thread.start()
+
+        multi_process_progress_manager: Optional[MultiProcessProgressManager] = None
+        multi_process_progress_manager = MultiProcessProgressManager(queuing_progress_sink)
+        multi_process_progress_manager.start()
+        queuing_progress_sink = multi_process_progress_manager.get_multi_process_progress_queue_sink()
+
         logger.info("Loading source model from %s", source)
         pool: ProcessPoolExecutor | None = None
         try:
             pool = ProcessPoolExecutor(max_workers=2, initializer=ignore_sigint_in_worker)
-            source_future = pool.submit(_deserialize_model_worker, str(source), 0, progress_queue, source_workers)
-            target_future = pool.submit(_deserialize_model_worker, str(target), 1, progress_queue, target_workers)
+            source_future = pool.submit(_deserialize_model_worker, str(source), queuing_progress_sink, source_workers)
+            target_future = pool.submit(_deserialize_model_worker, str(target), queuing_progress_sink, target_workers)
             source_snapshot, err_source = source_future.result()
             target_snapshot, err_target = target_future.result()
+        
+            model_source = _model_from_compare_snapshot(source_snapshot)
+            model_target = _model_from_compare_snapshot(target_snapshot)
+
+            tqdm_sink.reset_bars()
+
+            if err_source:
+                logger.warning("Source deserialization reported %d error(s)", len(err_source))
+            logger.info("Loading target model from %s", target)
+            if err_target:
+                logger.warning("Target deserialization reported %d error(s)", len(err_target))
+
+            extra_filter = _load_filter_rules(args.filter_rules) if args.filter_rules else None
+
+            comparator = Comparator()
+            model_source = _rebind_model_store_handles(model_source, source)
+            model_target = _rebind_model_store_handles(model_target, target)
+
+            changeset = comparator.compare(
+                model_source,
+                model_target,
+                mode=args.mode,
+                filter_rules=extra_filter,
+                progress_sink=queuing_progress_sink,
+            )
+        
         except KeyboardInterrupt:
             if pool is not None:
                 shutdown_process_pool_now(pool)
@@ -512,46 +517,7 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         finally:
             if pool is not None:
                 pool.shutdown()
-            stop_event.set()
-            progress_thread.join()
-            source_progress_sink.close()
-            target_progress_sink.close()
-            manager.shutdown()
-        model_source = _model_from_compare_snapshot(source_snapshot)
-        model_target = _model_from_compare_snapshot(target_snapshot)
-
-        if err_source:
-            logger.warning("Source deserialization reported %d error(s)", len(err_source))
-        logger.info("Loading target model from %s", target)
-        if err_target:
-            logger.warning("Target deserialization reported %d error(s)", len(err_target))
-
-        extra_filter = _load_filter_rules(args.filter_rules) if args.filter_rules else None
-
-        comparator = Comparator()
-        compare_tqdm = TqdmComparatorProgressSink(
-            enable_fallback_logs=bool(args.log_file),
-            preferred_slot_index=0,
-        )
-        compare_sinks: list[ProgressSink] = [compare_tqdm]
-        if bool(args.log_file):
-            compare_sinks.append(LoggingProgressSink(logger))
-        compare_progress_sink: ProgressSink = (
-            compare_sinks[0] if len(compare_sinks) == 1 else CompositeProgressSink(compare_sinks)
-        )
-        model_source = _rebind_model_store_handles(model_source, source)
-        model_target = _rebind_model_store_handles(model_target, target)
-
-        try:
-            changeset = comparator.compare(
-                model_source,
-                model_target,
-                mode=args.mode,
-                filter_rules=extra_filter,
-                progress_sink=compare_progress_sink,
-            )
-        finally:
-            compare_progress_sink.close()
+            multi_process_progress_manager.close()
 
         out = args.output
         if not out:

@@ -126,7 +126,7 @@ class _HierarchyStagedWriter:
         else:
             fh.write("\n\t]")
         if progress_sink is not None:
-            progress_sink.on_event(progress_sink.on_event(ProgressEvent.worker_line(current_delta=emitted)))
+            progress_sink.on_event(ProgressEvent.worker_line(current_delta=emitted))
         return emitted
 
     def _build_subset_links(self) -> list[str]:

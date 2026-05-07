@@ -24,6 +24,8 @@ from tm1_git_py.model.ti import TI
 from tm1_git_py.internal.content_hash_calculator import ContentHashCalculator
 from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.reporting.progress_reporting import (
+    MultiProcessProgressManager,
+    MultiProcessProgressQueueSink,
     NoopProgressSink,
     ProgressKind,
     ProgressEvent,
@@ -498,28 +500,23 @@ def deserialize_model(
     if not resolved_model_id:
         raise ValueError("model_id must not be empty")
 
+    progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
+    multi_process_progress_manager: Optional[MultiProcessProgressManager] = None
+    if (resolve_worker_counts(max_workers).cpu_workers > 1 and not isinstance(progress_sink, NoopProgressSink) and not isinstance(progress_sink, MultiProcessProgressQueueSink)):
+        multi_process_progress_manager = MultiProcessProgressManager(progress_sink)
+        multi_process_progress_manager.start()
+        active_progress_sink = multi_process_progress_manager.get_multi_process_progress_queue_sink()
+    else:
+        active_progress_sink = progress_sink
+
     dimensions_dir = dir + '/dimensions'
     cubes_dir = dir + '/cubes'
     processes_dir = dir + '/processes'
     chores_dir = dir + '/chores'
 
-    progress = progress_sink if progress_sink is not None else NoopProgressSink()
-    progress.on_event(
-        ProgressEvent.make(
-            kind=ProgressKind.START,
-            scope=ProgressScope.TOTAL,
-            current=0,
-            total=max(1, _directory_total_bytes(dir)),
-            unit=ProgressUnit.BYTE,
-            message="Building internal model",
-        )
-    )
+    active_progress_sink.on_event(ProgressEvent.total_line(message="Deserializing", total_delta=max(1, _directory_total_bytes(dir)), unit=ProgressUnit.BYTE))
+
     total_object_count = 0
-    effective_max_workers = (
-        max(1, int(_resolved_cpu_workers))
-        if _resolved_cpu_workers is not None
-        else resolve_worker_counts(max_workers).cpu_workers
-    )
 
     def _add_object_count(delta: int) -> None:
         nonlocal total_object_count
@@ -529,39 +526,41 @@ def deserialize_model(
     try:
         with ContentHashCalculator(
             db_path=model_store.db_path,
-            max_workers=effective_max_workers,
-            progress_sink=progress,
+            max_workers=max_workers,
+            progress_sink=active_progress_sink,
         ) as content_hash_calculator:
             _processes, _process_errors = deserialize_processes(
                 processes_dir,
-                progress=progress,
+                progress=active_progress_sink,
                 count_callback=_add_object_count,
             )
 
             _chores, _chore_errors = deserialize_chores(
                 chores_dir,
-                progress=progress,
+                progress=active_progress_sink,
                 count_callback=_add_object_count,
             )
 
             _dimensions, _dim_errors = deserialize_dimensions(
                 dimensions_dir,
                 resolved_model_id,
-                progress=progress,
+                progress=active_progress_sink,
                 count_callback=_add_object_count,
                 max_workers=max_workers,
-                _resolved_cpu_workers=effective_max_workers,
+                _resolved_cpu_workers=max_workers,
                 content_hash_calculator=content_hash_calculator,
             )
 
             _cubes, _cube_errors = deserialize_cubes(
                 cubes_dir,
                 _dimensions,
-                progress=progress,
+                progress=active_progress_sink,
                 count_callback=_add_object_count,
             )
     finally:
-        progress.close()
+        if multi_process_progress_manager is not None:
+            multi_process_progress_manager.close()
+        # active_progress_sink.close()
 
     _model = Model(cubes=list(_cubes.values()),
                    dimensions=list(_dimensions.values()),

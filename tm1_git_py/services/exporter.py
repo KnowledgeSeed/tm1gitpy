@@ -158,20 +158,6 @@ class HierarchyFuture:
             self._notify_callbacks(callbacks)
 
 
-class TotalCounter:
-    def __init__(self):
-        self._value = 0
-        self.lock = threading.Lock()
-
-    def increment_by(self, value: int):
-        with self.lock:
-            self._value += value
-        return self._value
-
-    def get_value(self):
-        return self._value
-
-
 def export(
     tm1_conn: TM1Service,
     model_id: str,
@@ -190,11 +176,11 @@ def export(
     else:
         active_progress_sink = progress_sink
 
-    total_counter = TotalCounter()
-
     effective_rules = with_default_leaves_ignore(filter_rules_list)
     effective_rules.extend(with_technical_objects_ignore(filter_rules_list))
     filter_rules = FilterRules(effective_rules)
+
+    progress_sink.on_event(ProgressEvent.total_line(message="Exporting"))
     
     try:
         _dimensions, _dim_errors = dimensions_to_model(
@@ -202,7 +188,6 @@ def export(
             model_id=model_id,
             filter_rules=filter_rules,
             progress_sink=active_progress_sink,
-            total_counter=total_counter,
             max_workers=max_workers,
         )
         _cubes, _cube_errors = cubes_to_model(
@@ -210,19 +195,16 @@ def export(
             _dimensions,
             filter_rules=filter_rules,
             progress_sink=active_progress_sink,
-            total_counter=total_counter,
         )
         _processes, _process_errors = procs_to_model(
             tm1_conn,
             filter_rules=filter_rules,
             progress_sink=active_progress_sink,
-            total_counter=total_counter,
         )
         _chores, _chore_errors = chores_to_model(
             tm1_conn,
             filter_rules=filter_rules,
             progress_sink=active_progress_sink,
-            total_counter=total_counter,
         )
     finally:
         if multi_process_progress_manager is not None:
@@ -265,9 +247,7 @@ def export(
 def chores_to_model(
     tm1_conn,
     filter_rules: FilterRules,
-    progress_sink: Optional[ProgressSink] = None,
-    *,
-    total_counter: TotalCounter,
+    progress_sink: Optional[ProgressSink] = None
 ) -> tuple[Dict[str, Chore], Dict[str, str]]:
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     all_chores = tm1_conn.chores.get_all_names()
@@ -276,7 +256,7 @@ def chores_to_model(
     skipped_chores = 0
     skipped_tasks = 0
     logger.info("Exporting %d chores", len(all_chores))
-    progress_sink.on_event(ProgressEvent.total_line(total=total_counter.increment_by(len(all_chores))))
+    progress_sink.on_event(ProgressEvent.total_line(total_delta=len(all_chores)))
 
     for idx, chore_name in enumerate(all_chores, start=1):
         progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Fetching chore {chore_name}"))
@@ -336,12 +316,9 @@ def chores_to_model(
 def procs_to_model(
     tm1_conn :TM1Service,
     filter_rules: FilterRules,
-    progress_sink: Optional[ProgressSink] = None,
-    *,
-    total_counter: Optional[TotalCounter] = None,
+    progress_sink: Optional[ProgressSink] = None
 ) -> tuple[Dict[str, Process], Dict[str, str]]:
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
-    total_counter = total_counter if total_counter is not None else TotalCounter()
     processes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.PROCESS)
     filtered_process_names = [] if processes_tm1_filter.skip_all else get_process_names(
             tm1_conn,
@@ -352,7 +329,7 @@ def procs_to_model(
     _errors: Dict[str, str] = {}
     logger.info("Exporting %d processes", len(filtered_process_names))
 
-    progress_sink.on_event(ProgressEvent.total_line(total=total_counter.increment_by(len(filtered_process_names))))
+    progress_sink.on_event(ProgressEvent.total_line(total_delta=len(filtered_process_names)))
     for idx, process_name in enumerate(filtered_process_names, start=1):
         progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Fetching process {process_name}"))
         try:
@@ -382,11 +359,9 @@ def cubes_to_model(
     tm1_conn: TM1Service,
     _dimensions: Dict[str, Dimension],
     filter_rules: FilterRules,
-    progress_sink: Optional[ProgressSink] = None,
-    total_counter: Optional[TotalCounter] = None,
+    progress_sink: Optional[ProgressSink] = None
 ) -> tuple[Dict[str, Cube], Dict[str, str]]:
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
-    total_counter = total_counter if total_counter is not None else TotalCounter()
     cubes_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.CUBE)
     filtered_cube_names = [] if cubes_tm1_filter.skip_all else get_cube_names(
         tm1_conn,
@@ -398,7 +373,7 @@ def cubes_to_model(
     skipped_rules = 0
     skipped_views = 0
 
-    progress_sink.on_event(ProgressEvent.total_line(total=total_counter.increment_by(len(filtered_cube_names))))
+    progress_sink.on_event(ProgressEvent.total_line(total_delta=len(filtered_cube_names)))
     progress_sink.on_event(ProgressEvent.worker_line(current=0, total=len(filtered_cube_names), message=f"Fetching cubes"))
    
     for idx, cube_name in enumerate(filtered_cube_names, start=1):
@@ -510,7 +485,6 @@ def dimensions_to_model(
     *,
     progress_sink: ProgressSink,
     max_workers: Optional[int] = None,
-    total_counter: TotalCounter,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
 
     dimensions_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.DIMENSION)
@@ -598,7 +572,7 @@ def dimensions_to_model(
             progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Counting {hierarchy_uri} total objects"))
             count = count_fn(tm1_conn, dim_name, hierarchy_name, filter=filter_expr)
             progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Counting {hierarchy_uri} total objects"))
-            progress_sink.on_event(ProgressEvent.total_line(total=total_counter.increment_by(count)))
+            progress_sink.on_event(ProgressEvent.total_line(total_delta=count))
             if not can_reuse and not skip_all:
                 for i in range(0, count, 100_000):
                     future = executor.submit(

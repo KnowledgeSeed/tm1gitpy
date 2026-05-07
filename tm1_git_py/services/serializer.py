@@ -88,7 +88,8 @@ def serialize_model(
         active_progress_sink = multi_process_progress_manager.get_multi_process_progress_queue_sink()
     else:
         active_progress_sink = progress_sink
-        
+
+    active_progress_sink.on_event(ProgressEvent.total_line(message="Serializing"))  
     total_count = Model.recalculate_total_object_count(model)
     active_progress_sink.on_event(ProgressEvent.total_line(total=total_count))
     process_pool = None

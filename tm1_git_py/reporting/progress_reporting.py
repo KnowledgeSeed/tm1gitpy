@@ -46,6 +46,7 @@ class ProgressEvent:
     current: Optional[int] = None
     current_delta: Optional[int] = None
     total: Optional[int] = None
+    total_delta: Optional[int] = None
     path: Optional[str] = None
     message: Optional[str] = None
     update_total: bool = False
@@ -78,21 +79,25 @@ class ProgressEvent:
             timestamp_ns=time.time_ns(),
         )
 
+
     def total_line(
         *,
         current: Optional[int] = None,
         current_delta: int = 0,
         total: Optional[int] = None,
+        total_delta: Optional[int] = None,
         path: Optional[str] = None,
         message: Optional[str] = None,
+        unit: ProgressUnit = ProgressUnit.LINE,
     ) -> "ProgressEvent":
         return ProgressEvent(
             kind=ProgressKind.UPDATE,
             scope=ProgressScope.TOTAL,
-            unit=ProgressUnit.LINE,
+            unit=unit,
             current=current,
             current_delta=current_delta,
             total=total,
+            total_delta=total_delta,
             path=path,
             worker_id=_default_worker_id(),
             message=message,
@@ -346,7 +351,10 @@ class TqdmProgressSink:
             else:
                 target_total = max(1, existing_total + int(event.current_delta or 0))
         else:
-            target_total = max(1, int(event.total)) if event.total is not None else existing_total
+            if event.total_delta is not None:
+                target_total = max(1, existing_total + int(event.total_delta or 0))
+            else:
+                target_total = max(1, int(event.total)) if event.total is not None else existing_total
         if int(worker_bar.total or 0) != target_total:
             worker_bar.reset(total=target_total)
         if event.current is not None:
@@ -380,7 +388,10 @@ class TqdmProgressSink:
             else:
                 target_total = max(1, existing_total + int(event.current_delta or 0))
         else:
-            target_total = max(1, int(event.total)) if event.total is not None else existing_total
+            if event.total_delta is not None:
+                target_total = max(1, existing_total + int(event.total_delta or 0))
+            else:
+                target_total = max(1, int(event.total)) if event.total is not None else existing_total
         # if int(self._total_bar.total or 0) != target_total:
             # self._total_bar.reset(total=target_total)
         self._total_bar.total = target_total
@@ -388,8 +399,8 @@ class TqdmProgressSink:
             self._total_bar.n = min(max(0, int(event.current)), target_total)
         else:
             self._total_bar.n = min(max(0, int(self._total_bar.n) + int(event.current_delta or 0)), target_total)
-        desc = str(event.message) if event.message else "Completed"
-        self._total_bar.set_description_str(desc, refresh=False)
+        if event.message is not None:
+            self._total_bar.set_description_str(str(event.message), refresh=False)
         self._total_bar.refresh()
 
     def _resolve_worker_bar(self, event: ProgressEvent) -> Any:
