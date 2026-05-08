@@ -2,7 +2,7 @@ import copy
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -159,7 +159,7 @@ OBJECT_TYPE_TO_CLASS: dict[ObjectType, type] = {
 
 
 def _generate_changeset_id() -> str:
-    return datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")[:-3]
 
 
 def _extract_uri_index_fields(uri: str) -> dict[str, Optional[str]]:
@@ -294,16 +294,21 @@ class Changeset:
     def __init__(
             self,
             changeset_id: Optional[str] = None,
+            store: Optional[ChangesetStore] = None,
             *,
-            base_dir: Optional[str] = None,
-            attach_existing_store: bool = False,
+            base_dir: Optional[str] = None
     ):
-        self.changeset_id: str = (changeset_id or "").strip() or _generate_changeset_id()
+        if store is None:
+            self._store_base_dir = base_dir
+            self.changeset_id: str = (changeset_id or "").strip() or _generate_changeset_id()
+            self.store = ChangesetStore.for_changeset_id(changeset_id=self.changeset_id, base_dir=self._store_base_dir)
+        else:
+            self._store_base_dir = store.db_path.parent
+            self.store = store
+            self.changeset_id = store.changeset_id
+            
         self.last_execution_id: str = '0'
-        self._store_base_dir = base_dir
         self.errors: dict[str, list[Any]] = {}
-        self._attach_existing_store = bool(attach_existing_store)
-        self._store: Optional[ChangesetStore] = None
         self._fresh_store_cleared = False
         self._changes = ChangesetSequence(self)
 
@@ -316,10 +321,7 @@ class Changeset:
         changeset = cls(
             changeset_id=changeset_id,
             base_dir=base_dir,
-            attach_existing_store=True,
         )
-        # Fail fast if schema is unavailable/corrupt.
-        _ = len(changeset.changes)
         return changeset
 
     @property
@@ -335,8 +337,8 @@ class Changeset:
         return self._active_store().db_path
 
     def _active_store(self) -> ChangesetStore:
-        if self._store is not None and not getattr(self._store, "_closed", False):
-            return self._store
+        if self.store is not None and not getattr(self.store, "_closed", False):
+            return self.store
         store = ChangesetStore.for_changeset_id(
             changeset_id=self.changeset_id,
             base_dir=self._store_base_dir,
@@ -344,13 +346,13 @@ class Changeset:
         if not self._attach_existing_store and not self._fresh_store_cleared:
             store.clear()
             self._fresh_store_cleared = True
-        self._store = store
+        self.store = store
         return store
 
     def close(self) -> None:
-        if self._store is not None:
-            self._store.close()
-            self._store = None
+        if self.store is not None:
+            self.store.close()
+            self.store = None
             self._fresh_store_cleared = False
 
     def _row_from_change(self, change: Change, *, seq: int) -> dict[str, Any]:

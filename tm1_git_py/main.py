@@ -5,28 +5,18 @@ import shutil
 import sys
 import threading
 from concurrent.futures import ProcessPoolExecutor
-from multiprocessing import Manager
 from pathlib import Path
 import tracemalloc
 from typing import Any, Optional
 
 from TM1py import TM1Service
 
-from tm1_git_py import Changeset
 from tm1_git_py.config import TM1ServersConfig
 from tm1_git_py.config.logging_config import setup_logging
-from tm1_git_py.db.model_store import ModelStore
+from tm1_git_py.db.model_store import ModelStore  # noqa: F401  # patched by tests
 from tm1_git_py.internal.process_pool import ignore_sigint_in_worker, shutdown_process_pool_now
 from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.model import Model
-from tm1_git_py.model.chore import Chore
-from tm1_git_py.model.cube import Cube
-from tm1_git_py.model.dimension import Dimension
-from tm1_git_py.model.hierarchy import Hierarchy
-from tm1_git_py.model.mdxview import MDXView
-from tm1_git_py.model.nativeview import NativeView
-from tm1_git_py.model.process import Process
-from tm1_git_py.model.rule import Rule
 from tm1_git_py.reporting.progress_reporting import (
     CallbackProgressSink,
     CompositeProgressSink,
@@ -62,52 +52,6 @@ def _split_compare_workers(max_workers: int) -> tuple[int, int]:
     return source_workers, target_workers
 
 
-def _rebind_model_store_handles(model: Model, model_root: Path) -> Model:
-    """Rebind hierarchy store-backed sequences to a connection in the current thread.
-
-    Store handles are resolved through the process-wide Sqlite worker registry (:class:`WorkerDBRegistry`).
-    """
-    model_id = (getattr(model, "model_id", None) or model_root.name).strip()
-    if not model_id:
-        model_id = "default"
-    ModelStore.for_model_id(model_id)
-    rebuilt_dimensions: list[Dimension] = []
-    dimensions_by_name: dict[str, Dimension] = {}
-
-    for dim in model.dimensions:
-        rebuilt_hierarchies: list[Hierarchy] = []
-        for hierarchy in dim.hierarchies:
-            rebuilt_hierarchies.append(
-                Hierarchy(
-                    name=hierarchy.name,
-                    dimension_name=dim.name,
-                    model_id=model_id,
-                    reuse_existing_store=True,
-                )
-            )
-        default_hierarchy = None
-        existing_default = getattr(dim, "defaultHierarchy", None)
-        if existing_default is not None:
-            default_hierarchy = next(
-                (h for h in rebuilt_hierarchies if h.name == existing_default.name),
-                None,
-            )
-        if default_hierarchy is None and rebuilt_hierarchies:
-            default_hierarchy = rebuilt_hierarchies[0]
-        rebuilt_dimension = Dimension(
-            name=dim.name,
-            hierarchies=rebuilt_hierarchies,
-            defaultHierarchy=default_hierarchy,
-        )
-        rebuilt_dimensions.append(rebuilt_dimension)
-        dimensions_by_name[rebuilt_dimension.name] = rebuilt_dimension
-
-    model.dimensions = rebuilt_dimensions
-    for cube in model.cubes:
-        cube.dimensions = [dimensions_by_name.get(dim.name, dim) for dim in cube.dimensions]
-    return model
-
-
 def _tm1_connection(server_name: str) -> TM1Service:
     config = TM1ServersConfig()
     config.load()
@@ -131,129 +75,18 @@ def _tm1_connection_from_config(config: TM1ServersConfig, server_name: str) -> T
     return tm1
 
 
-def _model_to_compare_snapshot(model: Model) -> dict:
-    dimensions_payload = []
-    for dim in model.dimensions:
-        default_name = getattr(getattr(dim, "defaultHierarchy", None), "name", None)
-        dimensions_payload.append(
-            {
-                "name": dim.name,
-                "default_hierarchy_name": default_name,
-                "hierarchy_names": [hier.name for hier in dim.hierarchies],
-            }
-        )
-
-    cubes_payload = []
-    for cube in model.cubes:
-        rules_payload = [
-            rule.to_dict()
-            for rule in cube.rules
-        ]
-        views_payload = []
-        for view in cube.views:
-            view_payload = dict(view.to_dict())
-            view_payload["_view_type"] = view.__class__.__name__
-            views_payload.append(view_payload)
-        cubes_payload.append(
-            {
-                "name": cube.name,
-                "dimension_names": [dim.name for dim in cube.dimensions],
-                "rules": rules_payload,
-                "views": views_payload,
-            }
-        )
-
-    return {
-        "model_id": getattr(model, "model_id", None),
-        "dimensions": dimensions_payload,
-        "cubes": cubes_payload,
-        "processes": [process.to_dict() for process in model.processes],
-        "chores": [chore.to_dict() for chore in model.chores],
-        "total_object_count": getattr(model, "total_object_count", None),
-    }
-
-
-def _model_from_compare_snapshot(snapshot: dict) -> Model:
-    dimensions: list[Dimension] = []
-    dimensions_by_name: dict[str, Dimension] = {}
-    for dim_payload in snapshot.get("dimensions", []):
-        dimension_name = str(dim_payload.get("name", ""))
-        hierarchy_names = [str(item) for item in dim_payload.get("hierarchy_names", [])]
-        hierarchies = [
-            Hierarchy(
-                name=hierarchy_name,
-                elements=[],
-                edges=[],
-                subsets=[],
-            )
-            for hierarchy_name in hierarchy_names
-        ]
-        default_name = dim_payload.get("default_hierarchy_name")
-        default_hierarchy = next((hier for hier in hierarchies if hier.name == default_name), None)
-        if default_hierarchy is None and hierarchies:
-            default_hierarchy = hierarchies[0]
-        if default_hierarchy is None:
-            default_hierarchy = Hierarchy(name=dimension_name, elements=[], edges=[], subsets=[])
-            hierarchies = [default_hierarchy]
-        dimension_obj = Dimension(
-            name=dimension_name,
-            hierarchies=hierarchies,
-            defaultHierarchy=default_hierarchy,
-        )
-        dimensions.append(dimension_obj)
-        dimensions_by_name[dimension_name] = dimension_obj
-
-    cubes: list[Cube] = []
-    for cube_payload in snapshot.get("cubes", []):
-        cube_name = str(cube_payload.get("name", ""))
-        cube_dimension_names = [str(item) for item in cube_payload.get("dimension_names", [])]
-        cube_dimensions = []
-        for dim_name in cube_dimension_names:
-            dim_obj = dimensions_by_name.get(dim_name)
-            if dim_obj is None:
-                fallback_hier = Hierarchy(name=dim_name, elements=[], edges=[], subsets=[])
-                dim_obj = Dimension(name=dim_name, hierarchies=[fallback_hier], defaultHierarchy=fallback_hier)
-                dimensions_by_name[dim_name] = dim_obj
-                dimensions.append(dim_obj)
-            cube_dimensions.append(dim_obj)
-        cube_rules = [
-            Rule.from_dict(payload)
-            for payload in cube_payload.get("rules", [])
-        ]
-        cube_views = []
-        for payload in cube_payload.get("views", []):
-            view_payload = dict(payload)
-            view_type = str(view_payload.pop("_view_type", "MDXView"))
-            if view_type == "NativeView":
-                cube_views.append(NativeView.from_dict(view_payload))
-            else:
-                cube_views.append(MDXView.from_dict(view_payload))
-        cubes.append(Cube(name=cube_name, dimensions=cube_dimensions, rules=cube_rules, views=cube_views))
-
-    processes = [Process.from_dict(payload) for payload in snapshot.get("processes", [])]
-    chores = [Chore.from_dict(payload) for payload in snapshot.get("chores", [])]
-    return Model(
-        cubes=cubes,
-        dimensions=dimensions,
-        processes=processes,
-        chores=chores,
-        model_id=str(snapshot.get("model_id") or "default"),
-        total_object_count=snapshot.get("total_object_count"),
-    )
-
-
 def _deserialize_model_worker(
     model_dir: str,
     progress_sink: ProgressSink,
     max_workers: int,
-) -> tuple[dict, dict[str, str]]:
+) -> tuple[Model, dict[str, str]]:
 
     model, errors = deserialize_model(
         model_dir,
         progress_sink=progress_sink,
         max_workers=max_workers,
     )
-    return _model_to_compare_snapshot(model), errors
+    return model, errors
 
 
 def _consume_compare_progress_events(
@@ -481,11 +314,12 @@ def _cmd_compare(args: argparse.Namespace) -> None:
             pool = ProcessPoolExecutor(max_workers=2, initializer=ignore_sigint_in_worker)
             source_future = pool.submit(_deserialize_model_worker, str(source), queuing_progress_sink, source_workers)
             target_future = pool.submit(_deserialize_model_worker, str(target), queuing_progress_sink, target_workers)
-            source_snapshot, err_source = source_future.result()
-            target_snapshot, err_target = target_future.result()
-        
-            model_source = _model_from_compare_snapshot(source_snapshot)
-            model_target = _model_from_compare_snapshot(target_snapshot)
+            # ``Model`` (and the SQLite-backed sequences inside its hierarchies)
+            # is picklable: ``StoreBackedSequence.__getstate__`` drops the live
+            # ``ModelStore`` and the receiving process re-acquires it through
+            # ``ModelStore.for_db_path`` lazily on first access.
+            model_source, err_source = source_future.result()
+            model_target, err_target = target_future.result()
 
             tqdm_sink.reset_bars()
 
@@ -498,8 +332,6 @@ def _cmd_compare(args: argparse.Namespace) -> None:
             extra_filter = _load_filter_rules(args.filter_rules) if args.filter_rules else None
 
             comparator = Comparator()
-            model_source = _rebind_model_store_handles(model_source, source)
-            model_target = _rebind_model_store_handles(model_target, target)
 
             changeset = comparator.compare(
                 model_source,

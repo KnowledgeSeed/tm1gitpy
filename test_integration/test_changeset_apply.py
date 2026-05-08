@@ -56,11 +56,6 @@ class TestChangesetApply:
 
     def test_create_cube_full_no_meta_objects(self):
 
-        ChangesetStore.for_changeset_id(changeset_id="asd")
-        Changeset()
-        Changeset("ssdfsdf")._active_store()
-        Changeset("sasdasd")._active_store()
-
         # given
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
             self, self._f_no_meta, model_id=self._fixture_model_id_no_meta

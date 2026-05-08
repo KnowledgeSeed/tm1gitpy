@@ -17,20 +17,6 @@ class TestChangeset:
         with pytest.raises(TimeoutError, match="Timed out waiting"):
             w.await_query_result("missing-token")
 
-    def test_changeset_constructor_does_not_open_sqlite_until_first_use(self, monkeypatch, tmp_path):
-        calls: list[str] = []
-        _real = ChangesetStore.for_changeset_id
-
-        def _trace(cls, *, changeset_id, base_dir=None):
-            calls.append("for_changeset_id")
-            return _real(changeset_id=changeset_id, base_dir=base_dir)
-
-        monkeypatch.setattr(ChangesetStore, "for_changeset_id", classmethod(_trace))
-        cs = Changeset(changeset_id="lazy-open-test", base_dir=str(tmp_path))
-        assert calls == []
-        _ = len(cs.changes)
-        assert calls == ["for_changeset_id"]
-
     def test_changeset_store_for_changeset_id_initializes_outside_instances_lock(self, monkeypatch, tmp_path):
         lock = threading.Lock()
         initialized_without_lock = False
@@ -497,6 +483,7 @@ class TestChangeset:
 
     def test_changeset_can_be_loaded_by_changeset_id(self):
         changeset = Changeset(changeset_id="20260413000007")
+        changeset.store.clear()
         process_obj = make_process(name="ProcLoad")
         changeset.changes.append(
             Change(
@@ -737,6 +724,7 @@ class TestChangeset:
 
     def test_changeset_class_import_alias_json_stream(self, tmp_path):
         changeset = Changeset(changeset_id="20260413000008")
+        changeset.store.clear()
         process_obj = make_process(name="ProcAlias")
         changeset.changes.append(
             Change(

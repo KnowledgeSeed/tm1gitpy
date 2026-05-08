@@ -629,20 +629,10 @@ class Comparator:
         Callers must ensure both sides iterate in ascending order by
         ``_object_identity(..., context)`` (same order as TM1/export queries).
         """
-        old_it = (old_db.item_from_payload(payload) for payload in old_db.iter_payloads(ordered_by_identity=True))
-        new_it = (new_db.item_from_payload(payload) for payload in new_db.iter_payloads(ordered_by_identity=True))
-        old_item: Any = next(old_it, None)
-        new_item: Any = next(new_it, None)
-        added_c = removed_c = common_c = 0
         old_total = len(old_db)
         new_total = len(new_db)
-        old_seen = 0
-        new_seen = 0
-        progress_every = max(1, self.DISK_BACKED_PROGRESS_EVERY)
-        next_log_at = progress_every
-        reported_processed = 0
-        old_signature = old_db.sidecar_content_signature()
-        new_signature = new_db.sidecar_content_signature()
+        old_signature = old_db.content_signature()
+        new_signature = new_db.content_signature()
 
         if (
             old_signature
@@ -661,6 +651,17 @@ class Comparator:
                 getattr(old_db, "HASH_ALGO", "sha256-tree-v1"),
             )
             return _CompareObjectListsResult(matched_pairs={}, added_items=[], removed_items=[])
+
+        old_it = (old_db.item_from_payload(payload) for payload in old_db.iter_payloads(ordered_by_identity=True))
+        new_it = (new_db.item_from_payload(payload) for payload in new_db.iter_payloads(ordered_by_identity=True))
+        old_item: Any = next(old_it, None)
+        new_item: Any = next(new_it, None)
+        added_c = removed_c = common_c = 0
+        old_seen = 0
+        new_seen = 0
+        progress_every = max(1, self.DISK_BACKED_PROGRESS_EVERY)
+        next_log_at = progress_every
+        reported_processed = 0
 
         logger.info(
             "Starting %s streaming compare old_size=%d new_size=%d progress_every=%d",

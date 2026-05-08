@@ -13,6 +13,7 @@ from tm1_git_py.db._worker_db import WorkerDBLease, WorkerDBRegistry
 
 DEFAULT_BULK_INSERT_BATCH_SIZE = 10_000
 DEFAULT_ITER_PROGRESS_EVERY = 100_000
+DEFAULT_ITER_PAGE_SIZE = 10_000
 DEFAULT_HASH_FETCH_BATCH_SIZE = 5_000
 DEFAULT_PARALLEL_HASH_CHUNK_SIZE = 200_000
 
@@ -112,6 +113,17 @@ class ModelStore:
                 return
             self._closed = True
             self._conn_lease.release()
+
+    def __getstate__(self) -> dict[str, Any]:
+        # The worker thread, lease and lifecycle lock cannot be pickled. Ship
+        # only the db path so the receiver can re-acquire via the registry.
+        return {"db_path": self.db_path}
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        # Re-bind by going through the canonical entry point so the registry
+        # cache is honoured and the schema/PRAGMAs are applied as needed.
+        rebound = ModelStore.for_db_path(str(state["db_path"]))
+        self.__dict__.update(rebound.__dict__)
 
     @staticmethod
     def _cell(row: Any, key: str, index: int) -> Any:
@@ -589,11 +601,11 @@ class ModelStore:
         dimension_name: str,
         hierarchy_name: str,
         object_type: str,
-    ) -> tuple[Optional[str], list[str]]:
+    ) -> tuple[Optional[str], list[str], Optional[tuple[int, str]]]:
         _ = model_id
         row = self._conn.fetch_one(
             """
-            SELECT etag, filter_rules_json
+            SELECT group_id, etag, filter_rules_json, content_hash
             FROM groups
             WHERE dimension_name=? AND hierarchy_name=? AND object_type=?
             LIMIT 1
@@ -601,20 +613,29 @@ class ModelStore:
             (dimension_name, hierarchy_name, object_type),
         )
         if row is None:
-            return None, []
-        etag = self._cell(row, "etag", 0)
-        raw_rules = self._cell(row, "filter_rules_json", 1)
+            return None, [], None
+        group_id = int(self._cell(row, "group_id", 0))
+        etag = self._cell(row, "etag", 1)
+        raw_rules = self._cell(row, "filter_rules_json", 2)
+        content_hash = self._cell(row, "content_hash", 3)
         if raw_rules in (None, ""):
-            return (str(etag) if etag is not None else None, [])
-        try:
-            parsed = _json_loads(str(raw_rules))
-        except (TypeError, ValueError):
-            parsed = []
-        if not isinstance(parsed, list):
-            parsed = []
+            rules: list[str] = []
+        else:
+            try:
+                parsed = _json_loads(str(raw_rules))
+            except (TypeError, ValueError):
+                parsed = []
+            if not isinstance(parsed, list):
+                parsed = []
+            rules = [str(item) for item in parsed]
+        content_signature: tuple[int, str] = (
+            self._actual_row_count(group_id),
+            str(content_hash),
+        )
         return (
             str(etag) if etag is not None else None,
-            [str(item) for item in parsed],
+            rules,
+            content_signature,
         )
 
     @staticmethod
@@ -759,6 +780,34 @@ class ModelStore:
             )
         return row_count
 
+    def _iter_payload_rows_paged(
+        self,
+        *,
+        group_id: int,
+        payload_table: str,
+        object_type_normalized: str,
+        payload_columns: tuple[str, ...],
+        page_size: int,
+    ) -> Iterator[tuple[Any, ...]]:
+        """Yield rows in identity sort order using LIMIT/OFFSET paging."""
+        cols = ", ".join(payload_columns)
+        order = self._identity_order_clause_for_type(object_type_normalized)
+        sql = (
+            f"SELECT {cols} FROM {payload_table} "
+            f"WHERE group_id=? ORDER BY {order} LIMIT ? OFFSET ?"
+        )
+        gid = int(group_id)
+        ps = max(1, int(page_size))
+        offset = 0
+        while True:
+            batch = self._conn.fetch_all(sql, (gid, ps, offset))
+            if not batch:
+                return
+            yield from batch
+            if len(batch) < ps:
+                return
+            offset += len(batch)
+
     def iter_payloads(
         self,
         group_id: int,
@@ -769,7 +818,6 @@ class ModelStore:
     ) -> Iterator[dict[str, Any]]:
         payload_table = self._object_table_for_group(group_id)
         object_type_normalized = self._object_type_normalized_for_group(group_id)
-        order_clause = self._identity_order_clause_for_type(object_type_normalized)
         total = self.row_count(group_id)
         if progress_label:
             logger.debug(
@@ -783,11 +831,13 @@ class ModelStore:
         next_log_at = max(1, progress_every)
         emitted = 0
         payload_columns = self._payload_columns_for_type(object_type_normalized)
-        rows = self._conn.fetch_all(
-            f"SELECT {', '.join(payload_columns)} FROM {payload_table} WHERE group_id=? ORDER BY {order_clause}",
-            (group_id,),
-        )
-        for row in rows:
+        for row in self._iter_payload_rows_paged(
+            group_id=group_id,
+            payload_table=payload_table,
+            object_type_normalized=object_type_normalized,
+            payload_columns=payload_columns,
+            page_size=DEFAULT_ITER_PAGE_SIZE,
+        ):
             emitted += 1
             if progress_label and emitted >= next_log_at:
                 logger.debug(
@@ -819,7 +869,6 @@ class ModelStore:
     ) -> Iterator[str]:
         payload_table = self._object_table_for_group(group_id)
         object_type_normalized = self._object_type_normalized_for_group(group_id)
-        order_clause = self._identity_order_clause_for_type(object_type_normalized)
         total = self.row_count(group_id)
         if progress_label:
             logger.debug(
@@ -833,11 +882,13 @@ class ModelStore:
         next_log_at = max(1, progress_every)
         emitted = 0
         payload_columns = self._payload_columns_for_type(object_type_normalized)
-        rows = self._conn.fetch_all(
-            f"SELECT {', '.join(payload_columns)} FROM {payload_table} WHERE group_id=? ORDER BY {order_clause}",
-            (group_id,),
-        )
-        for row in rows:
+        for row in self._iter_payload_rows_paged(
+            group_id=group_id,
+            payload_table=payload_table,
+            object_type_normalized=object_type_normalized,
+            payload_columns=payload_columns,
+            page_size=DEFAULT_ITER_PAGE_SIZE,
+        ):
             emitted += 1
             if progress_label and emitted >= next_log_at:
                 logger.debug(

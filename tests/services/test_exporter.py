@@ -3,14 +3,16 @@ from tests.unit_common import *
 
 class TestExporter:
 
-    def test_worker_count_resolution(self):
+    def test_worker_count_resolution(self, monkeypatch):
+        from tm1_git_py.internal import worker_config
         from tm1_git_py.internal.worker_config import resolve_worker_counts
 
-        explicit = resolve_worker_counts(4, cpu_cores=16)
+        explicit = resolve_worker_counts(4)
         assert explicit.cpu_workers == 1
         assert explicit.io_workers == 3
 
-        defaulted = resolve_worker_counts(None, cpu_cores=16)
+        monkeypatch.setattr(worker_config.os, "cpu_count", lambda: 16)
+        defaulted = resolve_worker_counts(None)
         assert defaulted.cpu_workers == 9
         assert defaulted.io_workers == 27
 
@@ -21,7 +23,9 @@ class TestExporter:
              mock.patch.object(exporter_module, "procs_to_model", return_value=({}, {})), \
              mock.patch.object(exporter_module, "chores_to_model", return_value=({}, {})):
             exporter_module.export(tm1_conn, model_id="unit-export", max_workers=9)
-        assert mock_dims.call_args.kwargs.get("max_workers") == 9
+        worker_counts = mock_dims.call_args.kwargs.get("worker_counts")
+        assert worker_counts is not None
+        assert worker_counts.max_workers == 9
 
     def test_dimensions_to_model_uses_cpu_workers_for_hash_and_io_workers_for_fetch(self, monkeypatch):
         seen: dict[str, int] = {}
@@ -51,12 +55,14 @@ class TestExporter:
         monkeypatch.setattr(exporter_module, "get_dimension_names", lambda *args, **kwargs: [])
         monkeypatch.setattr(exporter_module.ModelStore, "for_model_id", classmethod(lambda cls, model_id: mock.Mock()))
 
+        from tm1_git_py.internal.worker_config import resolve_worker_counts
+
         exporter_module.dimensions_to_model(
             mock.Mock(),
             model_id="unit-worker-split",
             filter_rules=FilterRules([]),
             progress_sink=exporter_module.NoopProgressSink(),
-            max_workers=8,
+            worker_counts=resolve_worker_counts(8),
         )
 
         assert seen == {"cpu_workers": 2, "io_workers": 6}

@@ -38,8 +38,7 @@ class SqliteWorker:
     """Sqlite thread-safe object."""
 
     def __init__(self, file_name, max_queue_size=100, execute_init=(), max_count=50,
-                 auto_reconnect=True, max_retries=3, retry_delay=1.0,
-                 init_migration_table=False, result_timeout_seconds=30.0):
+                 auto_reconnect=True, max_retries=3, retry_delay=1.0, result_timeout_seconds=30.0):
         self._file_name = file_name
         self._result_timeout_seconds = float(result_timeout_seconds)
         self._sql_queue = queue.Queue(maxsize=max_queue_size)
@@ -55,7 +54,6 @@ class SqliteWorker:
         self.auto_reconnect = auto_reconnect
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-        self.init_migration_table = init_migration_table
         
         # Transaction support
         self._in_transaction = False
@@ -90,10 +88,6 @@ class SqliteWorker:
                     cursor.execute(action)
                 conn.commit()
                 
-                # Initialize migration table if needed
-                if self.init_migration_table:
-                    self._init_migration_table(cursor, conn)
-
                 count = 0
                 while not self._close_event.is_set() or not self._sql_queue.empty():
                     try:
@@ -133,18 +127,6 @@ class SqliteWorker:
                 LOGGER.info("Attempting reconnection %d/%d in %s seconds...", 
                            retry_count, self.max_retries, self.retry_delay)
                 time.sleep(self.retry_delay)
-    
-    def _init_migration_table(self, cursor, conn):
-        """Initialize the migrations tracking table."""
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS _migrations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                version TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.commit()
 
     def _execute_query_with_retry(self, conn, cursor, token: str, query, values):
         """Execute query with retry logic."""

@@ -1,9 +1,34 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from tests.unit_common import *
 
 from tm1_git_py.internal.content_hash_calculator import (
+    ContentHashCalculator,
     calculate_group_content_signature,
     store_group_content_signature,
 )
+from tm1_git_py.reporting.progress_reporting import NoopProgressSink as _NoopProgressSink
+
+
+def _call_deserialize_dimensions(dimensions_dir, model_id, **extra):
+    """Wrap deserialize_dimensions with the runtime collaborators tests expect.
+
+    Tests originally exercised the simpler positional contract; the production
+    code now requires explicit progress sink / IO executor / hash calculator.
+    Building them once per call keeps the test bodies focused on assertions.
+    """
+
+    store = ModelStore.for_model_id(model_id)
+    with ThreadPoolExecutor(max_workers=1) as tpe, \
+            ContentHashCalculator(db_path=store.db_path, max_workers=1) as chc:
+        return deserialize_dimensions(
+            dimensions_dir,
+            model_id,
+            progress=_NoopProgressSink(),
+            thread_pool_executor=tpe,
+            content_hash_calculator=chc,
+            **extra,
+        )
 
 
 class TestDeserializer:
@@ -15,7 +40,7 @@ class TestDeserializer:
 
 
     def test_deserialize_dimensions(self, dimensions_dir=test_model_dir_base / 'dimensions'):
-        dimensions, errors = deserialize_dimensions(dimensions_dir, test_model_dir_base.name)
+        dimensions, errors = _call_deserialize_dimensions(dimensions_dir, test_model_dir_base.name)
         for dimension in dimensions.values():
             assert isinstance(dimension, Dimension)
 
@@ -23,18 +48,23 @@ class TestDeserializer:
         monkeypatch.setattr(deserializer_module, "deserialize_processes", lambda *_a, **_k: ({}, {}))
         monkeypatch.setattr(deserializer_module, "deserialize_chores", lambda *_a, **_k: ({}, {}))
         monkeypatch.setattr(deserializer_module, "deserialize_cubes", lambda *_a, **_k: ({}, {}))
-        observed: dict[str, int] = {}
+        observed: dict[str, object] = {}
 
         def _fake_dimensions(*_args, **kwargs):
-            observed["max_workers"] = int(kwargs.get("max_workers"))
-            observed["_resolved_cpu_workers"] = int(kwargs.get("_resolved_cpu_workers"))
+            observed["thread_pool_executor"] = kwargs.get("thread_pool_executor")
+            observed["content_hash_calculator"] = kwargs.get("content_hash_calculator")
             return {}, {}
 
         monkeypatch.setattr(deserializer_module, "deserialize_dimensions", _fake_dimensions)
 
         model, errors = deserializer_module.deserialize_model(str(tmp_path), max_workers=8)
-        assert observed["max_workers"] == 8
-        assert observed["_resolved_cpu_workers"] == 8
+        # max_workers now flows through worker_counts into the IO executor and
+        # the content-hash calculator that deserialize_dimensions consumes.
+        assert observed["thread_pool_executor"] is not None
+        assert observed["content_hash_calculator"] is not None
+        from tm1_git_py.internal.worker_config import resolve_worker_counts
+        expected_io_workers = resolve_worker_counts(max_workers=8, io_ratio=1).io_workers
+        assert observed["thread_pool_executor"]._max_workers == expected_io_workers
         assert model.total_object_count == 0
         assert errors == {}
 
@@ -57,7 +87,7 @@ class TestDeserializer:
 
 
     def test_deserialize_dimension_with_children(self, dimensions_dir=test_model_dir_base / 'dimensions'):
-        dimensions, errors = deserialize_dimensions(dimensions_dir, test_model_dir_base.name)
+        dimensions, errors = _call_deserialize_dimensions(dimensions_dir, test_model_dir_base.name)
         dim_version = dimensions.get('testbenchVersion')
         hier_version = dim_version.hierarchies[0]
         assert dim_version.name == 'testbenchVersion'
@@ -302,7 +332,7 @@ class TestDeserializer:
         inprogress = hier_dir / ".testbenchVersion.json.inprogress"
         inprogress.write_text('{"Name":"broken"', encoding="utf-8")
 
-        dimensions, errors = deserialize_dimensions(dimensions_dir, tmp_path.name)
+        dimensions, errors = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert "testbenchVersion" in dimensions
         assert not any("inprogress" in key for key in errors.keys())
 
@@ -318,7 +348,7 @@ class TestDeserializer:
         }
         dimension_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-        dimensions, errors = deserialize_dimensions(dimensions_dir, tmp_path.name)
+        dimensions, errors = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert "testbenchVersion" in dimensions
         assert dimensions["testbenchVersion"].defaultHierarchy.name == "testbenchVersion"
         assert (
@@ -366,7 +396,7 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        dimensions, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
+        dimensions, _ = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         dim_version = dimensions.get("testbenchVersion")
         assert dim_version is not None
         hier_version = dim_version.hierarchies[0]
@@ -379,8 +409,8 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        deserialize_dimensions(dimensions_dir, tmp_path.name)
-        deserialize_dimensions(dimensions_dir, tmp_path.name)
+        _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
+        _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         db_path = Path(ModelStore._db_path_for_model_id(tmp_path.name))
         assert db_path.is_file(), f"expected internal model store sqlite at {db_path}"
 
@@ -389,18 +419,18 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        dimensions, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
+        dimensions, _ = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         hierarchy_obj = dimensions["testbenchVersion"].hierarchies[0]
-        assert hierarchy_obj.elements.sidecar_content_signature()[0] == len(hierarchy_obj.elements)
-        assert hierarchy_obj.edges.sidecar_content_signature()[0] == len(hierarchy_obj.edges)
-        assert hierarchy_obj.subsets.sidecar_content_signature()[0] == len(hierarchy_obj.subsets)
+        assert hierarchy_obj.elements.content_signature()[0] == len(hierarchy_obj.elements)
+        assert hierarchy_obj.edges.content_signature()[0] == len(hierarchy_obj.edges)
+        assert hierarchy_obj.subsets.content_signature()[0] == len(hierarchy_obj.subsets)
 
     def test_deserialize_rebuilds_store_groups_when_source_hierarchy_is_newer(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        deserialize_dimensions(dimensions_dir, tmp_path.name)
+        _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
 
         hierarchy_json = dimensions_dir / "testbenchVersion.hierarchies" / "testbenchVersion.json"
         with open(hierarchy_json, "r+", encoding="utf-8") as fh:
@@ -410,7 +440,7 @@ class TestDeserializer:
             fh.write(json.dumps(payload, ensure_ascii=False, indent=2))
             fh.truncate()
 
-        dimensions_after, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
+        dimensions_after, _ = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         after_hier = dimensions_after["testbenchVersion"].hierarchies[0]
         assert after_hier.elements.source_json_mtime_ns() == int(hierarchy_json.stat().st_mtime_ns)
 
@@ -431,7 +461,7 @@ class TestDeserializer:
 
         monkeypatch.setattr(deserializer_module, "_ensure_hierarchy_store_groups", _builder_spy)
 
-        deserialize_dimensions(dimensions_dir, tmp_path.name)
+        _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert calls["group_builder"] >= 1
 
     def test_deserialize_dimensions_uses_single_thread_for_hierarchy_builds(self, tmp_path, monkeypatch):
@@ -451,7 +481,7 @@ class TestDeserializer:
 
         monkeypatch.setattr(deserializer_module, "_ensure_hierarchy_store_groups", _builder_spy)
 
-        deserialize_dimensions(dimensions_dir, tmp_path.name)
+        _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         assert len(thread_ids) == 1
 
     def test_deserialize_progress_sink_accepts_byte_events(self, tmp_path):
@@ -497,11 +527,11 @@ class TestDeserializer:
         dimensions_dir = tmp_path / "dimensions"
         shutil.copytree(src_dimensions, dimensions_dir)
 
-        dimensions_before, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
+        dimensions_before, _ = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         first_hier = dimensions_before["testbenchVersion"].hierarchies[0]
         before_subset_mtime = first_hier.subsets.source_json_mtime_ns()
 
-        dimensions_again, _ = deserialize_dimensions(dimensions_dir, tmp_path.name)
+        dimensions_again, _ = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
         same_hier = dimensions_again["testbenchVersion"].hierarchies[0]
         assert same_hier.subsets.source_json_mtime_ns() == before_subset_mtime
 
@@ -515,7 +545,7 @@ class TestDeserializer:
         seq.replace_with_payloads(())
         seq.append(Element(name="E1", type="Numeric"))
         seq.append(Element(name="E2", type="String"))
-        signature = seq.sidecar_content_signature()
+        signature = seq.recalculate_content_signature_parallel()
         assert signature is not None
         assert signature[0] == 2
 
@@ -540,7 +570,7 @@ class TestDeserializer:
             ]
         )
         seq.filter_in_place(lambda item: item.name != "A")
-        signature = seq.sidecar_content_signature()
+        signature = seq.content_signature()
         assert signature is not None
         assert signature[0] == 1
 
@@ -582,6 +612,7 @@ class TestDeserializer:
             store=store_a,
             group_id=seq_a.group_id,
             chunk_size=1,
+            count=len(seq_a),
         )
 
         store_b = ModelStore.for_model_id("b")
@@ -601,6 +632,7 @@ class TestDeserializer:
             store=store_b,
             group_id=seq_b.group_id,
             chunk_size=2,
+            count=len(seq_b),
         )
         assert sig_a == sig_b
 
@@ -622,6 +654,7 @@ class TestDeserializer:
             store=store_a,
             group_id=seq_a.group_id,
             chunk_size=1,
+            count=len(seq_a),
         )
 
         store_b = ModelStore.for_model_id("b")
@@ -641,6 +674,7 @@ class TestDeserializer:
             store=store_b,
             group_id=seq_b.group_id,
             chunk_size=2,
+            count=len(seq_b),
         )
         assert sig_a == sig_b
 
@@ -704,6 +738,7 @@ class TestDeserializer:
             store=store,
             group_id=seq.group_id,
             chunk_size=1,
+            count=len(seq),
         )
         plain_sqlite_signature = calculate_group_content_signature(
             db_path=store.db_path,
@@ -738,6 +773,7 @@ class TestDeserializer:
                 group_id=seq.group_id,
                 chunk_size=3,
                 max_workers=2,
+                count=len(seq),
             )
         except (OSError, NotImplementedError) as exc:
             pytest.skip(f"ProcessPoolExecutor unavailable in this environment: {exc}")
@@ -920,7 +956,7 @@ class TestDeserializer:
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):
         expected_cube_names = ['testbenchSales']
-        dimensions, errors = deserialize_dimensions(test_model_dir_base / "dimensions", test_model_dir_base.name)
+        dimensions, errors = _call_deserialize_dimensions(test_model_dir_base / "dimensions", test_model_dir_base.name)
         cubes, errors = deserialize_cubes(cubes_dir=cubes_dir, _dimensions=dimensions)
         diff_cube_names = set(expected_cube_names) - set(cubes.keys())
         assert len(diff_cube_names) == 0
@@ -940,7 +976,7 @@ class TestDeserializer:
 
         broken_dims.write_text(data, encoding="utf-8")
 
-        dimensions, errors = deserialize_dimensions(dimensions_dir, tmp_path.name)
+        dimensions, errors = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
 
         assert not dimensions, f"Broken {type(dimensions.values())} file should not deserialize successfully"
         expected_key = Dimension.uri_for("BrokenDimension")

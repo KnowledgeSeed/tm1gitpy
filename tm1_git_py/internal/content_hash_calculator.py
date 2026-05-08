@@ -28,6 +28,7 @@ import hashlib
 import logging
 import os
 import sqlite3
+import time
 import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any, Iterable, Optional
@@ -200,6 +201,7 @@ class ContentHashCalculator:
         *,
         db_path: str,
         max_workers: Optional[int] = None,
+        process_pool: Optional[ProcessPoolExecutor] = None,
         chunk_size: int = DEFAULT_PARALLEL_HASH_CHUNK_SIZE,
         fetch_batch_size: int = DEFAULT_HASH_FETCH_BATCH_SIZE,
         busy_timeout_ms: int = 30_000,
@@ -259,6 +261,39 @@ class ContentHashCalculator:
                 group_id=group_id,
                 object_type=object_type,
             )
+
+    def ensure_consistency(
+        self,
+        *,
+        group_id: int,
+        object_type: str,
+        expected_count: int,
+        timeout: float = 3.0,
+    ) -> None:
+        """Poll read-only row count until it matches ``expected_count`` or ``timeout`` elapses.
+
+        Sleeps 0.1s between checks. Raises :class:`ValueError` on timeout.
+        """
+        normalized = _normalize_object_type(object_type)
+        payload_table = _payload_table_for(normalized)
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        expected = int(expected_count)
+        with self._calculate_lock:
+            conn = _open_readonly_connection(self.db_path, busy_timeout_ms=self.busy_timeout_ms)
+            try:
+                while True:
+                    total_rows = _row_count(conn, payload_table, int(group_id))
+                    if total_rows == expected:
+                        return
+                    if time.monotonic() >= deadline:
+                        raise ValueError(
+                            f"Consistency timeout for group_id={int(group_id)} object_type={object_type!r}: "
+                            f"expected {expected} rows, last saw {total_rows} "
+                            f"after {float(timeout)}s"
+                        )
+                    time.sleep(0.1)
+            finally:
+                conn.close()
 
     def _calculate_group_content_signature(
         self,
@@ -378,8 +413,12 @@ def calculate_group_content_signature(
     fetch_batch_size: int = DEFAULT_HASH_FETCH_BATCH_SIZE,
     busy_timeout_ms: int = 30_000,
     max_workers: Optional[int] = None,
+    count: Optional[int] = None,
 ) -> tuple[int, str]:
-    """Convenience wrapper that owns a short-lived :class:`ContentHashCalculator`."""
+    """Convenience wrapper that owns a short-lived :class:`ContentHashCalculator`.
+
+    When ``count`` is set, :meth:`ContentHashCalculator.ensure_consistency` runs first.
+    """
     with ContentHashCalculator(
         db_path=db_path,
         max_workers=max_workers,
@@ -387,6 +426,12 @@ def calculate_group_content_signature(
         fetch_batch_size=fetch_batch_size,
         busy_timeout_ms=busy_timeout_ms,
     ) as calculator:
+        if count is not None:
+            calculator.ensure_consistency(
+                group_id=group_id,
+                object_type=object_type,
+                expected_count=int(count),
+            )
         return calculator.calculate_group_content_signature(
             group_id=group_id,
             object_type=object_type,
@@ -401,6 +446,7 @@ def store_group_content_signature(
     fetch_batch_size: int = DEFAULT_HASH_FETCH_BATCH_SIZE,
     busy_timeout_ms: int = 30_000,
     max_workers: Optional[int] = None,
+    count: int,
 ) -> tuple[int, str]:
     """Compute ``(row_count, content_hash)`` for a group using the store's object type."""
     normalized, _, _ = store.resolve_parallel_hash_inputs(group_id)
@@ -412,6 +458,7 @@ def store_group_content_signature(
         fetch_batch_size=fetch_batch_size,
         busy_timeout_ms=busy_timeout_ms,
         max_workers=max_workers,
+        count=count,
     )
 
 

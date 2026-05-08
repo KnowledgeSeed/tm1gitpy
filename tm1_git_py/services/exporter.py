@@ -34,7 +34,7 @@ from tm1_git_py.reporting.progress_reporting import (
     ProgressSink,
     ProgressUnit,
 )
-from tm1_git_py.internal.worker_config import resolve_worker_counts
+from tm1_git_py.internal.worker_config import WorkerCounts, resolve_worker_counts
 
 from tm1_git_py.tm1_api import (
     get_cube_names,
@@ -81,6 +81,7 @@ class PageFuture:
 class HierarchyFuture:
     dimension_name: str
     hierarchy: Hierarchy
+    tm1_object_counts: dict[str, int] = field(default_factory=dict)
     element_pages: list[PageFuture] = field(default_factory=list)
     edge_pages: list[PageFuture] = field(default_factory=list)
     subset_pages: list[PageFuture] = field(default_factory=list)
@@ -176,6 +177,7 @@ def export(
     else:
         active_progress_sink = progress_sink
 
+    worker_counts = resolve_worker_counts(max_workers)
     effective_rules = with_default_leaves_ignore(filter_rules_list)
     effective_rules.extend(with_technical_objects_ignore(filter_rules_list))
     filter_rules = FilterRules(effective_rules)
@@ -188,7 +190,7 @@ def export(
             model_id=model_id,
             filter_rules=filter_rules,
             progress_sink=active_progress_sink,
-            max_workers=max_workers,
+            worker_counts=worker_counts,
         )
         _cubes, _cube_errors = cubes_to_model(
             tm1_conn,
@@ -484,7 +486,7 @@ def dimensions_to_model(
     filter_rules: FilterRules,
     *,
     progress_sink: ProgressSink,
-    max_workers: Optional[int] = None,
+    worker_counts: WorkerCounts,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
 
     dimensions_tm1_filter = filter_rules.to_tm1_name_filter(EntityType.DIMENSION)
@@ -496,7 +498,6 @@ def dimensions_to_model(
     _dimensions: Dict[str, Dimension] = {}
     model_store = ModelStore.for_model_id(model_id)
 
-    worker_counts = resolve_worker_counts(max_workers)
     cpu_workers = worker_counts.cpu_workers
     io_workers = worker_counts.io_workers
 
@@ -510,19 +511,24 @@ def dimensions_to_model(
         hierarchy_futures: list[HierarchyFuture] = []
         count_futures: list[tuple[HierarchyFuture, str, Future]] = []
 
-        def _compute_and_commit_hash(group_id: int, page_kind: str) -> tuple[int, str]:
+        def _compute_and_commit_hash(group_id: int, page_kind: str, expected_tm1_count: int) -> tuple[int, str]:
             progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Calculating hash {group_id}"))
             row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
                 group_id=group_id,
                 object_type=page_kind,
             )
             progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))
-            model_store.commit_group_content_signature(
-                group_id,
-                row_count=row_count,
-                content_hash=content_hash,
-            )
-            return row_count, content_hash
+
+            if row_count == expected_tm1_count:
+                model_store.commit_group_content_signature(
+                    group_id,
+                    row_count=row_count,
+                    content_hash=content_hash,
+                )
+            else:
+                raise ValueError(
+                    f"Row count {row_count} does not match TM1 count {expected_tm1_count} for {page_kind}"
+                )
 
         def _make_kind_done_callback(
             page_kind: str,
@@ -540,7 +546,8 @@ def dimensions_to_model(
                     sequence.set_filter_rules(filter_rules_for_sequence)
                 if group_id is None:
                     return
-                _compute_and_commit_hash(group_id, page_kind)
+                count = done_hf.tm1_object_counts[page_kind]
+                _compute_and_commit_hash(group_id, page_kind, count)
                 
             return _on_done
 
@@ -571,6 +578,7 @@ def dimensions_to_model(
             hierarchy_uri = Hierarchy.uri_for(dimension_name=dim_name, hierarchy_name=hierarchy_name)
             progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Counting {hierarchy_uri} total objects"))
             count = count_fn(tm1_conn, dim_name, hierarchy_name, filter=filter_expr)
+            hierarchy_future.tm1_object_counts[page_kind] = count
             progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Counting {hierarchy_uri} total objects"))
             progress_sink.on_event(ProgressEvent.total_line(total_delta=count))
             if not can_reuse and not skip_all:
@@ -611,12 +619,12 @@ def dimensions_to_model(
                     can_reuse_subsets = False
                     can_reuse_edges = False
                     if incoming_hierarchy_etag is not None:
-                        existing_elements_etag, existing_elements_rules = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="elements")
-                        existing_subsets_etag, existing_subsets_rules = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="subsets")
-                        existing_edges_etag, existing_edges_rules = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="edges")
-                        can_reuse_elements = (existing_elements_etag == incoming_hierarchy_etag and existing_elements_rules == elements_tm1_filter.applicable_rules)
-                        can_reuse_subsets = (existing_subsets_etag == incoming_hierarchy_etag and existing_subsets_rules == subsets_tm1_filter.applicable_rules)
-                        can_reuse_edges = (existing_edges_etag == incoming_hierarchy_etag and existing_edges_rules == edges_tm1_filter.applicable_rules)
+                        e_elements_etag, e_elements_rules, e_elements_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="elements")
+                        e_subsets_etag, e_subsets_rules, e_subsets_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="subsets")
+                        e_edges_etag, e_edges_rules, e_edges_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="edges")
+                        can_reuse_elements = (e_elements_etag == incoming_hierarchy_etag and e_elements_rules == elements_tm1_filter.applicable_rules and e_elements_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
+                        can_reuse_subsets = (e_subsets_etag == incoming_hierarchy_etag and e_subsets_rules == subsets_tm1_filter.applicable_rules and e_subsets_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
+                        can_reuse_edges = (e_edges_etag == incoming_hierarchy_etag and e_edges_rules == edges_tm1_filter.applicable_rules and e_edges_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
 
                     hierarchy = Hierarchy(
                         name=hierarchy_name,

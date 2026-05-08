@@ -6,6 +6,19 @@ from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.model.subset import Subset
 T = TypeVar("T")
 
+
+def _element_to_dict(item: Element) -> dict[str, Any]:
+    return item.to_dict()
+
+
+def _edge_to_dict(item: Edge) -> dict[str, Any]:
+    return item.to_dict()
+
+
+def _subset_to_dict(item: Subset) -> dict[str, Any]:
+    return item.to_dict()
+
+
 class StoreBackedSequence(MutableSequence[T], Generic[T]):
     def __init__(
         self,
@@ -34,9 +47,20 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         )
 
     def _active_store(self) -> ModelStore:
-        if getattr(self._store, "_closed", False):
+        if self._store is None or getattr(self._store, "_closed", False):
             self._store = ModelStore.for_db_path(self._store_db_path)
         return self._store
+
+    def __getstate__(self) -> dict[str, Any]:
+        # SqliteWorker / lease / lifecycle lock cannot cross processes. Drop the
+        # live store; the receiver re-acquires via ``ModelStore.for_db_path``.
+        state = self.__dict__.copy()
+        state["_store"] = None
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._store = None
 
     @classmethod
     def for_elements_sink(
@@ -54,7 +78,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             hierarchy_name=hierarchy_name,
             object_type="elements",
             item_from_payload=Element.from_dict,
-            payload_from_item=lambda item: item.to_dict(),
+            payload_from_item=_element_to_dict,
         )
 
     @classmethod
@@ -73,7 +97,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             hierarchy_name=hierarchy_name,
             object_type="edges",
             item_from_payload=Edge.from_dict,
-            payload_from_item=lambda item: item.to_dict(),
+            payload_from_item=_edge_to_dict,
         )
 
     @classmethod
@@ -92,7 +116,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             hierarchy_name=hierarchy_name,
             object_type="subsets",
             item_from_payload=Subset.from_dict,
-            payload_from_item=lambda item: item.to_dict(),
+            payload_from_item=_subset_to_dict,
         )
 
     def __len__(self) -> int:
@@ -184,7 +208,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         self.replace_with_payloads(kept_payloads)
         return len(kept_payloads)
 
-    def sidecar_content_signature(self) -> Optional[tuple[int, str]]:
+    def content_signature(self) -> Optional[tuple[int, str]]:
         return self._active_store().content_signature(self.group_id)
 
     def set_content_signature(self, *, row_count: int, content_hash: str) -> None:
@@ -204,6 +228,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             group_id=self.group_id,
             object_type=normalized,
             max_workers=1,
+            count=len(self),
         )
         store.commit_group_content_signature(
             self.group_id,

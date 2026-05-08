@@ -1,7 +1,10 @@
+import concurrent
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
 import logging
 import os
 import re
 from pathlib import Path
+import signal
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
 import ijson
 import orjson
@@ -129,7 +132,8 @@ def _recalculate_group_signature_task(
     group_id: int,
     progress: ProgressSink,
     progress_scope: str,
-    content_hash_calculator: Optional[ContentHashCalculator] = None,
+    content_hash_calculator: ContentHashCalculator,
+    count: int,
 ) -> tuple[int, str]:
     store = ModelStore.for_model_id(model_id)
     normalized, _, total_lines = store.resolve_parallel_hash_inputs(group_id)
@@ -144,24 +148,20 @@ def _recalculate_group_signature_task(
             path=progress_scope,
         )
     )
-    if content_hash_calculator is None:
-        from tm1_git_py.internal.content_hash_calculator import calculate_group_content_signature
-
-        row_count, content_hash = calculate_group_content_signature(
-            db_path=store.db_path,
-            group_id=group_id,
-            object_type=normalized,
-        )
-    else:
-        row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
-            group_id=group_id,
-            object_type=normalized,
-        )
-    store.commit_group_content_signature(
-        group_id,
-        row_count=row_count,
-        content_hash=content_hash,
+    row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
+        group_id=group_id,
+        object_type=normalized,
     )
+
+    if row_count == count:
+        store.commit_group_content_signature(
+            group_id,
+            row_count=row_count,
+            content_hash=content_hash,
+        ) 
+    else:
+        raise ValueError(f"Row count {row_count} does not match count {count}")
+
     progress.on_event(
         ProgressEvent.make(
             kind=ProgressKind.UPDATE,
@@ -329,8 +329,8 @@ def _ensure_hierarchy_store_groups(
     hierarchy_name: str,
     subset_dir_path: str,
     progress: ProgressSink,
-    max_workers: int = 1,
-    content_hash_calculator: Optional[ContentHashCalculator] = None,
+    thread_pool_executor: ThreadPoolExecutor,
+    content_hash_calculator: ContentHashCalculator,
 ) -> tuple[StoreBackedSequence[Element], StoreBackedSequence[Edge], StoreBackedSequence[Subset]]:
     store = ModelStore.for_model_id(model_id)
     elements = StoreBackedSequence.for_elements_sink(
@@ -352,10 +352,12 @@ def _ensure_hierarchy_store_groups(
         hierarchy_name=hierarchy_name,
     )
     source_mtime_ns = int(os.stat(hierarchy_json_path).st_mtime_ns) if os.path.exists(hierarchy_json_path) else None
-    needs_elements_rebuild = source_mtime_ns is None or elements.source_json_mtime_ns() != source_mtime_ns
-    needs_edges_rebuild = source_mtime_ns is None or edges.source_json_mtime_ns() != source_mtime_ns
-    subset_source_mtime_ns = _subset_source_mtime_ns(subset_dir_path)
-    needs_subsets_rebuild = subsets.source_json_mtime_ns() != subset_source_mtime_ns
+    
+    needs_elements_rebuild = source_mtime_ns is None or elements.source_json_mtime_ns() != source_mtime_ns or elements.content_signature()[1] == ModelStore.EMPTY_CONTENT_HASH
+    needs_edges_rebuild = source_mtime_ns is None or edges.source_json_mtime_ns() != source_mtime_ns or edges.content_signature()[1] == ModelStore.EMPTY_CONTENT_HASH
+    subset_source_mtime_ns = _subset_source_mtime_ns(subset_dir_path) 
+    needs_subsets_rebuild = subsets.source_json_mtime_ns() != subset_source_mtime_ns or subsets.content_signature()[1] == ModelStore.EMPTY_CONTENT_HASH
+
     if not needs_elements_rebuild:
         source_has_elements = _hierarchy_array_has_items(hierarchy_json_path, "Elements")
         cached_has_elements = len(elements) > 0
@@ -393,13 +395,14 @@ def _ensure_hierarchy_store_groups(
         elements_progress_range = (0.0, 1.0)
         edges_progress_range = (0.0, 1.0)
 
-    def _enqueue_hash_recalc(group_id: int, scope: str) -> None:
+    def _enqueue_hash_recalc(group_id: int, scope: str, count: int) -> None:
         _recalculate_group_signature_task(
             model_id=model_id,
             group_id=group_id,
             progress=progress,
             progress_scope=scope,
             content_hash_calculator=content_hash_calculator,
+            count=count,
         )
 
     if needs_elements_rebuild:
@@ -417,7 +420,7 @@ def _ensure_hierarchy_store_groups(
         )
         if source_mtime_ns is not None:
             elements.set_source_json_mtime_ns(source_mtime_ns)
-        _enqueue_hash_recalc(elements.group_id, f"{dimension_name}/{hierarchy_name} elements")
+        _enqueue_hash_recalc(elements.group_id, f"{dimension_name}/{hierarchy_name} elements", len(elements))
     if needs_edges_rebuild:
         _progress_start(progress, hierarchy_json_path, "inserting edges")
         edges.replace_with_payloads(())
@@ -433,7 +436,7 @@ def _ensure_hierarchy_store_groups(
         )
         if source_mtime_ns is not None:
             edges.set_source_json_mtime_ns(source_mtime_ns)
-        _enqueue_hash_recalc(edges.group_id, f"{dimension_name}/{hierarchy_name} edges")
+        _enqueue_hash_recalc(edges.group_id, f"{dimension_name}/{hierarchy_name} edges", len(edges))
 
     if needs_subsets_rebuild:
         subsets.replace_with_payloads(())
@@ -460,7 +463,7 @@ def _ensure_hierarchy_store_groups(
                 payloads=_subset_payload_iter(),
             )
         subsets.set_source_json_mtime_ns(subset_source_mtime_ns)
-        _enqueue_hash_recalc(subsets.group_id, f"{dimension_name}/{hierarchy_name} subsets")
+        _enqueue_hash_recalc(subsets.group_id, f"{dimension_name}/{hierarchy_name} subsets", len(subsets))
     elif os.path.isdir(subset_dir_path):
         for subset_file_name in sorted(os.listdir(subset_dir_path)):
             _progress_mark(progress, os.path.join(subset_dir_path, subset_file_name))
@@ -494,15 +497,16 @@ def deserialize_model(
     max_workers: Optional[int] = None,
     _resolved_cpu_workers: Optional[int] = None,
 ) -> tuple[Model, dict[str, str]]:
-    logger.debug("Deserializing model from '%s'", dir)
+
     dir = _handle_long_path(dir)
     resolved_model_id = (model_id or Path(dir).resolve().name).strip()
     if not resolved_model_id:
         raise ValueError("model_id must not be empty")
 
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
+    worker_counts = resolve_worker_counts(max_workers=max_workers, io_ratio=1)
     multi_process_progress_manager: Optional[MultiProcessProgressManager] = None
-    if (resolve_worker_counts(max_workers).cpu_workers > 1 and not isinstance(progress_sink, NoopProgressSink) and not isinstance(progress_sink, MultiProcessProgressQueueSink)):
+    if (worker_counts.cpu_workers > 1 and not isinstance(progress_sink, NoopProgressSink) and not isinstance(progress_sink, MultiProcessProgressQueueSink)):
         multi_process_progress_manager = MultiProcessProgressManager(progress_sink)
         multi_process_progress_manager.start()
         active_progress_sink = multi_process_progress_manager.get_multi_process_progress_queue_sink()
@@ -517,49 +521,49 @@ def deserialize_model(
     active_progress_sink.on_event(ProgressEvent.total_line(message="Deserializing", total_delta=max(1, _directory_total_bytes(dir)), unit=ProgressUnit.BYTE))
 
     total_object_count = 0
-
+    
     def _add_object_count(delta: int) -> None:
         nonlocal total_object_count
         if delta > 0:
             total_object_count += int(delta)
+
     model_store = ModelStore.for_model_id(resolved_model_id)
     try:
-        with ContentHashCalculator(
-            db_path=model_store.db_path,
-            max_workers=max_workers,
-            progress_sink=active_progress_sink,
-        ) as content_hash_calculator:
-            _processes, _process_errors = deserialize_processes(
-                processes_dir,
-                progress=active_progress_sink,
-                count_callback=_add_object_count,
-            )
 
-            _chores, _chore_errors = deserialize_chores(
-                chores_dir,
-                progress=active_progress_sink,
-                count_callback=_add_object_count,
-            )
+        with ThreadPoolExecutor(max_workers=worker_counts.io_workers) as thread_pool_executor:
+            with ContentHashCalculator(db_path=model_store.db_path, max_workers=1, progress_sink=active_progress_sink) as content_hash_calculator:
+        
+                _processes, _process_errors = deserialize_processes(
+                    processes_dir,
+                    progress=active_progress_sink,
+                    count_callback=_add_object_count,
+                )
 
-            _dimensions, _dim_errors = deserialize_dimensions(
-                dimensions_dir,
-                resolved_model_id,
-                progress=active_progress_sink,
-                count_callback=_add_object_count,
-                max_workers=max_workers,
-                _resolved_cpu_workers=max_workers,
-                content_hash_calculator=content_hash_calculator,
-            )
+                _chores, _chore_errors = deserialize_chores(
+                    chores_dir,
+                    progress=active_progress_sink,
+                    count_callback=_add_object_count,
+                )
 
-            _cubes, _cube_errors = deserialize_cubes(
-                cubes_dir,
-                _dimensions,
-                progress=active_progress_sink,
-                count_callback=_add_object_count,
-            )
+                _dimensions, _dim_errors = deserialize_dimensions(
+                    dimensions_dir,
+                    resolved_model_id,
+                    progress=active_progress_sink,
+                    count_callback=_add_object_count,
+                    thread_pool_executor=thread_pool_executor,
+                    content_hash_calculator=content_hash_calculator,
+                )
+
+                _cubes, _cube_errors = deserialize_cubes(
+                    cubes_dir,
+                    _dimensions,
+                    progress=active_progress_sink,
+                    count_callback=_add_object_count,
+                )
     finally:
         if multi_process_progress_manager is not None:
             multi_process_progress_manager.close()
+        
         # active_progress_sink.close()
 
     _model = Model(cubes=list(_cubes.values()),
@@ -716,8 +720,8 @@ def _deserialize_single_hierarchy(
     hierarchy_name: str,
     subset_dir_path: str,
     progress: ProgressSink,
-    max_workers: int,
-    content_hash_calculator: Optional[ContentHashCalculator],
+    thread_pool_executor: ThreadPoolExecutor,
+    content_hash_calculator: ContentHashCalculator,
 ) -> Hierarchy:
     elements, edges, subsets = _ensure_hierarchy_store_groups(
         hierarchy_json_path=hierarchy_json_path,
@@ -726,7 +730,7 @@ def _deserialize_single_hierarchy(
         hierarchy_name=hierarchy_name,
         subset_dir_path=subset_dir_path,
         progress=progress,
-        max_workers=max_workers,
+        thread_pool_executor=thread_pool_executor,
         content_hash_calculator=content_hash_calculator,
     )
     return Hierarchy(
@@ -741,13 +745,11 @@ def deserialize_dimensions(
     dimension_dir,
     model_id: str,
     *,
-    progress: Optional[ProgressSink] = None,
+    progress: ProgressEvent,
     count_callback: Optional[Callable[[int], None]] = None,
-    max_workers: Optional[int] = None,
-    content_hash_calculator: Optional[ContentHashCalculator] = None,
-    _resolved_cpu_workers: Optional[int] = None,
+    thread_pool_executor: ThreadPoolExecutor,
+    content_hash_calculator: ContentHashCalculator,
 ) -> tuple[Dict[str, Dimension], Dict[str, str]]:
-    progress = progress if progress is not None else NoopProgressSink()
     model_id = model_id.strip()
     if not model_id:
         raise ValueError("model_id must not be empty")
@@ -756,11 +758,6 @@ def deserialize_dimensions(
     logger.debug("Deserializing dimensions from '%s'", dimension_dir)
 
     files = directory_to_dict(dimension_dir)
-    effective_max_workers = (
-        max(1, int(_resolved_cpu_workers))
-        if _resolved_cpu_workers is not None
-        else resolve_worker_counts(max_workers).cpu_workers
-    )
     for file_name in sorted(list(files.keys())):
         file_name_base, dot, file_name_ext = file_name.rpartition('.')
         dim_link = Dimension.uri_for(file_name_base)
@@ -808,6 +805,8 @@ def deserialize_dimensions(
 
         hiers = files.get(hier_dir_name)
         parsed_hierarchies: dict[str, Hierarchy] = {}
+        
+        hierarchy_futures_dict: dict[str, Future] = {}
         for hier_file_name in sorted(list(hiers.keys())):
             hierarchy_file_path = os.path.join(hier_dir_path, hier_file_name)
             _progress_start(progress, hierarchy_file_path, "reading hierarchy")
@@ -829,18 +828,26 @@ def deserialize_dimensions(
             hiers.pop(hier_file_name, None)
             subset_dir_name = hier_file_name_base + '.subsets'
             subset_dir_path = os.path.join(hier_dir_path, subset_dir_name)
+
+            future = thread_pool_executor.submit(_deserialize_single_hierarchy,
+                hierarchy_json_path=hierarchy_file_path,
+                model_id=model_id,
+                dimension_name=file_name_base,
+                hierarchy_name=hier_file_name_base,
+                subset_dir_path=subset_dir_path,
+                progress=progress,
+                thread_pool_executor=thread_pool_executor,
+                content_hash_calculator=content_hash_calculator,
+            )
+            hierarchy_futures_dict[hier_file_name_base] = future
+
+        for future in concurrent.futures.as_completed(hierarchy_futures_dict.values()):
+            
             try:
-                _hierarchy = _deserialize_single_hierarchy(
-                    hierarchy_json_path=hierarchy_file_path,
-                    model_id=model_id,
-                    dimension_name=file_name_base,
-                    hierarchy_name=hier_file_name_base,
-                    subset_dir_path=subset_dir_path,
-                    progress=progress,
-                    max_workers=effective_max_workers,
-                    content_hash_calculator=content_hash_calculator,
-                )
-                parsed_hierarchies[hier_file_name_base] = _hierarchy
+                _hierarchy = future.result()
+                hier_file_name = _hierarchy.name + ".json"
+                parsed_hierarchies[_hierarchy.name] = _hierarchy
+                _dimension.hierarchies.append(_hierarchy)
                 hierarchy_object_count = 1 + len(_hierarchy.subsets) + len(_hierarchy.edges)
                 if _hierarchy.name.strip().lower() != "leaves":
                     hierarchy_object_count += len(_hierarchy.elements)
@@ -855,9 +862,6 @@ def deserialize_dimensions(
                     e,
                     exc_info=True,
                 )
-
-        for hierarchy_name in sorted(parsed_hierarchies.keys()):
-            _dimension.hierarchies.append(parsed_hierarchies[hierarchy_name])
 
         pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
         default_hierarchy_payload = dim_json.get("DefaultHierarchy")

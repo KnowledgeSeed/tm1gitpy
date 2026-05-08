@@ -67,12 +67,10 @@ class TestComparator:
         )
         seq.replace_with_payloads(())
         seq.append(Edge("P", "C", 1))
-        seq.recalculate_content_signature_parallel()
-        sig_w1 = seq.sidecar_content_signature()
+        sig_w1 = seq.recalculate_content_signature_parallel()
         seq.replace_with_payloads(())
         seq.append(Edge("P", "C", 2))
-        seq.recalculate_content_signature_parallel()
-        sig_w2 = seq.sidecar_content_signature()
+        sig_w2 = seq.recalculate_content_signature_parallel()
         assert sig_w1 != sig_w2
 
 
