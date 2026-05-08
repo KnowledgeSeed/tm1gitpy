@@ -46,3 +46,5 @@ dist/
 .internal
 
 test_integration/test_create_and_delete.json
+test_integration/test_create_and_delete.json
+tests/test_create_and_delete.json
