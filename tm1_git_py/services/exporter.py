@@ -395,7 +395,10 @@ def cubes_to_model(
                 except (json.JSONDecodeError, AttributeError):
                     rule_text = raw_body if isinstance(raw_body, str) else ""
 
-            rules_list = _parse_rules(rule_text)
+            # rules_list = _parse_rules(rule_text)
+            rules_list = []
+            if rule_text:
+                rules_list = [Rule(area="[default]", full_statement=rule_text, comment="", name="default")]
             filtered_rules_list = []
             for rule in rules_list:
                 rule_path = f"{Rule.uri_for(cube_name)}|{filter_module.normalize_for_path(rule.area)}"

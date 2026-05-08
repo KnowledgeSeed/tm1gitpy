@@ -928,7 +928,10 @@ def deserialize_cubes(
                 with open(rule_file_path, 'r', encoding='utf-8') as file:
                     rule_text = file.read()
                     _progress_mark(progress, rule_file_path)
-                    rules_list = _parse_rules(rule_text, cube_name=file_name_base)
+                    # rules_list = _parse_rules(rule_text, cube_name=file_name_base)
+                    rules_list = []
+                    if rule_text:
+                        rules_list = [Rule(area="[default]", full_statement=rule_text, comment="", name="default")]
             _cube = Cube(name=cube_json['Name'], dimensions=[], rules=rules_list, views=[])
 
         for dim in cube_json['Dimensions']:
