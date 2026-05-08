@@ -3,11 +3,6 @@ name: Publish To TestPyPI
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Branch or tag to build from (e.g. main, develop, v1.2.0)"
-        required: true
-        default: main
-        type: string
       version:
         description: "Package version (PEP 440), e.g. 1.2.0 — written to __version__ before build"
         required: true
@@ -18,20 +13,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Resolve checkout ref and package version
+      - uses: actions/checkout@v4
+
+      - name: Resolve package version
         id: meta
         env:
-          WF_REF: ${{ inputs.ref }}
           WF_VERSION: ${{ inputs.version }}
         run: |
-          echo "ref=$WF_REF" >> "$GITHUB_OUTPUT"
           ver="$WF_VERSION"
           ver="${ver#v}"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.meta.outputs.ref }}
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
