@@ -262,13 +262,13 @@ class ContentHashCalculator:
                 object_type=object_type,
             )
 
-    def ensure_consistency(
+    def await_consistency(
         self,
         *,
         group_id: int,
         object_type: str,
         expected_count: int,
-        timeout: float = 3.0,
+        timeout: float = 5.0,
     ) -> None:
         """Poll read-only row count until it matches ``expected_count`` or ``timeout`` elapses.
 
@@ -284,7 +284,7 @@ class ContentHashCalculator:
                 while True:
                     total_rows = _row_count(conn, payload_table, int(group_id))
                     if total_rows == expected:
-                        return
+                        return True
                     if time.monotonic() >= deadline:
                         raise ValueError(
                             f"Consistency timeout for group_id={int(group_id)} object_type={object_type!r}: "
@@ -294,6 +294,7 @@ class ContentHashCalculator:
                     time.sleep(0.1)
             finally:
                 conn.close()
+        return False
 
     def _calculate_group_content_signature(
         self,
@@ -427,7 +428,7 @@ def calculate_group_content_signature(
         busy_timeout_ms=busy_timeout_ms,
     ) as calculator:
         if count is not None:
-            calculator.ensure_consistency(
+            calculator.await_consistency(
                 group_id=group_id,
                 object_type=object_type,
                 expected_count=int(count),

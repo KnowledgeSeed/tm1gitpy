@@ -148,19 +148,23 @@ def _recalculate_group_signature_task(
             path=progress_scope,
         )
     )
-    row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
-        group_id=group_id,
-        object_type=normalized,
-    )
 
-    if row_count == count:
-        store.commit_group_content_signature(
-            group_id,
-            row_count=row_count,
-            content_hash=content_hash,
-        ) 
+    # since content_hash_calculator is not thread safe, we need to ensure the consistency of the group before calculating the hash
+    if (content_hash_calculator.await_consistency(group_id=group_id, object_type=normalized, expected_count=count)):
+        row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
+            group_id=group_id,
+            object_type=normalized,
+        )
+        if row_count == count:
+            store.commit_group_content_signature(
+                group_id,
+                row_count=row_count,
+                content_hash=content_hash,
+            ) 
+        else:
+            raise ValueError(f"Row count {row_count} does not match count {count}")
     else:
-        raise ValueError(f"Row count {row_count} does not match count {count}")
+        raise ValueError(f"Consistency timeout for group_id={group_id} object_type={normalized}: expected {count} rows, last saw {total_rows} after {float(timeout)}s")
 
     progress.on_event(
         ProgressEvent.make(

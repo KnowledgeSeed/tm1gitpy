@@ -518,22 +518,24 @@ def dimensions_to_model(
 
         def _compute_and_commit_hash(group_id: int, page_kind: str, expected_tm1_count: int) -> tuple[int, str]:
             progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Calculating hash {group_id}"))
-            row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
-                group_id=group_id,
-                object_type=page_kind,
-            )
-            progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))
-
-            if row_count == expected_tm1_count:
-                model_store.commit_group_content_signature(
-                    group_id,
-                    row_count=row_count,
-                    content_hash=content_hash,
+            
+            # since content_hash_calculator is not thread safe, we need to ensure the consistency of the group before calculating the hash
+            if content_hash_calculator.await_consistency(group_id=group_id, object_type=page_kind, expected_count=expected_tm1_count):
+                row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
+                    group_id=group_id,
+                    object_type=page_kind,
                 )
+                progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))
+                if row_count == expected_tm1_count:
+                    model_store.commit_group_content_signature(
+                        group_id,
+                        row_count=row_count,
+                        content_hash=content_hash,
+                    )
+                else:
+                    raise ValueError(f"Row count {row_count} does not match TM1 count {expected_tm1_count} for {page_kind}")
             else:
-                raise ValueError(
-                    f"Row count {row_count} does not match TM1 count {expected_tm1_count} for {page_kind}"
-                )
+                raise ValueError(f"Consistency timeout for group_id={group_id} object_type={page_kind}: expected {expected_tm1_count} rows, last saw {total_rows} after {float(timeout)}s")
 
         def _make_kind_done_callback(
             page_kind: str,
