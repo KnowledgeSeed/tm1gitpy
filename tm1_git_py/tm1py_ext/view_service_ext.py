@@ -1,5 +1,6 @@
 """View-related utilities extending TM1py ViewService behavior."""
-
+import logging
+from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from TM1py.Objects.MDXView import MDXView
@@ -9,6 +10,33 @@ from TM1py.Utils import format_url
 if TYPE_CHECKING:
     from TM1py import TM1Service
     from TM1py.Objects import View
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_native_view_title_selection(view_as_dict: dict) -> dict:
+    """Patch a copy of the TM1 payload just enough for TM1py to parse it."""
+    for axis_selection in view_as_dict.get("Titles", []) or []:
+        if not isinstance(axis_selection, dict):
+            continue
+        if axis_selection.get("Selected") is not None:
+            continue
+
+        subset = axis_selection.get("Subset")
+        elements = subset.get("Elements") if isinstance(subset, dict) else None
+        fallback_name = ""
+        if isinstance(elements, list) and elements:
+            first_element = elements[0]
+            if isinstance(first_element, dict):
+                fallback_name = first_element.get("Name") or ""
+
+        axis_selection["Selected"] = {"Name": fallback_name}
+        logger.debug(
+            "Native view '%s' has a title selection with Selected=null; using temporary TM1py parse fallback '%s'",
+            view_as_dict.get("Name"),
+            fallback_name,
+        )
+    return view_as_dict
 
 
 def get_all(
@@ -51,7 +79,10 @@ def get_all(
             if view_as_dict.get("@odata.type") == "#ibm.tm1.api.v1.MDXView":
                 view = MDXView.from_dict(view_as_dict, cube_name)
             else:
-                view = NativeView.from_dict(view_as_dict, cube_name)
+                view = NativeView.from_dict(
+                    _normalize_native_view_title_selection(deepcopy(view_as_dict)),
+                    cube_name,
+                )
             if view_type == "PrivateViews":
                 private_views.append(view)
             else:

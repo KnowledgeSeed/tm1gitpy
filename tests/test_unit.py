@@ -1767,6 +1767,49 @@ class TestExporter:
         assert "/Cubes('Sales')/Views?" in second_url
         assert "&$filter=startswith(Name,'Main')" in second_url
 
+    def test_view_service_normalizes_null_native_view_title_selected(self, mocker):
+        tm1_conn = mocker.Mock()
+        native_from_dict = mocker.patch.object(
+            view_service_ext.NativeView,
+            "from_dict",
+            return_value=types.SimpleNamespace(name="N1"),
+        )
+        tm1_conn.connection.GET.side_effect = [
+            mocker.Mock(json=mocker.Mock(return_value={"value": []})),
+            mocker.Mock(
+                json=mocker.Mock(
+                    return_value={
+                        "value": [
+                            {
+                                "@odata.type": "#ibm.tm1.api.v1.NativeView",
+                                "Name": "N1",
+                                "Titles": [
+                                    {
+                                        "Selected": None,
+                                        "Subset": {
+                                            "Elements": [
+                                                {"Name": "Fallback"}
+                                            ]
+                                        },
+                                    }
+                                ],
+                                "Columns": [],
+                                "Rows": [],
+                            }
+                        ]
+                    }
+                )
+            ),
+        ]
+
+        private_views, public_views = view_service_ext.get_all(tm1_conn, cube_name="Sales")
+
+        assert private_views == []
+        assert len(public_views) == 1
+        view_payload = native_from_dict.call_args.args[0]
+        assert view_payload["Titles"][0]["Selected"] == {"Name": "Fallback"}
+
+
     def test_cubes_to_model_uses_view_service_ext(self, mocker):
         from tm1_git_py.exporter import cubes_to_model
 
