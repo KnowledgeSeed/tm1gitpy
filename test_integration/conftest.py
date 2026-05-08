@@ -5,7 +5,5 @@ here lets pytest auto-apply ``autouse`` fixtures (notably the per-test sqlite
 worker teardown) without each test module importing them explicitly.
 """
 
-from test_integration.test_base import (  # noqa: F401
-    _close_sqlite_workers_per_test,
-    tm1_service,
-)
+from test_integration.sqlite_teardown import _close_sqlite_workers_per_test  # noqa: F401
+from test_integration.test_base import tm1_service  # noqa: F401

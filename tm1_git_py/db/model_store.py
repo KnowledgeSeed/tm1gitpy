@@ -258,14 +258,14 @@ class ModelStore:
 
     def _reset_schema(self) -> None:
         logger.debug("ModelStore schema mismatch detected, discarding previous model store at '%s'", self.db_path)
-        self._conn.run_write("DROP TABLE IF EXISTS objects")
-        self._conn.run_write("DROP TABLE IF EXISTS edge_objects")
-        self._conn.run_write("DROP TABLE IF EXISTS element_objects")
-        self._conn.run_write("DROP TABLE IF EXISTS subset_objects")
-        self._conn.run_write("DROP TABLE IF EXISTS groups")
+        self._conn.run_sync("DROP TABLE IF EXISTS objects")
+        self._conn.run_sync("DROP TABLE IF EXISTS edge_objects")
+        self._conn.run_sync("DROP TABLE IF EXISTS element_objects")
+        self._conn.run_sync("DROP TABLE IF EXISTS subset_objects")
+        self._conn.run_sync("DROP TABLE IF EXISTS groups")
 
     def _create_schema(self) -> None:
-        self._conn.run_write(
+        self._conn.run_sync(
             """
             CREATE TABLE IF NOT EXISTS groups (
                 group_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -283,7 +283,7 @@ class ModelStore:
             )
             """
         )
-        self._conn.run_write(
+        self._conn.run_sync(
             """
             CREATE TABLE IF NOT EXISTS element_objects (
                 group_id INTEGER NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
@@ -293,7 +293,7 @@ class ModelStore:
             ) WITHOUT ROWID
             """
         )
-        self._conn.run_write(
+        self._conn.run_sync(
             """
             CREATE TABLE IF NOT EXISTS edge_objects (
                 group_id INTEGER NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
@@ -304,7 +304,7 @@ class ModelStore:
             ) WITHOUT ROWID
             """
         )
-        self._conn.run_write(
+        self._conn.run_sync(
             """
             CREATE TABLE IF NOT EXISTS subset_objects (
                 group_id INTEGER NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
@@ -314,8 +314,6 @@ class ModelStore:
             ) WITHOUT ROWID
             """
         )
-        self._conn.commit()
-
     @staticmethod
     def _object_table_for_type(object_type: str) -> str:
         normalized = str(object_type).strip().lower()
@@ -514,7 +512,7 @@ class ModelStore:
     ) -> int:
         _ = model_id
         now = time.time_ns()
-        self._conn.execute_sync(
+        self._conn.run_sync(
             """
             INSERT INTO groups(dimension_name, hierarchy_name, object_type, etag, filter_rules_json, row_count, content_hash, hash_algo, source_json_mtime_ns, updated_at_ns)
             VALUES (?, ?, ?, NULL, NULL, 0, ?, ?, NULL, ?)
@@ -529,7 +527,6 @@ class ModelStore:
             """,
             (dimension_name, hierarchy_name, object_type),
         )
-        self._conn.commit()
         if row is None:
             raise RuntimeError("Failed to create or resolve group id.")
         return int(self._cell(row, "group_id", 0))
@@ -552,12 +549,10 @@ class ModelStore:
         return str(value) if value is not None else None
 
     def set_group_etag(self, group_id: int, etag: Optional[str]) -> None:
-        self._conn.run_write(
+        self._conn.run_sync(
             "UPDATE groups SET etag=?, updated_at_ns=? WHERE group_id=?",
             (etag, time.time_ns(), group_id),
         )
-        self._conn.commit()
-
     def group_etag(self, group_id: int) -> Optional[str]:
         row = self._conn.fetch_one(
             "SELECT etag FROM groups WHERE group_id=?",
@@ -570,11 +565,10 @@ class ModelStore:
 
     def set_group_filter_rules(self, group_id: int, filter_rules: list[str]) -> None:
         payload = _json_dumps(list(filter_rules))
-        self._conn.run_write(
+        self._conn.run_sync(
             "UPDATE groups SET filter_rules_json=?, updated_at_ns=? WHERE group_id=?",
             (payload, time.time_ns(), group_id),
         )
-        self._conn.commit()
 
     def group_filter_rules(self, group_id: int) -> list[str]:
         row = self._conn.fetch_one(
@@ -698,7 +692,7 @@ class ModelStore:
         _flush_pending_rows()
         
         now = time.time_ns()
-        self._conn.run_write(
+        self._conn.run_sync(
             f"""
             UPDATE groups
             SET row_count=(SELECT COUNT(*) FROM {payload_table} WHERE group_id=?),
@@ -735,9 +729,9 @@ class ModelStore:
         payload_columns = self._payload_columns_for_type(object_type_normalized)
         now = time.time_ns()
         # with self.tx():
-        self._conn.run_write(f"DELETE FROM {payload_table} WHERE group_id=?", (group_id,))
+        self._conn.run_sync(f"DELETE FROM {payload_table} WHERE group_id=?", (group_id,))
         for payload in payloads:
-            self._conn.run_write(
+            self._conn.run_sync(
                 (
                     f"INSERT OR REPLACE INTO {payload_table}(group_id, {', '.join(payload_columns)}) "
                     f"VALUES (?, {', '.join(['?'] * len(payload_columns))})"
@@ -747,7 +741,7 @@ class ModelStore:
             row_count += 1
         row_count = self._actual_row_count(group_id)
         if source_json_mtime_ns is None:
-            self._conn.run_write(
+            self._conn.run_sync(
                 """
                 UPDATE groups
                 SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
@@ -762,7 +756,7 @@ class ModelStore:
                 ),
             )
         else:
-            self._conn.run_write(
+            self._conn.run_sync(
                 """
                 UPDATE groups
                 SET row_count=?, content_hash=?, hash_algo=?,
@@ -944,7 +938,7 @@ class ModelStore:
         content_hash: str,
     ) -> None:
         now = time.time_ns()
-        self._conn.run_write(
+        self._conn.run_sync(
             """
             UPDATE groups
             SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
@@ -952,7 +946,6 @@ class ModelStore:
             """,
             (int(row_count), str(content_hash), self.PARALLEL_HASH_ALGO, now, group_id),
         )
-        self._conn.commit()
 
     def row_count(self, group_id: int) -> int:
         return self._actual_row_count(group_id)
@@ -967,7 +960,7 @@ class ModelStore:
         return self._actual_row_count(group_id), str(self._cell(row, "content_hash", 0))
 
     def set_content_signature(self, group_id: int, *, row_count: int, content_hash: str) -> None:
-        self._conn.run_write(
+        self._conn.run_sync(
             """
             UPDATE groups
             SET row_count=?, content_hash=?, hash_algo=?, updated_at_ns=?
@@ -975,14 +968,12 @@ class ModelStore:
             """,
             (int(row_count), str(content_hash), self.PARALLEL_HASH_ALGO, time.time_ns(), group_id),
         )
-        self._conn.commit()
 
     def set_source_json_mtime_ns(self, group_id: int, source_json_mtime_ns: int) -> None:
-        self._conn.run_write(
+        self._conn.run_sync(
             "UPDATE groups SET source_json_mtime_ns=?, updated_at_ns=? WHERE group_id=?",
-            (str(int(source_json_mtime_ns)), time.time_ns(), group_id),
+            (str(int(source_json_mtime_ns)), time.time_ns(), group_id), 
         )
-        self._conn.commit()
 
     def source_json_mtime_ns(self, group_id: int) -> Optional[int]:
         row = self._conn.fetch_one(

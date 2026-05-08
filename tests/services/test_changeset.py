@@ -15,7 +15,7 @@ class TestChangeset:
         w._results = {}
 
         with pytest.raises(TimeoutError, match="Timed out waiting"):
-            w.await_query_result("missing-token")
+            w.fetch_or_wait_for_result("missing-token")
 
     def test_changeset_store_for_changeset_id_initializes_outside_instances_lock(self, monkeypatch, tmp_path):
         lock = threading.Lock()
@@ -483,7 +483,7 @@ class TestChangeset:
 
     def test_changeset_can_be_loaded_by_changeset_id(self):
         changeset = Changeset(changeset_id="20260413000007")
-        changeset.store.clear()
+        changeset._store.clear()
         process_obj = make_process(name="ProcLoad")
         changeset.changes.append(
             Change(
@@ -724,7 +724,7 @@ class TestChangeset:
 
     def test_changeset_class_import_alias_json_stream(self, tmp_path):
         changeset = Changeset(changeset_id="20260413000008")
-        changeset.store.clear()
+        changeset._store.clear()
         process_obj = make_process(name="ProcAlias")
         changeset.changes.append(
             Change(
@@ -739,7 +739,7 @@ class TestChangeset:
         changeset.export(export_path)
 
         imported = import_changeset(export_path)
-        assert imported.changeset_id == "20260413000008"
+        assert imported._changeset_id == "20260413000008"
         assert len(imported.changes) == 1
         assert imported.changes[0].apply is False
 
@@ -761,7 +761,7 @@ class TestChangeset:
 
         imported = import_changeset(str(export_path))
 
-        assert imported.changeset_id == "20260413000005"
+        assert imported._changeset_id == "20260413000005"
         assert len(imported.changes) == 1
         assert imported.changes[0].apply is False
 

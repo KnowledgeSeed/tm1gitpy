@@ -12,7 +12,7 @@ def test_registry_acquire_returns_working_sqlite_worker(tmp_path: Path) -> None:
         execute_init=("PRAGMA journal_mode=WAL",),
     )
     try:
-        assert lease.worker.fetch_one("SELECT 1 AS x", []) == (1,)
+        assert lease.worker.execute_and_fetch("SELECT 1 AS x", []) == [(1,)]
     finally:
         lease.release()
         WorkerDBRegistry.force_close(db_path)

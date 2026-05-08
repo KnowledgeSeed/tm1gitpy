@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 @dataclass
 class HierarchyIdentity:
     name: str
+    cardinality: int
     etag: Optional[str]
 
 
@@ -45,7 +46,7 @@ def _get_all_names_page(
     **kwargs,
 ) -> HierarchyNamesResult:
     """Get one page of hierarchy names with optional filter and pagination controls."""
-    base_url = format_url("/Dimensions('{}')/Hierarchies?$select=Name", dimension_name)
+    base_url = format_url("/Dimensions('{}')/Hierarchies?$select=Name,Cardinality", dimension_name)
 
     params: List[str] = []
     if filter:
@@ -74,7 +75,7 @@ def _get_all_names_page(
         name = entry.get("Name")
         if not name:
             continue
-        hierarchies.append(HierarchyIdentity(name=name, etag=entry.get("@odata.etag")))
+        hierarchies.append(HierarchyIdentity(name=name, etag=entry.get("@odata.etag"), cardinality=entry.get("Cardinality")))
     total_count = data.get("@odata.count")
     if total_count is not None:
         total_count = int(total_count)

@@ -65,6 +65,8 @@ class SqliteWorker:
         
         # Start worker thread after all attributes are set
         self._thread = threading.Thread(target=self._run, daemon=True, name="sqllite " + file_name)
+        self._thread.pydev_do_not_trace = True
+        self._thread.is_pydev_daemon_thread = True
         self._thread.start()
 
     def _run(self):
@@ -81,6 +83,7 @@ class SqliteWorker:
         
         while retry_count <= self.max_retries:
             try:
+                LOGGER.info("Connecting to database: %s", self._file_name)
                 conn = sqlite3.connect(self._file_name, check_same_thread=False, 
                                       detect_types=sqlite3.PARSE_DECLTYPES, timeout=30.0)
                 cursor = conn.cursor()
@@ -262,6 +265,18 @@ class SqliteWorker:
             return token
         return None
 
+    def executemany_and_fetch(self, query, values=None, always_synchronous=True):
+        query = self.normalize_sql(query)
+        token = self.executemany(
+            query,
+            list(values) if values is not None else [],
+            always_return_token=always_synchronous,
+        )
+        return self.fetch_or_wait_for_result(token)
+
+    def commit(self):
+        None
+
     def execute_and_fetch(self, query, values=None, always_synchronous=True):
         query = self.normalize_sql(query)
         token = self.execute(
@@ -269,14 +284,14 @@ class SqliteWorker:
             list(values) if values is not None else [],
             always_return_token=always_synchronous,
         )
-        return self.fetch_results(token)
+        return self.fetch_or_wait_for_result(token)
 
     @staticmethod
     def normalize_sql(sql: str) -> str:
         """Strip leading whitespace so ``SELECT`` detection matches multi-line SQL."""
         return sql.lstrip()
 
-    def await_query_result(self, token: str) -> Any:
+    def fetch_or_wait_for_result(self, token: str) -> Any:
         """Wait for a queued ``token`` and return buffered rows (or an exception object)."""
         with self._lock:
             event = self._select_events.setdefault(token, threading.Event())
@@ -300,15 +315,11 @@ class SqliteWorker:
             return None
         return self._results.pop(token, None)
 
-    def run_write(self, sql: str, params: Optional[Sequence[Any]] = None) -> None:
+    def run_sync(self, sql: str, params: Optional[Sequence[Any]] = None) -> None:
         """Queue DDL/write; if a SELECT token is returned, consume it."""
         normalized_sql = self.normalize_sql(sql)
-        tok = self.execute(normalized_sql, list(params) if params is not None else [])
-        if tok is not None:
-            result = self.await_query_result(tok)
-            if isinstance(result, BaseException):
-                raise result
-
+        return self.fetch_or_wait_for_result(self.execute(normalized_sql, list(params) if params is not None else [], always_return_token=True))
+        
     def execute_sync(self, sql: str, params: Optional[Sequence[Any]] = None) -> None:
         """Same as ``execute(..., always_return_token=True)`` with error propagation."""
         normalized_sql = self.normalize_sql(sql)
@@ -328,9 +339,7 @@ class SqliteWorker:
             [list(row) for row in rows],
             always_return_token=True,
         )
-        result = self.await_query_result(tok)
-        if isinstance(result, BaseException):
-            raise result
+        return self.fetch_or_wait_for_result(tok)
 
     def fetch_all(
         self,
@@ -338,12 +347,7 @@ class SqliteWorker:
         params: Optional[Sequence[Any]] = None,
     ) -> List[tuple]:
         normalized_sql = self.normalize_sql(sql)
-        tok = self.execute(normalized_sql, list(params) if params is not None else [])
-        if tok is None:
-            return []
-        result = self.await_query_result(tok)
-        if isinstance(result, BaseException):
-            raise result
+        result = self.execute_and_fetch(normalized_sql, list(params) if params is not None else [])
         if result is None:
             return []
         return [tuple(row) for row in result]
@@ -363,25 +367,6 @@ class SqliteWorker:
     ) -> Iterator[tuple]:
         for row in self.fetch_all(sql, params):
             yield row
-
-    def commit(self) -> None:
-        """Flush queued work and let the worker thread finish its post-drain commit."""
-        self.drain()
-
-    def drain(self) -> None:
-        self.barrier()
-        deadline = time.monotonic() + 0.5
-        while self.queue_size > 0 and time.monotonic() < deadline:
-            time.sleep(0.001)
-        time.sleep(0.005)
-
-    def barrier(self) -> None:
-        tok = self.execute("select 1", [])
-        if tok is None:
-            return
-        result = self.await_query_result(tok)
-        if isinstance(result, BaseException):
-            raise result
 
     @property
     def file_name(self) -> str:
@@ -614,136 +599,6 @@ class SqliteWorker:
                 hook(query, values)
             except Exception as err:
                 LOGGER.error("Hook execution error: %s", err, exc_info=True)
-    
-    # ============= Database Migrations =============
-    
-    def apply_migration(self, version: str, name: str, up_sql: str) -> bool:
-        """
-        Apply a database migration.
-        
-        Args:
-            version: Version identifier (e.g., '001', '002')
-            name: Human-readable migration name
-            up_sql: SQL to apply for the migration. Multiple statements should be
-                   separated by semicolons. Note: This simple split won't handle
-                   semicolons in strings/comments - for complex migrations, pass
-                   single statements or use executescript manually.
-            
-        Returns:
-            True if migration was applied, False if already applied
-        """
-        # Check if migration already applied
-        token = self.execute(
-            "SELECT version FROM _migrations WHERE version = ?", 
-            (version,)
-        )
-        results = self.fetch_results(token)
-        
-        if results and len(results) > 0:
-            LOGGER.info("Migration %s (%s) already applied", version, name)
-            return False
-        
-        # Apply migration in a transaction
-        try:
-            self.begin_transaction()
-            
-            # Execute migration SQL - split on semicolons
-            # NOTE: This is a simple split and doesn't handle semicolons in strings/comments
-            # For complex migrations, consider passing single statements or use raw SQL
-            statements = [s.strip() for s in up_sql.split(';') if s.strip()]
-            
-            for statement in statements:
-                token = self.execute(statement)
-                # Wait for statement to complete
-                if token:
-                    self.fetch_results(token)
-            
-            # Record migration
-            token = self.execute(
-                "INSERT INTO _migrations (version, name) VALUES (?, ?)",
-                (version, name)
-            )
-            if token:
-                self.fetch_results(token)
-            
-            self.commit_transaction()
-            LOGGER.info("Migration %s (%s) applied successfully", version, name)
-            return True
-            
-        except Exception as err:
-            LOGGER.error("Migration %s (%s) failed: %s", version, name, err)
-            self.rollback_transaction()
-            raise
-    
-    def rollback_migration(self, version: str, down_sql: str) -> bool:
-        """
-        Rollback a database migration.
-        
-        Args:
-            version: Version identifier to rollback
-            down_sql: SQL to rollback the migration. Multiple statements should be
-                     separated by semicolons. Note: This simple split won't handle
-                     semicolons in strings/comments - for complex migrations, pass
-                     single statements or use executescript manually.
-            
-        Returns:
-            True if migration was rolled back, False if not found
-        """
-        # Check if migration exists
-        token = self.execute(
-            "SELECT version FROM _migrations WHERE version = ?",
-            (version,)
-        )
-        results = self.fetch_results(token)
-        
-        if not results or len(results) == 0:
-            LOGGER.info("Migration %s not found or already rolled back", version)
-            return False
-        
-        # Rollback migration in a transaction
-        try:
-            self.begin_transaction()
-            
-            # Execute rollback SQL - split on semicolons
-            # NOTE: This is a simple split and doesn't handle semicolons in strings/comments
-            statements = [s.strip() for s in down_sql.split(';') if s.strip()]
-            
-            for statement in statements:
-                token = self.execute(statement)
-                # Wait for statement to complete
-                if token:
-                    self.fetch_results(token)
-            
-            # Remove migration record
-            token = self.execute(
-                "DELETE FROM _migrations WHERE version = ?",
-                (version,)
-            )
-            if token:
-                self.fetch_results(token)
-            
-            self.commit_transaction()
-            LOGGER.info("Migration %s rolled back successfully", version)
-            return True
-            
-        except Exception as err:
-            LOGGER.error("Migration rollback %s failed: %s", version, err)
-            self.rollback_transaction()
-            raise
-    
-    def get_applied_migrations(self) -> List[Tuple[str, str, str]]:
-        """
-        Get list of applied migrations.
-        
-        Returns:
-            List of tuples (version, name, applied_at)
-        """
-        token = self.execute(
-            "SELECT version, name, applied_at FROM _migrations ORDER BY id"
-        )
-        results = self.fetch_results(token)
-        return results if results else []
-
 
 class TransactionContext:
     """Context manager for database transactions."""

@@ -168,6 +168,8 @@ def export(
     max_workers: Optional[int] = None,
 ) -> tuple[Model, Dict[str, str]]:
 
+    logger.info(f"exporting model {model_id} with max_workers {max_workers}")
+
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     multi_process_progress_manager: Optional[MultiProcessProgressManager] = None
     if resolve_worker_counts(max_workers).cpu_workers > 1 and not isinstance(progress_sink, NoopProgressSink):
@@ -611,6 +613,7 @@ def dimensions_to_model(
                 for idx, hierarchy_identity in enumerate(hierarchy_identities):
                     hierarchy_name = hierarchy_identity.name
                     incoming_hierarchy_etag = hierarchy_identity.etag
+                    incoming_cardinality = hierarchy_identity.cardinality
                     elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
                     subsets_tm1_filter = filter_rules.to_tm1_subset_name_filter(dim_name, hierarchy_name)
                     edges_tm1_filter = filter_rules.to_tm1_edge_name_filter(dim_name, hierarchy_name)
@@ -622,9 +625,14 @@ def dimensions_to_model(
                         e_elements_etag, e_elements_rules, e_elements_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="elements")
                         e_subsets_etag, e_subsets_rules, e_subsets_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="subsets")
                         e_edges_etag, e_edges_rules, e_edges_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="edges")
-                        can_reuse_elements = (e_elements_etag == incoming_hierarchy_etag and e_elements_rules == elements_tm1_filter.applicable_rules and e_elements_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
-                        can_reuse_subsets = (e_subsets_etag == incoming_hierarchy_etag and e_subsets_rules == subsets_tm1_filter.applicable_rules and e_subsets_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
-                        can_reuse_edges = (e_edges_etag == incoming_hierarchy_etag and e_edges_rules == edges_tm1_filter.applicable_rules and e_edges_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
+                       
+                        total_hierarchy_count = e_elements_content_hash[0] if e_elements_content_hash is not None else 0 
+                        total_hierarchy_count += e_edges_content_hash[0] if e_edges_content_hash is not None else 0 
+                        total_hierarchy_count += e_subsets_content_hash[0] if e_subsets_content_hash is not None else 0
+                        
+                        can_reuse_elements = (e_elements_etag == incoming_hierarchy_etag and e_elements_rules == elements_tm1_filter.applicable_rules and incoming_cardinality ==  total_hierarchy_count and e_elements_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
+                        can_reuse_subsets = (e_subsets_etag == incoming_hierarchy_etag and e_subsets_rules == subsets_tm1_filter.applicable_rules and incoming_cardinality ==  total_hierarchy_count and e_subsets_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
+                        can_reuse_edges = (e_edges_etag == incoming_hierarchy_etag and e_edges_rules == edges_tm1_filter.applicable_rules and incoming_cardinality ==  total_hierarchy_count and e_edges_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
 
                     hierarchy = Hierarchy(
                         name=hierarchy_name,

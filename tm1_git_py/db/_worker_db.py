@@ -34,10 +34,8 @@ def sqlite_worker_constructor_kwargs(*, max_queue_size: int, max_count: int) -> 
 
 def _apply_pragmas_and_drain(worker: SqliteWorker, init_sql: Sequence[str]) -> None:
     for sql in init_sql:
-        worker.run_write(sql)
-    if init_sql:
-        worker.drain()
-
+        worker.run_sync(sql)
+    
 
 class _WorkerDBRegistryEntry:
     def __init__(self, worker: SqliteWorker, *, execute_init: Sequence[str], max_queue_size: int, max_count: int) -> None:

@@ -248,15 +248,20 @@ class Change:
 
 
 class ChangesetSequence(MutableSequence[Change]):
-    def __init__(self, owner: "Changeset"):
-        self._owner = owner
 
+    def __init__(
+        self,
+        *,
+        owner: Changeset,
+        store: ChangesetStore,
+    ):
+        self._store = store
+        self._owner = owner
     def __len__(self) -> int:
-        return self._owner._active_store().count_rows()
+        return self._store.count_rows()
 
     def __iter__(self) -> Iterator[Change]:
-        store = self._owner._active_store()
-        for row in store.iter_rows(sorted_order=True):
+        for row in self._store.iter_rows(sorted_order=True):
             yield self._owner._change_from_store_row(row)
 
     def __getitem__(self, index: int) -> Change:
@@ -264,7 +269,7 @@ class ChangesetSequence(MutableSequence[Change]):
             raise TypeError("ChangesetSequence supports integer indexes only.")
         if index < 0:
             index = len(self) + index
-        row = self._owner._active_store().row_at(index, sorted_order=True)
+        row = self._store.row_at(index, sorted_order=True)
         if row is None:
             raise IndexError("ChangesetSequence index out of range.")
         return self._owner._change_from_store_row(row)
@@ -300,17 +305,17 @@ class Changeset:
     ):
         if store is None:
             self._store_base_dir = base_dir
-            self.changeset_id: str = (changeset_id or "").strip() or _generate_changeset_id()
-            self.store = ChangesetStore.for_changeset_id(changeset_id=self.changeset_id, base_dir=self._store_base_dir)
+            self._changeset_id: str = (changeset_id or "").strip() or _generate_changeset_id()
+            self._store = ChangesetStore.for_changeset_id(changeset_id=self._changeset_id, base_dir=self._store_base_dir)
         else:
             self._store_base_dir = store.db_path.parent
-            self.store = store
-            self.changeset_id = store.changeset_id
+            self._store = store
+            self._changeset_id = store.changeset_id
             
         self.last_execution_id: str = '0'
         self.errors: dict[str, list[Any]] = {}
         self._fresh_store_cleared = False
-        self._changes = ChangesetSequence(self)
+        self._changes = ChangesetSequence(owner=self, store=self._store)
 
     @classmethod
     def from_changeset_id(cls, changeset_id: str, *, base_dir: Optional[str] = None) -> "Changeset":
@@ -337,22 +342,14 @@ class Changeset:
         return self._active_store().db_path
 
     def _active_store(self) -> ChangesetStore:
-        if self.store is not None and not getattr(self.store, "_closed", False):
-            return self.store
-        store = ChangesetStore.for_changeset_id(
-            changeset_id=self.changeset_id,
-            base_dir=self._store_base_dir,
-        )
-        if not self._attach_existing_store and not self._fresh_store_cleared:
-            store.clear()
-            self._fresh_store_cleared = True
-        self.store = store
-        return store
+        if self._store is None or getattr(self._store, "_closed", False):
+            self._store = ChangesetStore.for_db_path(self._store_base_dir)
+        return self._store
 
     def close(self) -> None:
-        if self.store is not None:
-            self.store.close()
-            self.store = None
+        if self._store is not None:
+            self._store.close()
+            self._store = None
             self._fresh_store_cleared = False
 
     def _row_from_change(self, change: Change, *, seq: int) -> dict[str, Any]:
@@ -516,7 +513,7 @@ class Changeset:
             preview_lines.append(f"... ({len(self.changes) - preview_limit} more change(s))")
         preview = "\n  ".join(preview_lines) if preview_lines else "<no changes>"
         return (
-            f"Changeset(changeset_id='{self.changeset_id}', total_changes={len(self.changes)})\n"
+            f"Changeset(changeset_id='{self._changeset_id}', total_changes={len(self.changes)})\n"
             f"  {preview}"
         )
 
@@ -526,7 +523,7 @@ class Changeset:
     def export(self, file_path: Union[str, Path]) -> None:
         """Export changeset payload to JSON (streaming) or YAML."""
 
-        logger.info("Exporting changeset '%s' to '%s'", self.changeset_id, file_path)
+        logger.info("Exporting changeset '%s' to '%s'", self._changeset_id, file_path)
         output_path = Path(file_path).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         suffix = output_path.suffix.lower()
@@ -535,7 +532,7 @@ class Changeset:
             summary = store.summary_counts()
             with output_path.open("w", encoding="utf-8") as handle:
                 handle.write("{\n")
-                handle.write(f'  "changeset_id": {json.dumps(self.changeset_id, ensure_ascii=False)},\n')
+                handle.write(f'  "changeset_id": {json.dumps(self._changeset_id, ensure_ascii=False)},\n')
                 handle.write(f'  "summary": {json.dumps(summary, ensure_ascii=False)},\n')
                 handle.write('  "changes": [\n')
                 first = True
@@ -559,14 +556,14 @@ class Changeset:
                 yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
                 encoding="utf-8",
             )
-        logger.info("Exported changeset '%s' with %d change(s)", self.changeset_id, len(self.changes))
+        logger.info("Exported changeset '%s' with %d change(s)", self._changeset_id, len(self.changes))
 
     def to_json(self) -> dict[str, Any]:
         """Build a fixture-compatible changeset payload as a JSON-serializable dict."""
 
         logger.info(
             "Serializing changeset '%s' to payload (changes=%d)",
-            self.changeset_id,
+            self._changeset_id,
             len(self.changes),
         )
 
@@ -586,7 +583,7 @@ class Changeset:
             summary[change_type] = summary.get(change_type, 0) + 1
 
         payload = {
-            "changeset_id": self.changeset_id,
+            "changeset_id": self._changeset_id,
             "summary": summary,
             "changes": export_entries
         }
@@ -992,7 +989,7 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
             _append_import_entry(changeset, entry)
         logger.info(
             "Imported JSON changeset '%s' with %d change(s), import errors=%d",
-            changeset.changeset_id,
+            changeset._changeset_id,
             len(changeset.changes),
             len(changeset.errors.get("import", [])),
         )
@@ -1006,7 +1003,7 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
 
         logger.info(
             "Imported changeset '%s' with %d change(s), import errors=%d",
-            changeset.changeset_id,
+            changeset._changeset_id,
             len(changeset.changes),
             len(changeset.errors.get("import", [])),
         )

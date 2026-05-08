@@ -106,7 +106,7 @@ def apply(
     changes = []
     logger.info(
         "Starting apply changeset_id=%s fail_fast=%s changes=%d",
-        changeset.changeset_id,
+        changeset._changeset_id,
         fail_fast,
         len(changeset.changes),
     )
@@ -128,7 +128,7 @@ def apply(
             current=0,
             total=total_operations,
             message="applying changeset",
-            path=changeset.changeset_id,
+            path=changeset._changeset_id,
         )
     )
     """    
@@ -144,7 +144,7 @@ def apply(
     store: Optional[ChangeSetStatusStore] = None
     if status_dir is not None:
         store = ChangeSetStatusStore(status_dir=status_dir, execution_id=execution_id,
-                                     changeset_id=changeset.changeset_id)
+                                     changeset_id=changeset._changeset_id)
         store.start(total_operations=len(execution_changes))
         changeset.last_execution_id = store.execution_id
         logger.info("changeset execution_id=%s status_file=%s", store.execution_id, store.path)
@@ -242,7 +242,7 @@ def apply(
                     current=i,
                     total=total_operations,
                     message="applying changeset",
-                    path=changeset.changeset_id,
+                    path=changeset._changeset_id,
                 )
             )
 
@@ -259,7 +259,7 @@ def apply(
                             current=i,
                             total=total_operations,
                             message="apply stopped on failure",
-                            path=changeset.changeset_id,
+                            path=changeset._changeset_id,
                         )
                     )
                     return False, changes
@@ -296,7 +296,7 @@ def apply(
                     current=i,
                     total=total_operations,
                     message="apply failed",
-                    path=changeset.changeset_id,
+                    path=changeset._changeset_id,
                 )
             )
             logger.info("Apply finished success=%s applied=%d attempted=%d", False, len(changes), i)
@@ -313,7 +313,7 @@ def apply(
             current=len(execution_changes),
             total=total_operations,
             message="apply complete",
-            path=changeset.changeset_id,
+            path=changeset._changeset_id,
         )
     )
 

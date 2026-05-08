@@ -2,6 +2,9 @@ from unittest import mock
 
 import pytest
 
+# Autouse: close ModelStore / ChangesetStore workers and remove sqlite files after each test.
+pytest_plugins = ("test_integration.sqlite_teardown",)
+
 
 class _PatchProxy:
     def __init__(self, owner: "_MiniMocker") -> None:

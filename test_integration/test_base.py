@@ -14,9 +14,6 @@ from testcontainers.compose import DockerCompose
 
 from tm1_git_py import serialize_model
 from tm1_git_py.config import TM1ServerConfig, TM1ServersConfig
-from tm1_git_py.db._worker_db import WorkerDBRegistry
-from tm1_git_py.db.changeset_store import ChangesetStore
-from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.services.deserializer import deserialize_model
 from tm1_git_py.services.exporter import export
 from tm1_git_py.main import _tm1_connection_from_config
@@ -25,25 +22,9 @@ from tm1_git_py.services.filter import filter
 
 logger = logging.getLogger(__name__)
 
-
-@pytest.fixture(autouse=True)
-def _close_sqlite_workers_per_test():
-    """Tear down per-test sqlite state after every integration test method.
-
-    Each test instantiates ``ModelStore`` / ``ChangesetStore`` instances that
-    register long-lived ``SqliteWorker`` background threads in
-    :class:`WorkerDBRegistry`. Without this teardown, workers (and their file
-    handles, queues, threads) accumulate across the suite and eventually cause
-    OS-level resource pressure.
-    """
-    yield
-    try:
-        ModelStore.close_all()
-    finally:
-        try:
-            ChangesetStore.close_all()
-        finally:
-            WorkerDBRegistry.close_all()
+# Autouse sqlite teardown (close workers + unlink db files) lives in
+# ``test_integration.sqlite_teardown`` so ``tests/`` can load it via
+# ``pytest_plugins`` without importing this module (heavy deps).
 
 DEFAULT_MAX_WORKERS = 8
 

@@ -54,6 +54,7 @@ class ChangesetStore:
         )
         return root / f"changeset-{changeset_id}.sqlite"
 
+
     @classmethod
     def for_changeset_id(
         cls,
@@ -74,7 +75,7 @@ class ChangesetStore:
                 base_dir=base_dir
             )
             cls._instances[key] = created
-        return created
+            return created
 
     def close(self) -> None:
         with self._lifecycle_lock:
@@ -130,8 +131,8 @@ class ChangesetStore:
 
     def _initialize(self) -> None:
         if self._schema_needs_reset():
-            self._db.run_write("DROP TABLE IF EXISTS changes")
-        self._db.run_write(
+            self._db.run_sync("DROP TABLE IF EXISTS changes")
+        self._db.run_sync(
             """
             CREATE TABLE IF NOT EXISTS changes (
                 seq INTEGER PRIMARY KEY,
@@ -152,31 +153,31 @@ class ChangesetStore:
             )
             """
         )
-        self._db.run_write(
+        self._db.run_sync(
             """
             CREATE INDEX IF NOT EXISTS idx_changes_apply_sort
             ON changes(apply, type_rank, precedence_rank, body_name, uri, seq)
             """
         )
-        self._db.run_write(
+        self._db.run_sync(
             """
             CREATE INDEX IF NOT EXISTS idx_changes_sort
             ON changes(type_rank, precedence_rank, body_name, uri, seq)
             """
         )
-        self._db.run_write(
+        self._db.run_sync(
             """
             CREATE INDEX IF NOT EXISTS idx_changes_dim_hier_object_seq
             ON changes(dim_name, hier_name, object_name, seq)
             """
         )
-        self._db.run_write(
+        self._db.run_sync(
             """
             CREATE INDEX IF NOT EXISTS idx_changes_cube_object_seq
             ON changes(cube_name, object_name, seq)
             """
         )
-        self._db.commit()
+        # self._db.commit()
 
     def _prepare_rows(self, rows: Iterable[dict[str, Any]]) -> list[tuple[Any, ...]]:
         prepared_rows: list[tuple[Any, ...]] = []
@@ -203,9 +204,9 @@ class ChangesetStore:
         return prepared_rows
 
     def replace_rows(self, rows: Iterable[dict[str, Any]]) -> None:
-        self._db.run_write("DELETE FROM changes")
+        self._db.run_sync("DELETE FROM changes")
         prepared_rows = self._prepare_rows(rows)
-        self._db.executemany_sync(
+        self._db.executemany_and_fetch(
             """
             INSERT INTO changes(
                 seq, change_type, object_type, uri, apply, body_json,
@@ -215,7 +216,6 @@ class ChangesetStore:
             """,
             prepared_rows,
         )
-        self._db.commit()
 
     def append_rows(self, rows: Iterable[dict[str, Any]]) -> None:
         current_seq = self.count_rows()
@@ -225,7 +225,7 @@ class ChangesetStore:
             data["seq"] = current_seq + offset
             adjusted_rows.append(data)
         prepared_rows = self._prepare_rows(adjusted_rows)
-        self._db.executemany_sync(
+        self._db.executemany_and_fetch(
             """
             INSERT INTO changes(
                 seq, change_type, object_type, uri, apply, body_json,
@@ -242,8 +242,7 @@ class ChangesetStore:
         return int(row[0]) if row is not None else 0
 
     def clear(self) -> None:
-        self._db.run_write("DELETE FROM changes")
-        self._db.commit()
+        self._db.run_sync("DELETE FROM changes")
 
     @staticmethod
     def _order_clause(sorted_order: bool) -> str:
@@ -414,8 +413,7 @@ class ChangesetStore:
                 updates.append((desired, int(seq)))
         if not updates:
             return 0
-        self._db.executemany_sync("UPDATE changes SET apply = ? WHERE seq = ?", updates)
-        self._db.commit()
+        self._db.executemany_and_fetch("UPDATE changes SET apply = ? WHERE seq = ?", updates)
         return len(updates)
 
     def summary_counts(self) -> dict[str, int]:
