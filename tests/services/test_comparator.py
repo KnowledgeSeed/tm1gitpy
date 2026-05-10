@@ -497,6 +497,40 @@ class TestComparator:
         )
         assert add_names == ["B"]
 
+    def test_comparator_coerces_empty_list_to_store_backed_from_peer(self, tmp_path):
+        store = ModelStore.for_model_id(f"coerce_{tmp_path.name}")
+        peer = StoreBackedSequence.for_subsets_sink(
+            store=store,
+            model_id=f"coerce_{tmp_path.name}",
+            dimension_name="DimA",
+            hierarchy_name="H1",
+        )
+        coerced = Comparator._coerce_empty_collection_to_store_backed([], peer, child_cls=Subset)
+        assert isinstance(coerced, StoreBackedSequence)
+        assert len(coerced) == 0
+
+    def test_comparator_uses_streaming_path_when_old_side_is_empty_list(self, tmp_path, caplog):
+        model_id = f"coerce_stream_{tmp_path.name}"
+        h_new = Hierarchy(
+            name="H1",
+            dimension_name="DimA",
+            model_id=model_id,
+            elements_filter_rules=[],
+            edges_filter_rules=[],
+            subsets_filter_rules=[],
+        )
+        h_new.elements.replace_with_payloads([Element(name="A", type="Numeric").to_dict()])
+        h_new.edges.replace_with_payloads([Edge(parent="A", component_name="A", weight=1).to_dict()])
+        d_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+        model_old = Model(dimensions=[], cubes=[], processes=[], chores=[])
+        model_new = Model(dimensions=[d_new], cubes=[], processes=[], chores=[])
+
+        caplog.set_level("INFO")
+        changeset = Comparator().compare(model_old, model_new, mode="full")
+        assert any(c.object_type == ObjectType.ELEMENT and c.change_type == ChangeType.ADD for c in changeset.changes)
+        assert "Starting Element streaming compare old_size=0" in caplog.text
+        assert "Starting Edge streaming compare old_size=0" in caplog.text
+
     def test_comparator_tracks_native_view_changes(self):
         model1 = build_mock_model()
         model2 = build_mock_model()

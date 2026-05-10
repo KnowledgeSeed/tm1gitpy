@@ -2,6 +2,7 @@ import logging
 import shutil
 import sys
 import threading
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
 from tqdm import tqdm
@@ -280,7 +281,7 @@ def _normalize_filter(
 
 class Comparator:
     DISK_BACKED_PROGRESS_EVERY: int = 100_000
-    DISK_BACKED_CHANGE_BATCH_SIZE: int = 100_000
+    COMPARE_CHANGE_BATCH_SIZE: int = 100_000
     LOCAL_SORT_CHUNK_SIZE: int = 100_000
 
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
@@ -462,7 +463,7 @@ class Comparator:
                 self._compare_with_children(old_rows, new_rows, parent_cls, changeset, mode)
 
             cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
-            changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
+            # changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
             summary = {"add": 0, "remove": 0, "modify": 0}
             for change in changeset.changes:
                 key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)
@@ -492,24 +493,7 @@ class Comparator:
             self._collection_progress_current = 0
             self._collection_progress_label = ""
 
-    @staticmethod
-    def _append_change(
-            changeset: Changeset,
-            *,
-            change_type: ChangeType,
-            obj: Any,
-            uri: str = "",
-    ) -> None:
-        changeset.changes.append(
-            Change(
-                change_type=change_type,
-                object_type=ObjectType.from_object(obj),
-                uri=uri,
-                body=obj,
-            )
-        )
-
-    def _enqueue_disk_backed_change(
+    def _enqueue_batched_change(
             self,
             changeset: Changeset,
             pending: list[Change],
@@ -518,7 +502,7 @@ class Comparator:
             obj: Any,
             uri: str = "",
     ) -> None:
-        """Buffer one change and flush to SQLite in batches to avoid per-row INSERTs."""
+        """Buffer one change; flush to ChangesetStore in bulk when batch is full."""
         pending.append(
             Change(
                 change_type=change_type,
@@ -527,16 +511,57 @@ class Comparator:
                 body=obj,
             )
         )
-        limit = max(1, int(self.DISK_BACKED_CHANGE_BATCH_SIZE))
+        limit = max(1, int(self.COMPARE_CHANGE_BATCH_SIZE))
         if len(pending) >= limit:
             changeset._append_changes(pending)
             pending.clear()
 
     @staticmethod
-    def _flush_disk_backed_change_batch(changeset: Changeset, pending: list[Change]) -> None:
+    def _flush_batched_changes(changeset: Changeset, pending: list[Change]) -> None:
         if pending:
             changeset._append_changes(pending)
             pending.clear()
+
+    @staticmethod
+    def _coerce_empty_collection_to_store_backed(
+            collection: Iterable[Any],
+            peer: Iterable[Any],
+            *,
+            child_cls: type,
+    ) -> Iterable[Any]:
+        """Convert ``[]`` to an empty StoreBackedSequence when the peer is disk-backed."""
+        if not isinstance(collection, list) or len(collection) != 0:
+            return collection
+        if not isinstance(peer, StoreBackedSequence):
+            return collection
+        if child_cls not in (Element, Edge, Subset):
+            return collection
+
+        store = peer._active_store()
+        model_id = getattr(peer, "_model_id", None)
+        dimension_name = getattr(peer, "_dimension_name", "")
+        hierarchy_name = f"{getattr(peer, '_hierarchy_name', 'Hierarchy')}__cmp_empty_{uuid.uuid4().hex}"
+
+        if child_cls is Element:
+            return StoreBackedSequence.for_elements_sink(
+                store=store,
+                model_id=model_id,
+                dimension_name=dimension_name,
+                hierarchy_name=hierarchy_name,
+            )
+        if child_cls is Edge:
+            return StoreBackedSequence.for_edges_sink(
+                store=store,
+                model_id=model_id,
+                dimension_name=dimension_name,
+                hierarchy_name=hierarchy_name,
+            )
+        return StoreBackedSequence.for_subsets_sink(
+            store=store,
+            model_id=model_id,
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+        )
     def _compare_with_children(
             self,
             old_list: Iterable[Any],
@@ -546,6 +571,9 @@ class Comparator:
             mode: Literal['full', 'add_only'],
             context: Optional[dict[str, str]] = None,
     ) -> _CompareObjectListsResult:
+
+        old_list = self._coerce_empty_collection_to_store_backed(old_list, new_list, child_cls=parent_cls)
+        new_list = self._coerce_empty_collection_to_store_backed(new_list, old_list, child_cls=parent_cls)
 
         equals_fn = self._EQUALITY_OVERRIDES.get(parent_cls)
         object_type_name = getattr(parent_cls, "__name__", str(parent_cls))
@@ -637,7 +665,7 @@ class Comparator:
                         child_context["dimension_name"] = getattr(old_obj, "name", "")
                     if parent_cls is Hierarchy:
                         child_context["hierarchy_name"] = getattr(old_obj, "name", "")
-                    self._compare_with_children(old_children, [], child_cls, changeset, mode, context=child_context)
+                    self._compare_with_children(slot_old, [], child_cls, changeset, mode, context=child_context)
         return compare_result
 
     def _compare_disk_backed_sorted_merge(
@@ -729,7 +757,7 @@ class Comparator:
 
         while old_item is not None or new_item is not None:
             if old_item is None:
-                self._enqueue_disk_backed_change(
+                self._enqueue_batched_change(
                     changeset,
                     pending_changes,
                     change_type=ChangeType.ADD,
@@ -743,7 +771,7 @@ class Comparator:
                 continue
             if new_item is None:
                 if mode == 'full':
-                    self._enqueue_disk_backed_change(
+                    self._enqueue_batched_change(
                         changeset,
                         pending_changes,
                         change_type=ChangeType.REMOVE,
@@ -770,7 +798,7 @@ class Comparator:
 
             if key_old < key_new:
                 if mode == 'full':
-                    self._enqueue_disk_backed_change(
+                    self._enqueue_batched_change(
                         changeset,
                         pending_changes,
                         change_type=ChangeType.REMOVE,
@@ -782,7 +810,7 @@ class Comparator:
                 old_seen += 1
                 _log_progress()
             elif key_old > key_new:
-                self._enqueue_disk_backed_change(
+                self._enqueue_batched_change(
                     changeset,
                     pending_changes,
                     change_type=ChangeType.ADD,
@@ -798,7 +826,7 @@ class Comparator:
                 try:
                     objects_equal = equals_fn(old_item, new_item) if equals_fn else old_item == new_item
                     if not objects_equal:
-                        self._enqueue_disk_backed_change(
+                        self._enqueue_batched_change(
                             changeset,
                             pending_changes,
                             change_type=ChangeType.MODIFY,
@@ -820,7 +848,7 @@ class Comparator:
                 new_seen += 1
                 _log_progress()
 
-        self._flush_disk_backed_change_batch(changeset, pending_changes)
+        self._flush_batched_changes(changeset, pending_changes)
         _log_progress(force=True)
         logger.debug(
             "Diff counts for %s (streaming): added=%d removed=%d common=%d",
@@ -880,9 +908,12 @@ class Comparator:
             len(removed_names),
             len(common_names),
         )
+        pending_changes: list[Change] = []
+
         for name in added_names:
-            self._append_change(
+            self._enqueue_batched_change(
                 changeset,
+                pending_changes,
                 change_type=ChangeType.ADD,
                 obj=new_map[name],
                 uri=_resolve_change_uri(new_map[name], context),
@@ -890,8 +921,9 @@ class Comparator:
 
         if mode == 'full':
             for name in removed_names:
-                self._append_change(
+                self._enqueue_batched_change(
                     changeset,
+                    pending_changes,
                     change_type=ChangeType.REMOVE,
                     obj=old_map[name],
                     uri=_resolve_change_uri(old_map[name], context),
@@ -905,8 +937,9 @@ class Comparator:
                 matched_pairs[name] = (old_obj, new_obj)
                 objects_equal = equals_fn(old_obj, new_obj) if equals_fn else old_obj == new_obj
                 if not objects_equal:
-                    self._append_change(
+                    self._enqueue_batched_change(
                         changeset,
+                        pending_changes,
                         change_type=ChangeType.MODIFY,
                         obj=new_obj,
                         uri=_resolve_change_uri(new_obj, context),
@@ -914,6 +947,8 @@ class Comparator:
             except Exception as exc:
                 logger.error("Failed comparing %s '%s': %s", object_type_name, name, exc, exc_info=True)
                 raise
+
+        self._flush_batched_changes(changeset, pending_changes)
 
         processed_units = len(old_list_m) + len(new_list_m)
         self._advance_collection_progress(processed_units, message=f"comparing {object_type_name}")

@@ -179,29 +179,29 @@ class ChangesetStore:
         )
         # self._db.commit()
 
+    @staticmethod
+    def _change_row_to_tuple(row: dict[str, Any], seq: int) -> tuple[Any, ...]:
+        """Build INSERT tuple for one change row; ``seq`` is the assigned primary key."""
+        return (
+            int(seq),
+            str(row["change_type"]),
+            str(row["object_type"]),
+            str(row["uri"]),
+            1 if bool(row["apply"]) else 0,
+            str(row["body_json"]),
+            row.get("dim_name"),
+            row.get("hier_name"),
+            row.get("object_name"),
+            row.get("cube_name"),
+            row.get("process_name"),
+            row.get("chore_name"),
+            int(row["type_rank"]),
+            int(row["precedence_rank"]),
+            str(row["body_name"]),
+        )
+
     def _prepare_rows(self, rows: Iterable[dict[str, Any]]) -> list[tuple[Any, ...]]:
-        prepared_rows: list[tuple[Any, ...]] = []
-        for row in rows:
-            prepared_rows.append(
-                (
-                    int(row["seq"]),
-                    str(row["change_type"]),
-                    str(row["object_type"]),
-                    str(row["uri"]),
-                    1 if bool(row["apply"]) else 0,
-                    str(row["body_json"]),
-                    row.get("dim_name"),
-                    row.get("hier_name"),
-                    row.get("object_name"),
-                    row.get("cube_name"),
-                    row.get("process_name"),
-                    row.get("chore_name"),
-                    int(row["type_rank"]),
-                    int(row["precedence_rank"]),
-                    str(row["body_name"]),
-                )
-            )
-        return prepared_rows
+        return [self._change_row_to_tuple(row, int(row["seq"])) for row in rows]
 
     def replace_rows(self, rows: Iterable[dict[str, Any]]) -> None:
         self._db.run_sync("DELETE FROM changes")
@@ -219,12 +219,9 @@ class ChangesetStore:
 
     def append_rows(self, rows: Iterable[dict[str, Any]]) -> None:
         current_seq = self.count_rows()
-        adjusted_rows = []
+        prepared_rows: list[tuple[Any, ...]] = []
         for offset, row in enumerate(rows):
-            data = dict(row)
-            data["seq"] = current_seq + offset
-            adjusted_rows.append(data)
-        prepared_rows = self._prepare_rows(adjusted_rows)
+            prepared_rows.append(self._change_row_to_tuple(row, current_seq + offset))
         self._db.executemany_and_fetch(
             """
             INSERT INTO changes(
