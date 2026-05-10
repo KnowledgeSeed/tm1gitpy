@@ -280,6 +280,7 @@ def _normalize_filter(
 
 class Comparator:
     DISK_BACKED_PROGRESS_EVERY: int = 100_000
+    DISK_BACKED_CHANGE_BATCH_SIZE: int = 100_000
     LOCAL_SORT_CHUNK_SIZE: int = 100_000
 
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
@@ -508,7 +509,34 @@ class Comparator:
             )
         )
 
+    def _enqueue_disk_backed_change(
+            self,
+            changeset: Changeset,
+            pending: list[Change],
+            *,
+            change_type: ChangeType,
+            obj: Any,
+            uri: str = "",
+    ) -> None:
+        """Buffer one change and flush to SQLite in batches to avoid per-row INSERTs."""
+        pending.append(
+            Change(
+                change_type=change_type,
+                object_type=ObjectType.from_object(obj),
+                uri=uri,
+                body=obj,
+            )
+        )
+        limit = max(1, int(self.DISK_BACKED_CHANGE_BATCH_SIZE))
+        if len(pending) >= limit:
+            changeset._append_changes(pending)
+            pending.clear()
 
+    @staticmethod
+    def _flush_disk_backed_change_batch(changeset: Changeset, pending: list[Change]) -> None:
+        if pending:
+            changeset._append_changes(pending)
+            pending.clear()
     def _compare_with_children(
             self,
             old_list: Iterable[Any],
@@ -672,6 +700,7 @@ class Comparator:
         )
         stream_total = max(1, old_total + new_total)
         self._begin_collection_progress(label=object_type_name, total_units=stream_total)
+        pending_changes: list[Change] = []
 
         def _log_progress(force: bool = False) -> None:
             nonlocal next_log_at, reported_processed
@@ -700,8 +729,9 @@ class Comparator:
 
         while old_item is not None or new_item is not None:
             if old_item is None:
-                self._append_change(
+                self._enqueue_disk_backed_change(
                     changeset,
+                    pending_changes,
                     change_type=ChangeType.ADD,
                     obj=new_item,
                     uri=_resolve_change_uri(new_item, context),
@@ -713,8 +743,9 @@ class Comparator:
                 continue
             if new_item is None:
                 if mode == 'full':
-                    self._append_change(
+                    self._enqueue_disk_backed_change(
                         changeset,
+                        pending_changes,
                         change_type=ChangeType.REMOVE,
                         obj=old_item,
                         uri=_resolve_change_uri(old_item, context),
@@ -739,8 +770,9 @@ class Comparator:
 
             if key_old < key_new:
                 if mode == 'full':
-                    self._append_change(
+                    self._enqueue_disk_backed_change(
                         changeset,
+                        pending_changes,
                         change_type=ChangeType.REMOVE,
                         obj=old_item,
                         uri=_resolve_change_uri(old_item, context),
@@ -750,8 +782,9 @@ class Comparator:
                 old_seen += 1
                 _log_progress()
             elif key_old > key_new:
-                self._append_change(
+                self._enqueue_disk_backed_change(
                     changeset,
+                    pending_changes,
                     change_type=ChangeType.ADD,
                     obj=new_item,
                     uri=_resolve_change_uri(new_item, context),
@@ -765,8 +798,9 @@ class Comparator:
                 try:
                     objects_equal = equals_fn(old_item, new_item) if equals_fn else old_item == new_item
                     if not objects_equal:
-                        self._append_change(
+                        self._enqueue_disk_backed_change(
                             changeset,
+                            pending_changes,
                             change_type=ChangeType.MODIFY,
                             obj=new_item,
                             uri=_resolve_change_uri(new_item, context),
@@ -786,6 +820,7 @@ class Comparator:
                 new_seen += 1
                 _log_progress()
 
+        self._flush_disk_backed_change_batch(changeset, pending_changes)
         _log_progress(force=True)
         logger.debug(
             "Diff counts for %s (streaming): added=%d removed=%d common=%d",
