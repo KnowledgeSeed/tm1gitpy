@@ -16,7 +16,7 @@ from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.model import Model
 from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.model.process import Process
-from tm1_git_py.services.filter import filter, with_default_leaves_ignore
+from tm1_git_py.services.filter import FilterRules, with_default_leaves_ignore
 from tm1_git_py.reporting.progress_reporting import (
     NoopProgressSink,
     ProgressEvent,
@@ -298,11 +298,42 @@ class Comparator:
 
     def __init__(self) -> None:
         self._progress_sink: Optional[ProgressSink] = None
+        self._active_filter_rules: Optional[FilterRules] = None
         self._compare_progress_total = 0
         self._compare_progress_current = 0
         self._collection_progress_total = 0
         self._collection_progress_current = 0
         self._collection_progress_label = ""
+
+    @staticmethod
+    def _normalize_compare_filter_rules(
+        filter_rules: Optional[Union[list[str], list[dict], dict]] = None
+    ) -> list[str]:
+        if filter_rules is None:
+            return []
+        if isinstance(filter_rules, dict):
+            return _normalize_filter(filter_rules)
+        if isinstance(filter_rules, list):
+            if all(isinstance(rule, str) for rule in filter_rules):
+                return _normalize_filter(filter_rules)
+            normalized: list[str] = []
+            for rule_group in filter_rules:
+                if not isinstance(rule_group, dict):
+                    raise ValueError("Invalid filter format for Comparator.")
+                normalized.extend(_normalize_filter(rule_group))
+            return normalized
+        raise ValueError("Invalid filter format for Comparator.")
+
+    def _is_uri_in_scope(self, object_uri: str) -> bool:
+        if not object_uri:
+            return True
+        if self._active_filter_rules is None:
+            return True
+        return not self._active_filter_rules.should_exclude(object_uri)
+
+    def _is_object_in_scope(self, obj: Any, context: Optional[dict[str, str]] = None) -> bool:
+        object_uri = _resolve_change_uri(obj, context=context)
+        return self._is_uri_in_scope(object_uri)
 
     def _emit_progress_event(
         self,
@@ -428,25 +459,11 @@ class Comparator:
                 len(model2.chores),
             )
 
-            if filter_rules and not (
-                isinstance(filter_rules, list) and all(isinstance(i, str) for i in filter_rules)
-            ):
-                for filter_rule in filter_rules:
-                    normalized_rule_set = with_default_leaves_ignore(
-                        _normalize_filter(filter_rule)
-                    )
-                    logger.debug(
-                        "Applying comparator filter rules: %s", normalized_rule_set
-                    )
-                    model1 = filter(model1, normalized_rule_set)
-                    model2 = filter(model2, normalized_rule_set)
-            else:
-                normalized_rule_set = with_default_leaves_ignore(
-                    _normalize_filter(filter_rules or [])
-                )
-                logger.debug("Applying comparator filter rules: %s", normalized_rule_set)
-                model1 = filter(model1, normalized_rule_set)
-                model2 = filter(model2, normalized_rule_set)
+            normalized_rule_set = with_default_leaves_ignore(
+                self._normalize_compare_filter_rules(filter_rules)
+            )
+            logger.debug("Using comparator filter rules: %s", normalized_rule_set)
+            self._active_filter_rules = FilterRules(normalized_rule_set)
 
             phase_rows = [
                 ("Cube", model1.cubes, model2.cubes, Cube),
@@ -487,6 +504,7 @@ class Comparator:
             return changeset
         finally:
             self._progress_sink = None
+            self._active_filter_rules = None
             self._compare_progress_total = 0
             self._compare_progress_current = 0
             self._collection_progress_total = 0
@@ -752,20 +770,21 @@ class Comparator:
 
         while old_item is not None or new_item is not None:
             if old_item is None:
-                self._enqueue_batched_change(
-                    changeset,
-                    pending_changes,
-                    change_type=ChangeType.ADD,
-                    obj=new_item,
-                    uri=_resolve_change_uri(new_item, context),
-                )
-                added_c += 1
+                if self._is_object_in_scope(new_item, context=context):
+                    self._enqueue_batched_change(
+                        changeset,
+                        pending_changes,
+                        change_type=ChangeType.ADD,
+                        obj=new_item,
+                        uri=_resolve_change_uri(new_item, context),
+                    )
+                    added_c += 1
                 new_item = next(new_it, None)
                 new_seen += 1
                 _log_progress()
                 continue
             if new_item is None:
-                if mode == 'full':
+                if mode == 'full' and self._is_object_in_scope(old_item, context=context):
                     self._enqueue_batched_change(
                         changeset,
                         pending_changes,
@@ -792,7 +811,7 @@ class Comparator:
                 raise
 
             if key_old < key_new:
-                if mode == 'full':
+                if mode == 'full' and self._is_object_in_scope(old_item, context=context):
                     self._enqueue_batched_change(
                         changeset,
                         pending_changes,
@@ -805,29 +824,31 @@ class Comparator:
                 old_seen += 1
                 _log_progress()
             elif key_old > key_new:
-                self._enqueue_batched_change(
-                    changeset,
-                    pending_changes,
-                    change_type=ChangeType.ADD,
-                    obj=new_item,
-                    uri=_resolve_change_uri(new_item, context),
-                )
-                added_c += 1
+                if self._is_object_in_scope(new_item, context=context):
+                    self._enqueue_batched_change(
+                        changeset,
+                        pending_changes,
+                        change_type=ChangeType.ADD,
+                        obj=new_item,
+                        uri=_resolve_change_uri(new_item, context),
+                    )
+                    added_c += 1
                 new_item = next(new_it, None)
                 new_seen += 1
                 _log_progress()
             else:
                 common_c += 1
                 try:
-                    objects_equal = equals_fn(old_item, new_item) if equals_fn else old_item == new_item
-                    if not objects_equal:
-                        self._enqueue_batched_change(
-                            changeset,
-                            pending_changes,
-                            change_type=ChangeType.MODIFY,
-                            obj=new_item,
-                            uri=_resolve_change_uri(new_item, context),
-                        )
+                    if self._is_object_in_scope(new_item, context=context):
+                        objects_equal = equals_fn(old_item, new_item) if equals_fn else old_item == new_item
+                        if not objects_equal:
+                            self._enqueue_batched_change(
+                                changeset,
+                                pending_changes,
+                                change_type=ChangeType.MODIFY,
+                                obj=new_item,
+                                uri=_resolve_change_uri(new_item, context),
+                            )
                 except Exception as exc:
                     logger.error(
                         "Failed comparing %s '%s': %s",
@@ -884,8 +905,16 @@ class Comparator:
             new_list_m = list(new_list)
             local_total_units = max(1, len(old_list_m) + len(new_list_m))
             self._begin_collection_progress(label=object_type_name, total_units=local_total_units)
-            old_map = {_object_identity(obj, context=context): obj for obj in old_list_m}
-            new_map = {_object_identity(obj, context=context): obj for obj in new_list_m}
+            old_map = {
+                _object_identity(obj, context=context): obj
+                for obj in old_list_m
+                if self._is_object_in_scope(obj, context=context)
+            }
+            new_map = {
+                _object_identity(obj, context=context): obj
+                for obj in new_list_m
+                if self._is_object_in_scope(obj, context=context)
+            }
         except AttributeError as exc:
             logger.error("Objects missing identity fields in %s comparison: %s", object_type_name, exc, exc_info=True)
             raise

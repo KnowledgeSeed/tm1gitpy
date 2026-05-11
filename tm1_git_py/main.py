@@ -357,7 +357,7 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         output_path = Path(out).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        changeset.export(output_path, format=args.format)
+        changeset.export(output_path, format=args.format, progress_sink=tqdm_sink)
         if args.format == "json":
             logger.info("Wrote JSON changeset (%d change(s)) to %s", len(changeset.changes), output_path)
         else:
@@ -416,10 +416,17 @@ def _cmd_changeset_filter(args: argparse.Namespace) -> None:
 
     filter_rules = _load_filter_rules(args.filter_rules)
     changeset = import_changeset(changeset_path)
+    tqdm_sink = TqdmProgressSink(
+        worker_count=1,
+        base_position=0,
+        leave=False,
+        thread_tracing_enabled=bool(getattr(args, "debug", False)),
+    )
     try:
         toggled_count = changeset.filter(filter_rules)
-        changeset.export(changeset_path)
+        changeset.export(changeset_path, progress_sink=tqdm_sink)
     finally:
+        tqdm_sink.close()
         changeset.close()
     logger.info(
         "Applied changeset filter rules and toggled apply for %d change(s): %s",

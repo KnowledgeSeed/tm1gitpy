@@ -28,9 +28,38 @@ from tm1_git_py.model import (
     Rule,
     Subset,
 )
-from tm1_git_py.reporting.progress_reporting import ProgressSink
+from tm1_git_py.reporting.progress_reporting import NoopProgressSink, ProgressEvent, ProgressSink
 
 logger = logging.getLogger(__name__)
+
+_EXPORT_PROGRESS_THROTTLE_ROWS = 768
+
+
+def _changeset_export_progress_step(total_rows: int) -> int:
+    if total_rows <= _EXPORT_PROGRESS_THROTTLE_ROWS:
+        return 1
+    return max(1, total_rows // 200)
+
+
+def _notify_changeset_export_progress(
+    progress_sink: ProgressSink,
+    output_path: Path,
+    processed: int,
+    total_rows: int,
+) -> None:
+    display_total = max(1, total_rows)
+    if total_rows == 0:
+        display_current = 1 if processed > 0 else 0
+    else:
+        display_current = min(processed, total_rows)
+    progress_sink.on_event(
+        ProgressEvent.worker_line(
+            current=display_current,
+            total=display_total,
+            message="Writing changeset",
+            path=str(output_path),
+        )
+    )
 
 _CHILD_RELATIONS: dict[type, list[str]] = {
     Dimension: ["hierarchies"],
@@ -528,6 +557,7 @@ class Changeset:
         file_path: Union[str, Path],
         *,
         format: Optional[Literal["json", "yaml"]] = None,
+        progress_sink: Optional[ProgressSink] = None,
     ) -> None:
         """Export changeset payload to JSON or YAML, always streaming from the store.
 
@@ -538,6 +568,10 @@ class Changeset:
 
         Writes via a temporary file in the same directory, then ``os.replace`` for safer
         in-place updates (e.g. changeset filter).
+
+        If *progress_sink* is set, reports row progress while streaming (throttled for
+        large changesets). Use a main-thread sink (e.g. :class:`TqdmProgressSink`); a
+        multiprocess queue sink may be closed before export finishes.
         """
 
         logger.info("Exporting changeset '%s' to '%s'", self._changeset_id, file_path)
@@ -546,13 +580,14 @@ class Changeset:
         if format is not None and format not in ("json", "yaml"):
             raise ValueError(f"Unsupported export format {format!r} (expected 'json' or 'yaml').")
         use_json = format == "json" if format is not None else (output_path.suffix.lower() == ".json")
+        sink = progress_sink if progress_sink is not None else NoopProgressSink()
 
         tmp_path = output_path.parent / (output_path.name + ".tmp")
         try:
             if use_json:
-                self._export_json_streaming(tmp_path)
+                self._export_json_streaming(tmp_path, sink)
             else:
-                self._export_yaml_streaming(tmp_path)
+                self._export_yaml_streaming(tmp_path, sink)
             os.replace(tmp_path, output_path)
         except BaseException:
             try:
@@ -563,9 +598,13 @@ class Changeset:
             raise
         logger.info("Exported changeset '%s' with %d change(s)", self._changeset_id, len(self.changes))
 
-    def _export_json_streaming(self, output_path: Path) -> None:
+    def _export_json_streaming(self, output_path: Path, progress_sink: ProgressSink) -> None:
         store = self._active_store()
         summary = store.summary_counts()
+        total_rows = store.count_rows()
+        step = _changeset_export_progress_step(total_rows)
+        _notify_changeset_export_progress(progress_sink, output_path, 0, total_rows)
+        processed = 0
         with output_path.open("w", encoding="utf-8") as handle:
             handle.write("{\n")
             handle.write(f'  "changeset_id": {json.dumps(self._changeset_id, ensure_ascii=False)},\n')
@@ -573,6 +612,7 @@ class Changeset:
             handle.write('  "changes": [\n')
             first = True
             for row in store.iter_rows(sorted_order=True):
+                processed += 1
                 change = self._change_from_store_row(row)
                 entry = {
                     "change_type": change.change_type.value,
@@ -584,12 +624,22 @@ class Changeset:
                 prefix = "    " if first else "    ,"
                 handle.write(prefix + json.dumps(entry, ensure_ascii=False) + "\n")
                 first = False
+                if processed == total_rows or processed % step == 0:
+                    _notify_changeset_export_progress(progress_sink, output_path, processed, total_rows)
             handle.write("  ]\n")
             handle.write("}\n")
+        if total_rows == 0:
+            _notify_changeset_export_progress(progress_sink, output_path, 1, total_rows)
+        elif processed % step != 0:
+            _notify_changeset_export_progress(progress_sink, output_path, total_rows, total_rows)
 
-    def _export_yaml_streaming(self, output_path: Path) -> None:
+    def _export_yaml_streaming(self, output_path: Path, progress_sink: ProgressSink) -> None:
         store = self._active_store()
         summary = dict(store.summary_counts())
+        total_rows = store.count_rows()
+        step = _changeset_export_progress_step(total_rows)
+        _notify_changeset_export_progress(progress_sink, output_path, 0, total_rows)
+        processed = 0
         with output_path.open("w", encoding="utf-8") as handle:
             handle.write(
                 yaml.safe_dump(
@@ -601,6 +651,7 @@ class Changeset:
             )
             handle.write("\nchanges:\n")
             for row in store.iter_rows(sorted_order=True):
+                processed += 1
                 change = self._change_from_store_row(row)
                 entry = {
                     "change_type": change.change_type.value,
@@ -617,6 +668,8 @@ class Changeset:
                 ).rstrip("\n")
                 lines = chunk.split("\n")
                 if not lines or not lines[0]:
+                    if processed == total_rows or processed % step == 0:
+                        _notify_changeset_export_progress(progress_sink, output_path, processed, total_rows)
                     continue
                 handle.write("- " + lines[0] + "\n")
                 for line in lines[1:]:
@@ -624,6 +677,12 @@ class Changeset:
                         handle.write("  " + line + "\n")
                     else:
                         handle.write("\n")
+                if processed == total_rows or processed % step == 0:
+                    _notify_changeset_export_progress(progress_sink, output_path, processed, total_rows)
+        if total_rows == 0:
+            _notify_changeset_export_progress(progress_sink, output_path, 1, total_rows)
+        elif processed % step != 0:
+            _notify_changeset_export_progress(progress_sink, output_path, total_rows, total_rows)
 
     def to_json(self) -> dict[str, Any]:
         """Build a fixture-compatible changeset payload as a JSON-serializable dict.

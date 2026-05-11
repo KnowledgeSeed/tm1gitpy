@@ -764,6 +764,48 @@ class TestChangeset:
         assert len(imported.changes) == 1
         assert imported.changes[0].apply is True
 
+    def test_export_reports_progress_to_sink(self, tmp_path):
+        changeset = Changeset(changeset_id="20260413000010")
+        changeset._store.clear()
+        p1 = make_process(name="P1")
+        p2 = make_process(name="P2")
+        changeset.changes.extend(
+            [
+                Change(
+                    change_type=ChangeType.ADD,
+                    object_type=ObjectType.PROCESS,
+                    uri=p1.uri(),
+                    body=p1,
+                ),
+                Change(
+                    change_type=ChangeType.ADD,
+                    object_type=ObjectType.PROCESS,
+                    uri=p2.uri(),
+                    body=p2,
+                ),
+            ]
+        )
+        events = []
+        sink = CallbackProgressSink(lambda e: events.append(e))
+        export_path = tmp_path / "progress_export.json"
+        changeset.export(export_path, format="json", progress_sink=sink)
+        currents = [e.current for e in events]
+        assert 0 in currents
+        assert 2 in currents
+        assert all(e.message == "Writing changeset" for e in events)
+
+    def test_export_empty_changeset_reports_progress_to_sink(self, tmp_path):
+        changeset = Changeset(changeset_id="20260413000011")
+        changeset._store.clear()
+        events = []
+        sink = CallbackProgressSink(lambda e: events.append(e))
+        export_path = tmp_path / "empty_progress.json"
+        changeset.export(export_path, format="json", progress_sink=sink)
+        assert len(events) >= 2
+        assert events[0].current == 0
+        assert events[-1].current == 1
+        assert events[-1].total == 1
+
     def test_export_import_roundtrip_preserves_changeset_id_and_apply(self, tmp_path):
         changeset = Changeset(changeset_id="20260413000005")
         process_obj = make_process(name="ProcRoundtrip")

@@ -257,6 +257,8 @@ class TestComparator:
             if change.object_type == ObjectType.ELEMENT and "Hierarchies('Leaves')" in change.uri
         ]
         assert not leaf_element_changes
+        assert any(h.name == "Leaves" for h in model1.dimensions[0].hierarchies)
+        assert any(h.name == "Leaves" for h in model2.dimensions[0].hierarchies)
 
     def test_comparator_can_force_include_leaves_hierarchy_via_filter_rules(self):
         model1 = build_mock_model()
@@ -295,6 +297,8 @@ class TestComparator:
         assert len(leaf_element_changes) == 1
         assert leaf_element_changes[0].change_type == ChangeType.ADD
         assert leaf_element_changes[0].body.name == "LeafB"
+        assert any(h.name == "Leaves" for h in model1.dimensions[0].hierarchies)
+        assert any(h.name == "Leaves" for h in model2.dimensions[0].hierarchies)
 
     def test_comparator_streaming_store_backed_elements_and_edges(self, tmp_path):
         """StoreBackedSequence merge compare should match in-memory list compare."""
@@ -496,6 +500,53 @@ class TestComparator:
             if c.change_type == ChangeType.ADD and c.object_type == ObjectType.ELEMENT
         )
         assert add_names == ["B"]
+
+    def test_comparator_streaming_filter_rules_keep_inputs_unchanged(self, tmp_path):
+        store = ModelStore.for_model_id(f"stream_filter_{tmp_path.name}")
+
+        def disk_elements(group_suffix: str, *elems: Element) -> StoreBackedSequence:
+            db = StoreBackedSequence.for_elements_sink(
+                store=store,
+                dimension_name="DimA",
+                hierarchy_name=group_suffix,
+            )
+            db.replace_with_payloads(())
+            for e in sorted(elems, key=lambda x: (x.name or "")):
+                db.append(e)
+            return db
+
+        old_elements = disk_elements(
+            "H1_old_filter",
+            Element(name="A", type="Numeric"),
+            Element(name="B", type="Numeric"),
+        )
+        new_elements = disk_elements(
+            "H1_new_filter",
+            Element(name="A", type="Numeric"),
+            Element(name="B", type="String"),
+        )
+
+        h_old = Hierarchy(name="H1", elements=old_elements, edges=[], subsets=[])
+        h_new = Hierarchy(name="H1", elements=new_elements, edges=[], subsets=[])
+        d_old = Dimension(name="DimA", hierarchies=[h_old], defaultHierarchy=h_old)
+        d_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+        model_old = Model(dimensions=[d_old], cubes=[], processes=[], chores=[])
+        model_new = Model(dimensions=[d_new], cubes=[], processes=[], chores=[])
+
+        before_old_payloads = list(old_elements.iter_payloads())
+        before_new_payloads = list(new_elements.iter_payloads())
+
+        changeset = Comparator().compare(
+            model_old,
+            model_new,
+            mode="full",
+            filter_rules=["Dimensions('DimA')/Hierarchies('H1')/Elements('B')"],
+        )
+
+        element_changes = [c for c in changeset.changes if c.object_type == ObjectType.ELEMENT]
+        assert element_changes == []
+        assert before_old_payloads == list(old_elements.iter_payloads())
+        assert before_new_payloads == list(new_elements.iter_payloads())
 
     def test_comparator_coerces_empty_list_to_store_backed_from_peer(self, tmp_path):
         store = ModelStore.for_model_id(f"coerce_{tmp_path.name}")
