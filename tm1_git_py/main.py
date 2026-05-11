@@ -1,5 +1,6 @@
 import argparse
 import logging
+import multiprocessing
 import queue
 import shutil
 import sys
@@ -14,7 +15,12 @@ from TM1py import TM1Service
 from tm1_git_py.config import TM1ServersConfig
 from tm1_git_py.config.logging_config import setup_logging
 from tm1_git_py.db.model_store import ModelStore  # noqa: F401  # patched by tests
-from tm1_git_py.internal.process_pool import dispose_process_pool, ignore_sigint_in_worker, shutdown_process_pool_now
+from tm1_git_py.internal.process_pool import (
+    dispose_process_pool,
+    ignore_sigint_in_worker,
+    process_pool_executor_kwargs,
+    shutdown_process_pool_now,
+)
 from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.model import Model
 from tm1_git_py.reporting.progress_reporting import (
@@ -311,7 +317,10 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         logger.info("Loading source model from %s", source)
         pool: ProcessPoolExecutor | None = None
         try:
-            pool = ProcessPoolExecutor(max_workers=2, initializer=ignore_sigint_in_worker)
+            multiprocessing.set_start_method('spawn')
+            pool = ProcessPoolExecutor(
+                **process_pool_executor_kwargs(max_workers=2, initializer=ignore_sigint_in_worker),
+            )
             source_future = pool.submit(_deserialize_model_worker, str(source), queuing_progress_sink, source_workers)
             target_future = pool.submit(_deserialize_model_worker, str(target), queuing_progress_sink, target_workers)
             # ``Model`` (and the SQLite-backed sequences inside its hierarchies)

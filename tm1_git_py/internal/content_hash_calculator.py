@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import multiprocessing
 import os
 import sqlite3
 import time
@@ -42,7 +43,11 @@ from tm1_git_py.db.model_store import (
     _identity_line_for_type,
 )
 from tm1_git_py.reporting.progress_reporting import NoopProgressSink, ProgressEvent, ProgressSink
-from tm1_git_py.internal.process_pool import dispose_process_pool, ignore_sigint_in_worker
+from tm1_git_py.internal.process_pool import (
+    dispose_process_pool,
+    ignore_sigint_in_worker,
+    process_pool_executor_kwargs,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -380,9 +385,12 @@ class ContentHashCalculator:
         if self.max_workers <= 1 or self._process_pool is not None or self._process_pool_unavailable:
             return
         try:
+            multiprocessing.freeze_support()
             self._process_pool = ProcessPoolExecutor(
-                max_workers=self.max_workers,
-                initializer=ignore_sigint_in_worker,
+                **process_pool_executor_kwargs(
+                    max_workers=self.max_workers,
+                    initializer=ignore_sigint_in_worker,
+                ),
             )
         except (OSError, NotImplementedError):
             self._process_pool_unavailable = True

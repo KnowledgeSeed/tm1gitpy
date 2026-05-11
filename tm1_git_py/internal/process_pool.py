@@ -1,8 +1,10 @@
 import logging
+import multiprocessing
 import signal
+import sys
 import threading
 from concurrent.futures import ProcessPoolExecutor
-from typing import Literal, Optional
+from typing import Any, Callable, Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,28 @@ DEFAULT_GRACEFUL_POOL_SHUTDOWN_TIMEOUT_SEC = 120.0
 def ignore_sigint_in_worker() -> None:
     """Let the parent process handle Ctrl+C for process-pool workers."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def process_pool_executor_kwargs(
+    *,
+    max_workers: int,
+    initializer: Callable[..., Any],
+    initargs: Tuple[Any, ...] = (),
+) -> dict[str, Any]:
+    """Keyword arguments for :class:`ProcessPoolExecutor`.
+
+    On Python 3.11+, sets ``mp_context`` to ``spawn`` so workers are not forked
+    from a multi-threaded parent (avoids common Linux stalls/deadlocks when a
+    progress thread or ``Manager`` thread is already running).
+    """
+    kwargs: dict[str, Any] = {
+        "max_workers": max_workers,
+        "initializer": initializer,
+        "initargs": initargs,
+    }
+    if sys.version_info >= (3, 11):
+        kwargs["mp_context"] = multiprocessing.get_context("spawn")
+    return kwargs
 
 
 def _shutdown_process_pool_aggressive(pool: ProcessPoolExecutor, *, log: bool) -> None:

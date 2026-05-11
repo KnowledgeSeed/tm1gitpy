@@ -1,9 +1,10 @@
 import logging
+import multiprocessing
 import os
 import shutil
 import sqlite3
 import uuid
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, List, Optional
 from urllib.parse import quote
@@ -15,9 +16,9 @@ from tm1_git_py.model.hierarchy import Hierarchy, _HierarchyStagedWriter
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
 from tm1_git_py.internal.process_pool import (
-    DEFAULT_GRACEFUL_POOL_SHUTDOWN_TIMEOUT_SEC,
     dispose_process_pool,
     ignore_sigint_in_worker,
+    process_pool_executor_kwargs,
 )
 from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.reporting.progress_reporting import MultiProcessProgressManager, NoopProgressSink, ProgressEvent, ProgressSink
@@ -25,6 +26,10 @@ import json
 
 
 logger = logging.getLogger(__name__)
+
+# Normal-exit pool shutdown: shorter than generic calculators so serializer does not
+# appear stuck at the end of a run when workers are already idle.
+SERIALIZER_POOL_GRACEFUL_SHUTDOWN_SEC = 45.0
 
 _PROCESS_POOL_UNAVAILABLE = object()
 
@@ -99,7 +104,13 @@ def serialize_model(
     process_pool = None
     if cpu_workers > 1:
         try:
-            process_pool = ProcessPoolExecutor(max_workers=cpu_workers, initializer=ignore_sigint_in_worker)
+            multiprocessing.freeze_support()
+            process_pool = ProcessPoolExecutor(
+                **process_pool_executor_kwargs(
+                    max_workers=int(cpu_workers),
+                    initializer=ignore_sigint_in_worker,
+                ),
+            )
         except (OSError, NotImplementedError):
             process_pool = _PROCESS_POOL_UNAVAILABLE
             logger.warning("ProcessPoolExecutor unavailable for serializer; using serial mode", exc_info=True)
@@ -136,7 +147,7 @@ def serialize_model(
                 dispose_process_pool(
                     process_pool,
                     mode="graceful_bounded",
-                    graceful_timeout_sec=DEFAULT_GRACEFUL_POOL_SHUTDOWN_TIMEOUT_SEC,
+                    graceful_timeout_sec=SERIALIZER_POOL_GRACEFUL_SHUTDOWN_SEC,
                     log=True,
                 )
         active_progress_sink.close()
@@ -184,7 +195,13 @@ def serialize_dimensions(
     for future in as_completed(future_to_dimension_id):
         dimension_id = future_to_dimension_id[future]
         dim, job = jobs_by_dimension_id[dimension_id]
-        hierarchy_results_by_dimension[dimension_id].append(future.result())
+        hierarchy_result = future.result()
+        hierarchy_results_by_dimension[dimension_id].append(hierarchy_result)
+        logger.debug(
+            "Serializer hierarchy job finished dimension=%s hierarchy=%s",
+            dim.name,
+            hierarchy_result.get("name"),
+        )
         pending_by_dimension[dimension_id] -= 1
         completed = len(job["hierarchies"]) - pending_by_dimension[dimension_id]
         progress_sink.on_event(ProgressEvent.worker_line(current=completed, total=len(job["hierarchies"]), message=f"Serializing dimension {dim.name}"))
@@ -620,6 +637,7 @@ def serialize_cubes(cubes: List[Cube], cubes_dir, process_pool: Optional[Process
     _run_io_jobs(
         ((_serialize_cube, (_build_cube_serialize_job(cube), cubes_dir, progress_sink)) for cube in cubes),
         process_pool=process_pool,
+        log_phase="cube",
     )
 
 
@@ -668,7 +686,11 @@ def _serialize_cube(cube_job: dict[str, Any], cubes_dir: str, progress_sink: Pro
 
 
 def serialize_processes(processes: List[Process], process_dir, process_pool: Optional[ProcessPoolExecutor], progress_sink: ProgressSink):
-    _run_io_jobs(((_serialize_process, (process, process_dir, progress_sink)) for process in processes), process_pool=process_pool)
+    _run_io_jobs(
+        ((_serialize_process, (process, process_dir, progress_sink)) for process in processes),
+        process_pool=process_pool,
+        log_phase="process",
+    )
 
 
 def _serialize_process(process: Process, process_dir: str, progress_sink: ProgressSink) -> None:
@@ -683,7 +705,11 @@ def _serialize_process(process: Process, process_dir: str, progress_sink: Progre
 
 def serialize_chores(chores: List[Chore], chores_dir, process_pool: Optional[ProcessPoolExecutor], progress_sink: ProgressSink):
     logger.debug("Serializing %d chore(s) into '%s'", len(chores), chores_dir)
-    _run_io_jobs(((_serialize_chore, (chore, chores_dir, progress_sink)) for chore in chores), process_pool=process_pool)
+    _run_io_jobs(
+        ((_serialize_chore, (chore, chores_dir, progress_sink)) for chore in chores),
+        process_pool=process_pool,
+        log_phase="chore",
+    )
 
 
 def _serialize_chore(chore: Chore, chores_dir: str, progress_sink: ProgressSink) -> None:
@@ -693,11 +719,21 @@ def _serialize_chore(chore: Chore, chores_dir: str, progress_sink: ProgressSink)
     progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Serializing chore {chore.name}"))
 
 
-def _run_io_jobs(jobs, *, process_pool: Optional[ProcessPoolExecutor] = None) -> None:
+def _run_io_jobs(
+    jobs,
+    *,
+    process_pool: Optional[ProcessPoolExecutor] = None,
+    log_phase: Optional[str] = None,
+) -> None:
     if process_pool is None:
         for fn, args in jobs:
             fn(*args)
         return
     futures = [process_pool.submit(fn, *args) for fn, args in jobs]
+    total = len(futures)
+    done = 0
     for future in as_completed(futures):
         future.result()
+        done += 1
+        if log_phase is not None:
+            logger.debug("Serializer %s job progress %d/%d", log_phase, done, total)

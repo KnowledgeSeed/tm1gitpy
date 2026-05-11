@@ -1,5 +1,5 @@
 import concurrent
-from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 import logging
 import os
 import re

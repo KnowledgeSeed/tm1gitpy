@@ -142,12 +142,26 @@ class ProgressEvent:
             timestamp_ns=time.time_ns(),
         )
 
+_PROGRESS_QUEUE_PUT_TIMEOUT_SEC = 5.0
+
+
 class MultiProcessProgressQueueSink:
     def __init__(self, progress_queue: Queue):
         self.progress_queue = progress_queue
 
     def on_event(self, event: ProgressEvent) -> None:
-        self.progress_queue.put(event)
+        try:
+            self.progress_queue.put(
+                event,
+                block=True,
+                timeout=_PROGRESS_QUEUE_PUT_TIMEOUT_SEC,
+            )
+        except Exception:
+            logger.debug(
+                "Progress queue put timed out or failed after %.1fs; dropping event",
+                _PROGRESS_QUEUE_PUT_TIMEOUT_SEC,
+                exc_info=True,
+            )
 
     def close(self) -> None:
         pass
