@@ -14,7 +14,11 @@ from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.hierarchy import Hierarchy, _HierarchyStagedWriter
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.process import Process
-from tm1_git_py.internal.process_pool import ignore_sigint_in_worker, shutdown_process_pool_now
+from tm1_git_py.internal.process_pool import (
+    DEFAULT_GRACEFUL_POOL_SHUTDOWN_TIMEOUT_SEC,
+    dispose_process_pool,
+    ignore_sigint_in_worker,
+)
 from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.reporting.progress_reporting import MultiProcessProgressManager, NoopProgressSink, ProgressEvent, ProgressSink
 import json
@@ -100,6 +104,7 @@ def serialize_model(
             process_pool = _PROCESS_POOL_UNAVAILABLE
             logger.warning("ProcessPoolExecutor unavailable for serializer; using serial mode", exc_info=True)
 
+    pool_shutdown_aggressive = False
     try:
         if model.dimensions:
             dim_dir = dir + '/dimensions'
@@ -121,13 +126,19 @@ def serialize_model(
             os.makedirs(chores_dir, exist_ok=True)
             serialize_chores(model.chores, chores_dir, process_pool=process_pool, progress_sink=active_progress_sink)
     except KeyboardInterrupt:
-        if isinstance(process_pool, ProcessPoolExecutor):
-            shutdown_process_pool_now(process_pool)
-            process_pool = None
+        pool_shutdown_aggressive = True
         raise
     finally:
         if isinstance(process_pool, ProcessPoolExecutor):
-            process_pool.shutdown(wait=True)
+            if pool_shutdown_aggressive:
+                dispose_process_pool(process_pool, mode="aggressive", log=True)
+            else:
+                dispose_process_pool(
+                    process_pool,
+                    mode="graceful_bounded",
+                    graceful_timeout_sec=DEFAULT_GRACEFUL_POOL_SHUTDOWN_TIMEOUT_SEC,
+                    log=True,
+                )
         active_progress_sink.close()
         if multi_process_progress_manager is not None:
             multi_process_progress_manager.close()

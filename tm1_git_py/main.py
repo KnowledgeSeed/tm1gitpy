@@ -14,7 +14,7 @@ from TM1py import TM1Service
 from tm1_git_py.config import TM1ServersConfig
 from tm1_git_py.config.logging_config import setup_logging
 from tm1_git_py.db.model_store import ModelStore  # noqa: F401  # patched by tests
-from tm1_git_py.internal.process_pool import ignore_sigint_in_worker, shutdown_process_pool_now
+from tm1_git_py.internal.process_pool import dispose_process_pool, ignore_sigint_in_worker, shutdown_process_pool_now
 from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.model import Model
 from tm1_git_py.reporting.progress_reporting import (
@@ -348,7 +348,8 @@ def _cmd_compare(args: argparse.Namespace) -> None:
             raise
         finally:
             if pool is not None:
-                pool.shutdown()
+                dispose_process_pool(pool, mode="aggressive", log=True)
+                pool = None
             multi_process_progress_manager.close()
 
         out = args.output

@@ -15,6 +15,8 @@ from enum import Enum
 from typing import Optional, Protocol, Callable, Any
 from tqdm import tqdm
 
+logger = logging.getLogger(__name__)
+
 
 class ProgressScope(str, Enum):
     TOTAL = "TOTAL"
@@ -151,6 +153,9 @@ class MultiProcessProgressQueueSink:
         pass
 
 
+_PROGRESS_MANAGER_THREAD_JOIN_TIMEOUT_SEC = 30.0
+
+
 class MultiProcessProgressManager:
 
     progress_sink: ProgressSink
@@ -205,8 +210,20 @@ class MultiProcessProgressManager:
             self.progress_queue.put(None)
         except (BrokenPipeError, EOFError, OSError):
             pass
-        self.progress_thread.join()
-        self._manager.shutdown()
+        self.progress_thread.join(timeout=_PROGRESS_MANAGER_THREAD_JOIN_TIMEOUT_SEC)
+        if self.progress_thread.is_alive():
+            logger.warning(
+                "MultiProcessProgressManager consumer thread did not finish within %.0fs",
+                _PROGRESS_MANAGER_THREAD_JOIN_TIMEOUT_SEC,
+            )
+        try:
+            self._manager.shutdown()
+        except Exception as exc:
+            logger.warning(
+                "MultiProcessProgressManager multiprocessing.Manager shutdown failed: %s",
+                exc,
+                exc_info=True,
+            )
         
 
 class ProgressSink(Protocol):

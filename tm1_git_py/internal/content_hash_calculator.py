@@ -42,7 +42,7 @@ from tm1_git_py.db.model_store import (
     _identity_line_for_type,
 )
 from tm1_git_py.reporting.progress_reporting import NoopProgressSink, ProgressEvent, ProgressSink
-from tm1_git_py.internal.process_pool import ignore_sigint_in_worker, shutdown_process_pool_now
+from tm1_git_py.internal.process_pool import dispose_process_pool, ignore_sigint_in_worker
 
 
 logger = logging.getLogger(__name__)
@@ -237,12 +237,15 @@ class ContentHashCalculator:
         )
 
     def close(self, *, wait: bool = True) -> None:
-        if self._process_pool is not None:
-            if wait:
-                self._process_pool.shutdown()
-            else:
-                shutdown_process_pool_now(self._process_pool)
-            self._process_pool = None
+        pool = self._process_pool
+        if pool is None:
+            return
+        self._process_pool = None
+        dispose_process_pool(
+            pool,
+            mode="graceful_bounded" if wait else "aggressive",
+            log=True,
+        )
 
     def calculate_group_content_signature(
         self,
