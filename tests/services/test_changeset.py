@@ -743,6 +743,27 @@ class TestChangeset:
         assert len(imported.changes) == 1
         assert imported.changes[0].apply is False
 
+    def test_export_format_json_without_json_suffix_imports(self, tmp_path):
+        changeset = Changeset(changeset_id="20260413000009")
+        changeset._store.clear()
+        process_obj = make_process(name="ProcNoSuffix")
+        changeset.changes.append(
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=process_obj.uri(),
+                body=process_obj,
+                apply=True,
+            )
+        )
+        export_path = tmp_path / "changeset_no_ext"
+        changeset.export(export_path, format="json")
+
+        imported = import_changeset(export_path)
+        assert imported._changeset_id == "20260413000009"
+        assert len(imported.changes) == 1
+        assert imported.changes[0].apply is True
+
     def test_export_import_roundtrip_preserves_changeset_id_and_apply(self, tmp_path):
         changeset = Changeset(changeset_id="20260413000005")
         process_obj = make_process(name="ProcRoundtrip")

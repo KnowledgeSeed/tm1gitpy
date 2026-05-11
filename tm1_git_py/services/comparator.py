@@ -462,20 +462,20 @@ class Comparator:
                 logger.debug("Comparing object type: %s", object_type_name)
                 self._compare_with_children(old_rows, new_rows, parent_cls, changeset, mode)
 
-            cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
+            # cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
             # changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
-            summary = {"add": 0, "remove": 0, "modify": 0}
-            for change in changeset.changes:
-                key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)
-                summary[key] = summary.get(key, 0) + 1
-            logger.info(
-                "Completed model compare mode=%s total=%d add=%d remove=%d modify=%d",
-                mode,
-                len(changeset.changes),
-                summary.get("add", 0),
-                summary.get("remove", 0),
-                summary.get("modify", 0),
-            )
+            # summary = {"add": 0, "remove": 0, "modify": 0}
+            # for change in changeset.changes:
+            #     key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)
+            #     summary[key] = summary.get(key, 0) + 1
+            # logger.info(
+            #     "Completed model compare mode=%s total=%d add=%d remove=%d modify=%d",
+            #     mode,
+            #     len(changeset.changes),
+            #     summary.get("add", 0),
+            #     summary.get("remove", 0),
+            #     summary.get("modify", 0),
+            # )
             self._emit_progress_event(
                 kind=ProgressKind.UPDATE,
                 scope=ProgressScope.TOTAL,
@@ -578,6 +578,13 @@ class Comparator:
         equals_fn = self._EQUALITY_OVERRIDES.get(parent_cls)
         object_type_name = getattr(parent_cls, "__name__", str(parent_cls))
 
+        def _ensure_elements_of_type(slot: Iterable[Any], child_cls: type) -> Iterable[Any]:
+            new_children = [
+                child for child in slot
+                if isinstance(child, child_cls)
+            ]
+            return new_children
+
         compare_result = self._compare_object_lists(
             old_list,
             new_list,
@@ -600,14 +607,8 @@ class Comparator:
                         old_children = slot_old
                         new_children = slot_new
                     else:
-                        old_children = [
-                            child for child in slot_old
-                            if isinstance(child, child_cls)
-                        ]
-                        new_children = [
-                            child for child in slot_new
-                            if isinstance(child, child_cls)
-                        ]
+                        old_children = _ensure_elements_of_type(slot_old, child_cls)
+                        new_children = _ensure_elements_of_type(slot_new, child_cls)
                     try:
                         child_context = dict(context or {})
                         if parent_cls is Cube:
@@ -634,10 +635,7 @@ class Comparator:
                     if isinstance(slot_new, StoreBackedSequence):
                         new_children = slot_new
                     else:
-                        new_children = [
-                            child for child in slot_new
-                            if isinstance(child, child_cls)
-                        ]
+                       new_children = _ensure_elements_of_type(slot_new, child_cls)
                     child_context = dict(context or {})
                     if parent_cls is Cube:
                         child_context["cube_name"] = getattr(new_obj, "name", "")
@@ -654,10 +652,7 @@ class Comparator:
                     if isinstance(slot_old, StoreBackedSequence):
                         old_children = slot_old
                     else:
-                        old_children = [
-                            child for child in slot_old
-                            if isinstance(child, child_cls)
-                        ]
+                        old_children = _ensure_elements_of_type(slot_old, child_cls)
                     child_context = dict(context or {})
                     if parent_cls is Cube:
                         child_context["cube_name"] = getattr(old_obj, "name", "")

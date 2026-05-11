@@ -357,7 +357,7 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         output_path = Path(out).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        changeset.export(output_path)
+        changeset.export(output_path, format=args.format)
         if args.format == "json":
             logger.info("Wrote JSON changeset (%d change(s)) to %s", len(changeset.changes), output_path)
         else:

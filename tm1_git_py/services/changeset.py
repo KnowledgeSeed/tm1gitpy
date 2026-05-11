@@ -3,12 +3,13 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, Iterator, MutableSequence, Optional, Union
+from typing import Any, Iterable, Iterator, Literal, MutableSequence, Optional, Union
 
 import orjson
 import yaml
@@ -522,46 +523,113 @@ class Changeset:
     def __repr__(self) -> str:
         return self.__str__()
 
-    def export(self, file_path: Union[str, Path]) -> None:
-        """Export changeset payload to JSON (streaming) or YAML."""
+    def export(
+        self,
+        file_path: Union[str, Path],
+        *,
+        format: Optional[Literal["json", "yaml"]] = None,
+    ) -> None:
+        """Export changeset payload to JSON or YAML, always streaming from the store.
+
+        If *format* is ``"json"`` or ``"yaml"``, that encoder is used regardless of
+        the file name (so e.g. ``--format json -o /path/changeset`` without a ``.json``
+        suffix still writes JSON). If *format* is omitted, a ``.json`` suffix selects
+        JSON; otherwise YAML is written.
+
+        Writes via a temporary file in the same directory, then ``os.replace`` for safer
+        in-place updates (e.g. changeset filter).
+        """
 
         logger.info("Exporting changeset '%s' to '%s'", self._changeset_id, file_path)
         output_path = Path(file_path).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        suffix = output_path.suffix.lower()
-        if suffix == ".json":
-            store = self._active_store()
-            summary = store.summary_counts()
-            with output_path.open("w", encoding="utf-8") as handle:
-                handle.write("{\n")
-                handle.write(f'  "changeset_id": {json.dumps(self._changeset_id, ensure_ascii=False)},\n')
-                handle.write(f'  "summary": {json.dumps(summary, ensure_ascii=False)},\n')
-                handle.write('  "changes": [\n')
-                first = True
-                for row in store.iter_rows(sorted_order=True):
-                    change = self._change_from_store_row(row)
-                    entry = {
-                        "change_type": change.change_type.value,
-                        "object_type": change.object_type.value,
-                        "uri": change.uri,
-                        "apply": change.apply,
-                        "body": _serialize_change_body(change),
-                    }
-                    prefix = "    " if first else "    ,"
-                    handle.write(prefix + json.dumps(entry, ensure_ascii=False) + "\n")
-                    first = False
-                handle.write("  ]\n")
-                handle.write("}\n")
-        else:
-            payload = self.to_json()
-            output_path.write_text(
-                yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
-            )
+        if format is not None and format not in ("json", "yaml"):
+            raise ValueError(f"Unsupported export format {format!r} (expected 'json' or 'yaml').")
+        use_json = format == "json" if format is not None else (output_path.suffix.lower() == ".json")
+
+        tmp_path = output_path.parent / (output_path.name + ".tmp")
+        try:
+            if use_json:
+                self._export_json_streaming(tmp_path)
+            else:
+                self._export_yaml_streaming(tmp_path)
+            os.replace(tmp_path, output_path)
+        except BaseException:
+            try:
+                if tmp_path.is_file():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
         logger.info("Exported changeset '%s' with %d change(s)", self._changeset_id, len(self.changes))
 
+    def _export_json_streaming(self, output_path: Path) -> None:
+        store = self._active_store()
+        summary = store.summary_counts()
+        with output_path.open("w", encoding="utf-8") as handle:
+            handle.write("{\n")
+            handle.write(f'  "changeset_id": {json.dumps(self._changeset_id, ensure_ascii=False)},\n')
+            handle.write(f'  "summary": {json.dumps(summary, ensure_ascii=False)},\n')
+            handle.write('  "changes": [\n')
+            first = True
+            for row in store.iter_rows(sorted_order=True):
+                change = self._change_from_store_row(row)
+                entry = {
+                    "change_type": change.change_type.value,
+                    "object_type": change.object_type.value,
+                    "uri": change.uri,
+                    "apply": change.apply,
+                    "body": _serialize_change_body(change),
+                }
+                prefix = "    " if first else "    ,"
+                handle.write(prefix + json.dumps(entry, ensure_ascii=False) + "\n")
+                first = False
+            handle.write("  ]\n")
+            handle.write("}\n")
+
+    def _export_yaml_streaming(self, output_path: Path) -> None:
+        store = self._active_store()
+        summary = dict(store.summary_counts())
+        with output_path.open("w", encoding="utf-8") as handle:
+            handle.write(
+                yaml.safe_dump(
+                    {"changeset_id": self._changeset_id, "summary": summary},
+                    sort_keys=False,
+                    allow_unicode=True,
+                    default_flow_style=False,
+                ).rstrip("\n")
+            )
+            handle.write("\nchanges:\n")
+            for row in store.iter_rows(sorted_order=True):
+                change = self._change_from_store_row(row)
+                entry = {
+                    "change_type": change.change_type.value,
+                    "object_type": change.object_type.value,
+                    "uri": change.uri,
+                    "apply": change.apply,
+                    "body": _serialize_change_body(change),
+                }
+                chunk = yaml.safe_dump(
+                    entry,
+                    sort_keys=False,
+                    allow_unicode=True,
+                    default_flow_style=False,
+                ).rstrip("\n")
+                lines = chunk.split("\n")
+                if not lines or not lines[0]:
+                    continue
+                handle.write("- " + lines[0] + "\n")
+                for line in lines[1:]:
+                    if line.strip():
+                        handle.write("  " + line + "\n")
+                    else:
+                        handle.write("\n")
+
     def to_json(self) -> dict[str, Any]:
-        """Build a fixture-compatible changeset payload as a JSON-serializable dict."""
+        """Build a fixture-compatible changeset payload as a JSON-serializable dict.
+
+        Materializes all changes in memory; prefer :meth:`export` for large changesets.
+        """
 
         logger.info(
             "Serializing changeset '%s' to payload (changes=%d)",
@@ -569,8 +637,9 @@ class Changeset:
             len(self.changes),
         )
 
+        store = self._active_store()
+        summary = dict(store.summary_counts())
         export_entries = []
-        summary = {"add": 0, "remove": 0, "modify": 0}
         for change in self.changes:
             change_type = change.change_type
             if hasattr(change_type, "value"):
@@ -582,7 +651,6 @@ class Changeset:
                 "apply": change.apply,
                 "body": _serialize_change_body(change),
             })
-            summary[change_type] = summary.get(change_type, 0) + 1
 
         payload = {
             "changeset_id": self._changeset_id,
@@ -973,6 +1041,16 @@ def _line_stream_yaml_changes(changeset_file: Union[str, Path]) -> Iterator[dict
         yield parsed
 
 
+def _changeset_file_looks_like_streaming_json(path: Path) -> bool:
+    """True if the first non-empty line starts with ``{`` (streaming export wrapper)."""
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.lstrip("\ufeff").lstrip()
+            if stripped:
+                return stripped.startswith("{")
+    return False
+
+
 def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
     """
     Build a Changeset from fixture-style YAML/JSON and stream JSON entries into sqlite.
@@ -982,7 +1060,12 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
     if not path.exists():
         raise FileNotFoundError(f"Changeset file not found: {path}")
 
-    if path.suffix.lower() == ".json":
+    suffix = path.suffix.lower()
+    use_json = suffix == ".json" or (
+        suffix not in (".yaml", ".yml") and _changeset_file_looks_like_streaming_json(path)
+    )
+
+    if use_json:
         payload_id = _read_changeset_json_metadata(path)
         entries = _line_stream_json_changes(path)
         changeset = Changeset(changeset_id=payload_id or None)
@@ -1003,13 +1086,13 @@ def import_changeset(changeset_file: Union[str, Path]) -> Changeset:
     for entry in _line_stream_yaml_changes(path):
         _append_import_entry(changeset, entry)
 
-        logger.info(
-            "Imported changeset '%s' with %d change(s), import errors=%d",
-            changeset._changeset_id,
-            len(changeset.changes),
-            len(changeset.errors.get("import", [])),
-        )
-        return changeset
+    logger.info(
+        "Imported changeset '%s' with %d change(s), import errors=%d",
+        changeset._changeset_id,
+        len(changeset.changes),
+        len(changeset.errors.get("import", [])),
+    )
+    return changeset
 
 
 def _append_import_entry(changeset: Changeset, entry: Any) -> None:
