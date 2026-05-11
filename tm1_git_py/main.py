@@ -317,7 +317,7 @@ def _cmd_compare(args: argparse.Namespace) -> None:
         logger.info("Loading source model from %s", source)
         pool: ProcessPoolExecutor | None = None
         try:
-            multiprocessing.set_start_method('spawn')
+            multiprocessing.freeze_support()
             pool = ProcessPoolExecutor(
                 **process_pool_executor_kwargs(max_workers=2, initializer=ignore_sigint_in_worker),
             )
