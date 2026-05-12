@@ -237,7 +237,7 @@ def _objects_equal_case_builders():
             hierarchies=[hierarchy_string],
             defaultHierarchy=hierarchy_string,
         )
-        return dimension, dim_two, tm1_git_py.comparator._dimensions_equal_shallow, False
+        return dimension, dim_two, tm1_git_py.services.comparator._dimensions_equal_shallow, False
 
     def _hierarchy_case():
         hierarchy = _base_mock_dimension().hierarchies[0]
@@ -257,7 +257,7 @@ def _objects_equal_case_builders():
             edges=[Edge("Parent", "Leaf", 2)],
             subsets=[subset],
         )
-        return hierarchy_one, hierarchy_two, tm1_git_py.comparator._hierarchies_equal_shallow, False
+        return hierarchy_one, hierarchy_two, tm1_git_py.services.comparator._hierarchies_equal_shallow, False
 
     def _cube_case():
         dimension = _base_mock_dimension()
@@ -281,7 +281,7 @@ def _objects_equal_case_builders():
             rules=[],
             views=[view_two],
         )
-        return cube_one, cube_two, tm1_git_py.comparator._cubes_equal_shallow, False
+        return cube_one, cube_two, tm1_git_py.services.comparator._cubes_equal_shallow, False
 
     def _process_case():
         ti_stub = TI("# prolog", "# meta", "# data", "# epilog")

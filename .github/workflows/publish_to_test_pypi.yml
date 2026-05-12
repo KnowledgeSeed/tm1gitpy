@@ -2,28 +2,46 @@ name: Publish To TestPyPI
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version (PEP 440), e.g. 1.2.0 — written to __version__ before build"
+        required: true
+        type: string
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+
+      - name: Resolve package version
+        id: meta
+        env:
+          WF_VERSION: ${{ inputs.version }}
+        run: |
+          ver="$WF_VERSION"
+          ver="${ver#v}"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
       - name: Set up Python 3.10
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
       - name: Install build dependencies
         run: |
-         python -m pip install --upgrade pip
-         pip install build twine
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Update version in package
+        run: python -c "from tm1_git_py.__init__ import update_version; update_version('${{ steps.meta.outputs.version }}')"
 
       - name: Build
         run: python -m build
 
-      - name: Publish to PyPI
-        run: python -m twine upload --repository testpypi dist/* -u__token__ -p${{ secrets.TESTPYPI_TOKEN }}
-        
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Publish to TestPyPI
+        run: python -m twine upload --repository testpypi dist/* -u__token__ -p${{ secrets.TESTPYPI_TOKEN }} --non-interactive --verbose

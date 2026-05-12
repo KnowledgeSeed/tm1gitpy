@@ -141,6 +141,29 @@ class NativeView:
             format_string=format_string,
         )
 
+    @classmethod
+    def from_tm1py(cls, view: Any) -> "NativeView":
+        raw_view = getattr(view, "_tm1git_raw_view_dict", None)
+        if isinstance(raw_view, dict):
+            return cls(
+                name=raw_view.get("Name") or view.name,
+                columns=raw_view.get("Columns") or [],
+                rows=raw_view.get("Rows") or [],
+                titles=raw_view.get("Titles") or [],
+                suppress_empty_columns=raw_view.get("SuppressEmptyColumns", view.suppress_empty_columns),
+                suppress_empty_rows=raw_view.get("SuppressEmptyRows", view.suppress_empty_rows),
+                format_string=raw_view.get("FormatString", view.format_string),
+            )
+        return cls(
+            name=view.name,
+            columns=view.columns,
+            rows=view.rows,
+            titles=view.titles,
+            suppress_empty_columns=view.suppress_empty_columns,
+            suppress_empty_rows=view.suppress_empty_rows,
+            format_string=view.format_string,
+        )
+
     @staticmethod
     def uri_for(cube_name: str, view_name: str) -> str:
         return f"Cubes('{cube_name}')/Views('{view_name}')"
@@ -164,6 +187,15 @@ def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
 
         if hierarchy_bind:
             subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
+        elif isinstance(subset_dict.get("Hierarchy"), dict):
+            hierarchy = subset_dict["Hierarchy"]
+            dimension = hierarchy.get("Dimension")
+            dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
+            hierarchy_name = hierarchy.get("Name")
+            if dimension_name and hierarchy_name:
+                subset_dict["Hierarchy"] = {
+                    "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+                }
 
         body["Subset"] = subset_dict
 
@@ -183,6 +215,15 @@ def view_title_selection_to_dict(title_selection) -> Dict[str, Any]:
 
         if hierarchy_bind:
             subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
+        elif isinstance(subset_dict.get("Hierarchy"), dict):
+            hierarchy = subset_dict["Hierarchy"]
+            dimension = hierarchy.get("Dimension")
+            dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
+            hierarchy_name = hierarchy.get("Name")
+            if dimension_name and hierarchy_name:
+                subset_dict["Hierarchy"] = {
+                    "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+                }
 
         body["Subset"] = subset_dict
 

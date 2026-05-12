@@ -42,7 +42,7 @@ class Model:
         }
 
     def get_all_objects_with_uris(self) -> Dict[str, Any]:
-        from tm1_git_py.filter import normalize_for_path
+        from tm1_git_py.services.filter import normalize_for_path
 
         all_objects: Dict[str, Any] = {}
 

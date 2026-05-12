@@ -14,13 +14,18 @@ from testcontainers.compose import DockerCompose
 
 from tm1_git_py import serialize_model
 from tm1_git_py.config import TM1ServerConfig, TM1ServersConfig
-from tm1_git_py.deserializer import deserialize_model
-from tm1_git_py.exporter import export
+from tm1_git_py.services.deserializer import deserialize_model
+from tm1_git_py.services.exporter import export
 from tm1_git_py.main import _tm1_connection_from_config
 from tm1_git_py.model.model import Model
-from tm1_git_py.filter import filter
 
 logger = logging.getLogger(__name__)
+
+# Autouse sqlite teardown (close workers + unlink db files) lives in
+# ``test_integration.sqlite_teardown`` so ``tests/`` can load it via
+# ``pytest_plugins`` without importing this module (heavy deps).
+
+DEFAULT_MAX_WORKERS = 2
 
 # Directories under a serialized model root to compare in integration "no diff" checks.
 # Other paths (e.g. ``.internal`` internal artifacts) are ignored.
@@ -241,20 +246,25 @@ def resolve_test_model_dir(request: pytest.FixtureRequest) -> str:
     raise ValueError(f"test_model directory not found at expected location: {test_model_path}")
 
 
-def load_fixture_model_tm1gitpy(obj, filter_rules: list[str] = None, model_id: str = None) -> tuple[str, Model]:
+def load_fixture_model_tm1gitpy(obj, model_id: str = None) -> tuple[str, Model]:
     dir_path = get_dir(obj)
     fixture_dir = str(Path(dir_path) / "fixture_model_tm1gitpy")
-    fixture_model, errors = deserialize_model(dir=fixture_dir, model_id=model_id)
-    if filter_rules:
-        fixture_model = filter(fixture_model, filter_rules)
+    fixture_model, errors = deserialize_model(
+        dir=fixture_dir,
+        model_id=model_id,
+        max_workers=DEFAULT_MAX_WORKERS,
+    )
     return fixture_dir, fixture_model
 
 
-def load_fixture_changeset(obj, filter_rules: list[str] = None) -> tuple[str, Model]:
+def load_fixture_changeset(obj) -> tuple[str, Model]:
     dir_path = get_dir(obj)
     fixture_dir = str(Path(dir_path) / "fixture_changeset")
-    fixture_model, errors = deserialize_model(fixture_dir)
-    return fixture_dir, filter(fixture_model, filter_rules) if filter_rules else fixture_model
+    fixture_model, errors = deserialize_model(
+        fixture_dir,
+        max_workers=DEFAULT_MAX_WORKERS,
+    )
+    return fixture_dir, fixture_model
 
 
 def get_dir(obj) -> str:
@@ -274,15 +284,16 @@ def export_check_no_errors(
         self.tm1_service,
         model_id=model_id or "default",
         filter_rules_list=filter_rules,
+        max_workers=DEFAULT_MAX_WORKERS,
     )
     assert isinstance(model, Model)
     for category, category_errors in errors.items():
         assert not category_errors, f"Found errors in {category}: {category_errors}"
-    return filter(model, filter_rules) if filter_rules else model
+    return model
 
 
 def check_no_diff(expected_dir, model: Model):
     with tempfile.TemporaryDirectory() as temp_dir:
         export_dir = str(Path(temp_dir) / "exported_model")
-        serialize_model(model, export_dir)
+        serialize_model(model, export_dir, max_workers=DEFAULT_MAX_WORKERS)
         assert_export_matches_expected_subdirs(export_dir, expected_dir)

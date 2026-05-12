@@ -18,8 +18,8 @@ jobs:
 
       - name: Install build dependencies
         run: |
-         python -m pip install --upgrade pip
-         pip install build twine
+          python -m pip install --upgrade pip
+          pip install build twine
 
       - name: Update version with release tag
         run: python -c "from tm1_git_py.__init__ import update_version; update_version('${{ github.event.release.tag_name }}')"

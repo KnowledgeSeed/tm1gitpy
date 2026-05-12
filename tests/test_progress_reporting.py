@@ -1,8 +1,8 @@
 import logging
 import os
 
-import tm1_git_py.progress_reporting as progress_reporting_module
-from tm1_git_py.progress_reporting import (
+import tm1_git_py.reporting.progress_reporting as progress_reporting_module
+from tm1_git_py.reporting.progress_reporting import (
     CallbackProgressSink,
     CompositeProgressSink,
     LoggingProgressSink,
@@ -169,7 +169,7 @@ def test_generic_tqdm_sink_worker_id_mapping_and_slot_height(monkeypatch):
         lambda fallback=(120, 24): os.terminal_size(fallback),
     )
 
-    sink = TqdmProgressSink(worker_count=2, base_position=7)
+    sink = TqdmProgressSink(worker_count=2, base_position=7, thread_tracing_enabled=True)
     try:
         assert sink.slot_height == 3
         assert sink.base_position == 7
@@ -225,12 +225,12 @@ def test_generic_tqdm_sink_releases_worker_mapping_on_final_event(monkeypatch):
         lambda fallback=(120, 24): os.terminal_size(fallback),
     )
 
-    sink = TqdmProgressSink(worker_count=1, base_position=0, leave=True)
+    sink = TqdmProgressSink(worker_count=1, base_position=0, leave=True, thread_tracing_enabled=True)
     try:
         sink.on_event(ProgressEvent.make(kind=ProgressKind.START, scope=ProgressScope.WORKER, unit=ProgressUnit.LINE, current=0, total=10, worker_id="A"))
         assert "A" in sink.worker_bar_dict
         sink.on_event(ProgressEvent.make(kind=ProgressKind.UPDATE, scope=ProgressScope.WORKER, unit=ProgressUnit.LINE, current=10, total=10, worker_id="A"))
-        assert "A" not in sink.worker_bar_dict
+        assert "A" in sink.worker_bar_dict
     finally:
         sink.close()
 

@@ -2,11 +2,22 @@ from typing import Any, Callable, Generic, Iterable, Iterator, MutableSequence, 
 
 from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.element import Element
-from tm1_git_py.model.model_store import ModelStore
+from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.model.subset import Subset
-from tm1_git_py.progress_reporting import CallbackProgressSink
-
 T = TypeVar("T")
+
+
+def _element_to_dict(item: Element) -> dict[str, Any]:
+    return item.to_dict()
+
+
+def _edge_to_dict(item: Edge) -> dict[str, Any]:
+    return item.to_dict()
+
+
+def _subset_to_dict(item: Subset) -> dict[str, Any]:
+    return item.to_dict()
+
 
 class StoreBackedSequence(MutableSequence[T], Generic[T]):
     def __init__(
@@ -19,21 +30,37 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         object_type: str,
         item_from_payload: Callable[[dict[str, Any]], T],
         payload_from_item: Callable[[T], dict[str, Any]],
-        on_append: Optional[Callable[[list[dict[str, Any]]], None]] = None,
     ):
         self._store = store
+        self._store_db_path = store.db_path
         self._dimension_name = dimension_name
         self._hierarchy_name = hierarchy_name
         self._object_type = object_type
+        self._model_id = model_id
         self._item_from_payload = item_from_payload
         self._payload_from_item = payload_from_item
-        self._on_append = on_append
-        self.group_id = self._store.ensure_group(
+        self.group_id = self._active_store().ensure_group(
             dimension_name,
             hierarchy_name,
             object_type,
             model_id=model_id,
         )
+
+    def _active_store(self) -> ModelStore:
+        if self._store is None or getattr(self._store, "_closed", False):
+            self._store = ModelStore.for_db_path(self._store_db_path)
+        return self._store
+
+    def __getstate__(self) -> dict[str, Any]:
+        # SqliteWorker / lease / lifecycle lock cannot cross processes. Drop the
+        # live store; the receiver re-acquires via ``ModelStore.for_db_path``.
+        state = self.__dict__.copy()
+        state["_store"] = None
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._store = None
 
     @classmethod
     def for_elements_sink(
@@ -43,7 +70,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         model_id: Optional[str] = None,
         dimension_name: str,
         hierarchy_name: str,
-        on_append: Optional[Callable[[list[dict[str, Any]]], None]] = None,
     ) -> "StoreBackedSequence[Element]":
         return cls(
             store=store,
@@ -52,8 +78,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             hierarchy_name=hierarchy_name,
             object_type="elements",
             item_from_payload=Element.from_dict,
-            payload_from_item=lambda item: item.to_dict(),
-            on_append=on_append,
+            payload_from_item=_element_to_dict,
         )
 
     @classmethod
@@ -64,7 +89,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         model_id: Optional[str] = None,
         dimension_name: str,
         hierarchy_name: str,
-        on_append: Optional[Callable[[list[dict[str, Any]]], None]] = None,
     ) -> "StoreBackedSequence[Edge]":
         return cls(
             store=store,
@@ -73,8 +97,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             hierarchy_name=hierarchy_name,
             object_type="edges",
             item_from_payload=Edge.from_dict,
-            payload_from_item=lambda item: item.to_dict(),
-            on_append=on_append,
+            payload_from_item=_edge_to_dict,
         )
 
     @classmethod
@@ -85,7 +108,6 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         model_id: Optional[str] = None,
         dimension_name: str,
         hierarchy_name: str,
-        on_append: Optional[Callable[[list[dict[str, Any]]], None]] = None,
     ) -> "StoreBackedSequence[Subset]":
         return cls(
             store=store,
@@ -94,12 +116,11 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             hierarchy_name=hierarchy_name,
             object_type="subsets",
             item_from_payload=Subset.from_dict,
-            payload_from_item=lambda item: item.to_dict(),
-            on_append=on_append,
+            payload_from_item=_subset_to_dict,
         )
 
     def __len__(self) -> int:
-        return self._store.row_count(self.group_id)
+        return self._active_store().row_count(self.group_id)
 
     def __iter__(self) -> Iterator[T]:
         for payload in self.iter_payloads():
@@ -129,15 +150,27 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         payloads = [self._payload_from_item(item) for item in values]
         if not payloads:
             return
-        self._store.append_payloads(
+        self._active_store().append_payloads(
             self.group_id,
             payloads,
         )
-        if self._on_append:
-            self._on_append(payloads)
+
+    def extend_payloads(self, payloads: Iterable[dict[str, Any]]) -> None:
+        """
+        Append rows from REST/OData-shaped dicts without building model objects first.
+
+        Each dict must include the fields expected by
+        ``ModelStore._payload_values_for_type`` for this sequence's ``object_type``
+        (elements: ``Name``/``Type``; edges: ``ParentName``/``ComponentName``/``Weight``;
+        subsets: ``Name``/``Expression``). Mixed-case keys from TM1 JSON are accepted.
+        """
+        batch = list(payloads)
+        if not batch:
+            return
+        self._active_store().append_payloads(self.group_id, batch)
 
     def iter_payloads(self, *, ordered_by_identity: bool = False) -> Iterator[dict[str, Any]]:
-        yield from self._store.iter_payloads(self.group_id, progress_label=True, ordered_by_identity=ordered_by_identity)
+        yield from self._active_store().iter_payloads(self.group_id, progress_label=True, ordered_by_identity=ordered_by_identity)
 
     def iter_payload_json_strings(
         self,
@@ -146,7 +179,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         progress_label: Optional[str] = None,
         progress_every: int = 10_000,
     ) -> Iterator[str]:
-        yield from self._store.iter_payload_json_strings(
+        yield from self._active_store().iter_payload_json_strings(
             self.group_id,
             ordered_by_identity=ordered_by_identity,
             progress_label=progress_label,
@@ -160,7 +193,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         self,
         payloads: Iterable[dict[str, Any]],
     ) -> None:
-        self._store.replace_group_payloads(
+        self._active_store().replace_group_payloads(
             self.group_id,
             payloads,
         )
@@ -175,40 +208,49 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         self.replace_with_payloads(kept_payloads)
         return len(kept_payloads)
 
-    def sidecar_content_signature(self) -> Optional[tuple[int, str]]:
-        return self._store.content_signature(self.group_id)
+    def content_signature(self) -> Optional[tuple[int, str]]:
+        return self._active_store().content_signature(self.group_id)
 
     def set_content_signature(self, *, row_count: int, content_hash: str) -> None:
-        self._store.set_content_signature(
+        self._active_store().set_content_signature(
             self.group_id,
             row_count=row_count,
             content_hash=content_hash,
         )
 
     def recalculate_content_signature_parallel(self) -> tuple[int, str]:
-        from tm1_git_py.deserializer import recalculate_group_content_signature_parallel
+        from tm1_git_py.internal.content_hash_calculator import calculate_group_content_signature
 
-        return recalculate_group_content_signature_parallel(
-            store=self._store,
+        store = self._active_store()
+        normalized, _, _ = store.resolve_parallel_hash_inputs(self.group_id)
+        row_count, content_hash = calculate_group_content_signature(
+            db_path=store.db_path,
             group_id=self.group_id,
-            ordered_by_identity=True,
-            progress_event_callback=CallbackProgressSink(lambda _event: None).on_event,
+            object_type=normalized,
+            max_workers=1,
+            count=len(self),
         )
+        store.commit_group_content_signature(
+            self.group_id,
+            row_count=row_count,
+            content_hash=content_hash,
+        )
+        return row_count, content_hash
 
     def set_source_json_mtime_ns(self, source_json_mtime_ns: int) -> None:
-        self._store.set_source_json_mtime_ns(self.group_id, source_json_mtime_ns)
+        self._active_store().set_source_json_mtime_ns(self.group_id, source_json_mtime_ns)
 
     def source_json_mtime_ns(self) -> Optional[int]:
-        return self._store.source_json_mtime_ns(self.group_id)
+        return self._active_store().source_json_mtime_ns(self.group_id)
 
     def set_etag(self, etag: Optional[str]) -> None:
-        self._store.set_group_etag(self.group_id, etag)
+        self._active_store().set_group_etag(self.group_id, etag)
 
     def etag(self) -> Optional[str]:
-        return self._store.group_etag(self.group_id)
+        return self._active_store().group_etag(self.group_id)
 
     def set_filter_rules(self, filter_rules: list[str]) -> None:
-        self._store.set_group_filter_rules(self.group_id, filter_rules)
+        self._active_store().set_group_filter_rules(self.group_id, filter_rules)
 
     def filter_rules(self) -> list[str]:
-        return self._store.group_filter_rules(self.group_id)
+        return self._active_store().group_filter_rules(self.group_id)

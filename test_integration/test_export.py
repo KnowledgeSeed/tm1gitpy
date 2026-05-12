@@ -5,9 +5,14 @@ from pathlib import Path
 import pytest
 from TM1py import TM1Service
 
-from test_integration.test_base import load_fixture_model_tm1gitpy, export_check_no_errors, tm1_service
-from tm1_git_py.exporter import export
-from tm1_git_py.serializer import serialize_model
+from test_integration.test_base import (
+    DEFAULT_MAX_WORKERS,
+    load_fixture_model_tm1gitpy,
+    export_check_no_errors,
+    tm1_service,
+)
+from tm1_git_py.services.exporter import export
+from tm1_git_py.services.serializer import serialize_model
 
 
 @pytest.mark.usefixtures("tm1_service")
@@ -27,7 +32,11 @@ class TestExport:
             # when
             test_tm1gitpy_dir = str(Path(temp_dir) / "test_tm1gitpy_dir")
             test_tm1gitpy_model = export_check_no_errors(self, model_id=Path(test_tm1gitpy_dir).name)
-            serialize_model(test_tm1gitpy_model, test_tm1gitpy_dir)
+            serialize_model(
+                test_tm1gitpy_model,
+                test_tm1gitpy_dir,
+                max_workers=DEFAULT_MAX_WORKERS,
+            )
             
             # then 
             cmp = filecmp.dircmp(test_tm1gitpy_dir, fixture_tm1gitpy_dir)
@@ -40,6 +49,7 @@ class TestExport:
             self.tm1_service,
             model_id="integration-export",
             filter_rules_list=["Cubes('}*')", "Dimensions('}*')", "Processes('}*')"],
+            max_workers=DEFAULT_MAX_WORKERS,
         )
         for category, category_errors in errors.items():
             assert not category_errors, f"Found errors in {category}: {category_errors}"
@@ -58,6 +68,7 @@ class TestExport:
                 "Cubes('TestCube2*')",
                 "Cubes('TestCube3*')",
             ],
+            max_workers=DEFAULT_MAX_WORKERS,
         )
         for category, category_errors in errors.items():
             assert not category_errors, f"Found errors in {category}: {category_errors}"
@@ -81,6 +92,7 @@ class TestExport:
             self.tm1_service,
             model_id="integration-export",
             filter_rules_list=filter_rules,
+            max_workers=DEFAULT_MAX_WORKERS,
         )
         for category, category_errors in errors.items():
             assert not category_errors, f"Found errors in {category}: {category_errors}"
@@ -97,6 +109,7 @@ class TestExport:
             self.tm1_service,
             model_id="integration-export-force-technical-cube",
             filter_rules_list=[f"!Cubes('{forced_cube_name}')"],
+            max_workers=DEFAULT_MAX_WORKERS,
         )
         for category, category_errors in errors.items():
             assert not category_errors, f"Found errors in {category}: {category_errors}"

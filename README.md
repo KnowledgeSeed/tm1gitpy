@@ -10,7 +10,7 @@
 
 `tm1_git_py` allows you to:
 - Export TM1 models (cubes, dimensions, processes, chores) to a structured folder format compatible with TM1 Git
-- Filter exports to include only specific objects
+- Apply filter rules during **export** (narrowed objects and SQLite-backed export cache), during **compare** (fine-grained changeset without mutating on-disk exports), or on a **changeset** (toggle `apply` flags only)
 - Compare models (either file-based schema or TM1 servers) and collect differences to changesets.
 - Apply changsets to target server
 
@@ -70,15 +70,19 @@ Export a full TM1 model from a server:
 python tm1_git_py/main.py export --server dev --model-output-folder model_dir --overwrite
 ```
 
-### Filter Model
+### Filtering
 
-Apply filters to include only specific objects:
+Use the same rule language in three places:
+
+- **Export** (`-f` / `--filter`): rules are applied while pulling from TM1 and affect the export folder and internal SQLite-backed cache for that export. To change what is on disk after an export, re-run export with updated rules (there is no separate “filter folder only” command).
 
 ```bash
-python tm1_git_py/main.py model-filter --filter-rules file://examples/filter.txt --model-folder model_dir --model-output-folder model_dir_filtered --overwrite
+python tm1_git_py/main.py export --server dev --model-output-folder model_dir --filter file://examples/filter.txt --overwrite
 ```
 
-Toggle `apply` flags inside an existing changeset with the same filter rule language:
+- **Compare** (`--filter-rules`): rules narrow what appears in the emitted changeset; they do not rewrite serialized model folders.
+
+- **Changeset filter** (`changset-filter` / `changeset-filter`, `--filter-rules`): toggles `apply` flags on matching changes in place; changeset length is unchanged.
 
 ```bash
 python tm1_git_py/main.py changset-filter --changeset-path changeset.yml --filter-rules file://examples/filter.txt
@@ -145,7 +149,10 @@ Use `!` prefix on any supported pattern to force-include matching objects.
 
 #### Filter Rule Input Formats (CLI)
 
-For CLI flags that accept filter rules (`--filter` or `--filter-rules`):
+- **`export`**: `-f` / `--filter` — file path, `file://` URI, or comma-separated rules (same loaders as below).
+- **`compare`** and **`changset-filter`**: `--filter-rules` — same three input forms.
+
+For those flags:
 
 - File path: `examples/filter.txt`
 - File URI: `file://examples/filter.txt`
@@ -158,29 +165,44 @@ For CLI flags that accept filter rules (`--filter` or `--filter-rules`):
 python tm1_git_py/main.py <command> [options]
 
 Commands:
-  export    Export TM1 model from server
-  model-filter    Filter an existing model export
+  export    Export TM1 model from server (optional `-f` / `--filter` during export)
   changset-filter Toggle changeset apply flags by filter rules
   compare   Compare two model versions and write a changeset file
   apply     Apply a changeset file to a TM1 server
 
 Options:
   -s, --server SERVER           TM1 server name from tm1servers.yaml
-  -m, --model-folder FOLDER     Input model folder (default: export)
-  -mo, --model-output-folder    Output model folder (default: export)
-  -o, --overwrite              Overwrite existing folder
+  -mo, --model-output-folder    Output model folder for export (default: export)
+  -o                            Export: --overwrite. Compare: --output (changeset file path).
   -f, --filter FILE            Filter rules for export (file path, file:// URI, or comma-separated rules)
-  -f, --filter-rules RULES     Filter rules for compare/model-filter/changset-filter
+  --filter-rules RULES         Filter rules for compare and changset-filter (same input forms as export)
   --changeset-path PATH         Changeset path for changset-filter
-  --max-workers N              Worker budget for export/compare (default: cpu_count/2 + 1)
-  --log-level LEVEL            Log level: DEBUG, INFO, WARNING, ERROR
+  --max-workers N              Total CPU + IO worker count for export/compare
+  --debug                      Enable DEBUG logging and show per-worker/thread progress bars
 ```
 
-Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment; `--log-level` takes precedence.
+Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment. Pass `--debug` to set the log level to `DEBUG` for that run.
 
-For `compare`, `--max-workers` is split between source and target model deserialization:
-- source workers = `max(1, max_workers // 2)`
-- target workers = `max(1, max_workers - source_workers)`
+Progress output shows a total progress bar by default. Pass `--debug` to also render detailed per-worker/thread progress bars.
+
+Worker counts are split into two worker types:
+- `cpu-worker`: process-based workers used for CPU-bound work such as content hashing.
+- `io-worker`: thread-based workers used for IO-bound work such as TM1 page fetching.
+
+`--max-workers` means the total CPU + IO worker budget. When it is provided:
+- `cpu-worker ~= --max-workers / 4`
+- `io-worker = --max-workers - cpu-worker`
+- the split is rounded to stay near a 1:3 CPU/IO ratio
+
+When `--max-workers` is omitted:
+- `cpu-worker = cpu_count // 2 + 1`
+- `io-worker = cpu-worker * 3`
+
+When the resolved CPU worker count is `1`, content hashing and model serialization run serially.
+
+For `export`, content hash calculation uses CPU workers and TM1 fetch/page work uses IO workers. For `compare`, the resolved CPU worker count is split between source and target model deserialization:
+- source workers = `max(1, cpu_workers // 2)`
+- target workers = `max(1, cpu_workers - source_workers)`
 - odd values give one extra worker to target
 
 ## Examples
