@@ -81,9 +81,7 @@ def get_all(
             if view_as_dict.get("@odata.type") == "#ibm.tm1.api.v1.MDXView":
                 view = MDXView.from_dict(view_as_dict, cube_name)
             else:
-                # TM1py crashes when Titles[*].Selected is null.
-                # Normalize just enough so TM1py's parsing succeeds.
-                view = NativeView.from_dict(
+              view = NativeView.from_dict(
                     _normalize_native_view_title_selection(deepcopy(view_as_dict)),
                     cube_name,
                 )
