@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # ``test_integration.sqlite_teardown`` so ``tests/`` can load it via
 # ``pytest_plugins`` without importing this module (heavy deps).
 
-DEFAULT_MAX_WORKERS = 8
+DEFAULT_MAX_WORKERS = 2
 
 # Directories under a serialized model root to compare in integration "no diff" checks.
 # Other paths (e.g. ``.internal`` internal artifacts) are ignored.

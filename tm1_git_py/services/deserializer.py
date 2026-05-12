@@ -535,7 +535,7 @@ def deserialize_model(
     try:
 
         with ThreadPoolExecutor(max_workers=worker_counts.io_workers) as thread_pool_executor:
-            with ContentHashCalculator(db_path=model_store.db_path, max_workers=1, progress_sink=active_progress_sink) as content_hash_calculator:
+            with ContentHashCalculator(db_path=model_store.db_path, max_workers=worker_counts.cpu_workers, progress_sink=active_progress_sink) as content_hash_calculator:
         
                 _processes, _process_errors = deserialize_processes(
                     processes_dir,
