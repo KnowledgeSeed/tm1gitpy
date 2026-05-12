@@ -535,7 +535,7 @@ class TestChangeset:
         assert process_obj.uri() == "Processes('ProcURL')"
         assert chore_obj.uri() == "Chores('ChoreURL')"
 
-    def test_model_filter_uses_urls_baseline(self):
+    def test_filter_rules_exclude_rule_and_cube_urls(self):
         rule_a = Rule(area="[A]", full_statement="[A]=N:1;")
         rule_b = Rule(area="[B]", full_statement="[B]=N:2;")
         view_obj = MDXView(name="KeepView", mdx="SELECT FROM [MockCube]")
@@ -548,15 +548,17 @@ class TestChangeset:
         )
         model = Model(cubes=[cube_obj], dimensions=[dim_obj], processes=[make_process("ProcA")], chores=[make_chore("ChoreA")])
 
-        rules_filtered = filter_module.filter(model, ["Cubes('MockCube')/Rules('default')"])
-        assert len(rules_filtered.cubes) == 1
-        assert rules_filtered.cubes[0].name == "MockCube"
-        assert len(rules_filtered.cubes[0].rules) == 0
+        rules_exclude_default_rule = FilterRules(
+            with_default_leaves_ignore(["Cubes('MockCube')/Rules('default')"])
+        )
+        for r in model.cubes[0].rules:
+            url = f"{r.uri('MockCube')}|{normalize_for_path(r.area)}"
+            assert rules_exclude_default_rule.should_exclude(url)
 
-        cubes_filtered = filter_module.filter(model, ["Cubes('MockCube')"])
-        assert len(cubes_filtered.cubes) == 0
+        rules_exclude_cube = FilterRules(with_default_leaves_ignore(["Cubes('MockCube')"]))
+        assert rules_exclude_cube.should_exclude(model.cubes[0].uri())
 
-    def test_model_filter_excludes_leaves_hierarchy_by_default(self):
+    def test_default_leaves_hierarchy_excluded_by_filter_rules(self):
         main_hierarchy = Hierarchy(
             name="Main",
             elements=[],
@@ -574,13 +576,13 @@ class TestChangeset:
             hierarchies=[main_hierarchy, leaves_hierarchy],
             defaultHierarchy=main_hierarchy,
         )
-        model = Model(cubes=[], dimensions=[dimension], processes=[], chores=[])
 
-        filtered = filter_module.filter(model, [])
+        rules = FilterRules(with_default_leaves_ignore([]))
+        leaves_uri = leaves_hierarchy.uri("MockDim")
+        assert rules.should_exclude(leaves_uri)
+        assert not rules.should_exclude(main_hierarchy.uri("MockDim"))
 
-        assert [hier.name for hier in filtered.dimensions[0].hierarchies] == ["Main"]
-
-    def test_model_filter_force_include_leaves_hierarchy_overrides_default_exclude(self):
+    def test_force_include_leaves_hierarchy_overrides_default_exclude(self):
         main_hierarchy = Hierarchy(
             name="Main",
             elements=[],
@@ -598,14 +600,12 @@ class TestChangeset:
             hierarchies=[main_hierarchy, leaves_hierarchy],
             defaultHierarchy=main_hierarchy,
         )
-        model = Model(cubes=[], dimensions=[dimension], processes=[], chores=[])
 
-        filtered = filter_module.filter(model, ["!Dimensions('*')/Hierarchies('Leaves')"])
-
-        assert [hier.name for hier in filtered.dimensions[0].hierarchies] == [
-            "Main",
-            "Leaves",
-        ]
+        rules = FilterRules(
+            with_default_leaves_ignore(["!Dimensions('*')/Hierarchies('Leaves')"])
+        )
+        leaves_uri = leaves_hierarchy.uri("MockDim")
+        assert not rules.should_exclude(leaves_uri)
 
 
     def test_export_persists_expected_payload(self, tmp_path):

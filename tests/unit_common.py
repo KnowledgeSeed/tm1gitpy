@@ -35,11 +35,11 @@ from tm1_git_py.services.filter import (
     EntityType,
     FilterRules,
     filter_changeset,
+    normalize_for_path,
     with_technical_objects_ignore,
     should_exclude_path,
     with_default_leaves_ignore,
 )
-from tm1_git_py import filter as filter_module
 from tm1_git_py.services.deserializer import *
 from tm1_git_py.model import *
 from tm1_git_py.model import dimension, hierarchy, subset, chore, process, cube, mdxview, edge, element

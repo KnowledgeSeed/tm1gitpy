@@ -519,7 +519,9 @@ class TestExporter:
             encoding="utf-8",
         )
 
-        rules = filter_module.import_filter(str(rules_file))
+        from tm1_git_py.services.filter import import_filter
+
+        rules = import_filter(str(rules_file))
         assert rules == ["Dimensions('A*')", "Cubes('Sales*')"]
 
     def test_path_filter_should_exclude(self):

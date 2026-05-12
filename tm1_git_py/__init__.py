@@ -25,14 +25,12 @@ if TYPE_CHECKING:
         update_changeset_apply,
         validate_selection_category,
     )
-    from tm1_git_py.services import filter
     from tm1_git_py.services.changeset import Changeset
     from tm1_git_py.services.comparator import Comparator
     from tm1_git_py.services.deserializer import deserialize_model
     from tm1_git_py.services.exporter import export
     from tm1_git_py.services.filter import (
         FilterRules,
-        filter as apply_filter,
         filter_changeset,
         should_exclude_path,
     )
@@ -50,12 +48,10 @@ __all__ = [
     "Changeset",
     "Comparator",
     "deserialize_model",
-    "filter",
     "get_elements",
     "PaginatedElementsResult",
     "get_subsets",
     "PaginatedSubsetsResult",
-    "apply_filter",
     "FilterRules",
     "filter_changeset",
     "should_exclude_path",
@@ -76,7 +72,6 @@ __all__ = [
 ]
 
 _LAZY_IMPORTS = {
-    "apply_filter": ("tm1_git_py.services.filter", "filter"),
     "apply_selection_to_changes": ("tm1_git_py.seeder_hotpromote.hot_promote_selection", "apply_selection_to_changes"),
     "Changeset": ("tm1_git_py.services.changeset", "Changeset"),
     "Comparator": ("tm1_git_py.services.comparator", "Comparator"),
@@ -105,11 +100,6 @@ _LAZY_IMPORTS = {
 
 
 def __getattr__(name: str) -> Any:
-    if name == "filter":
-        module = import_module("tm1_git_py.services.filter")
-        globals()[name] = module
-        return module
-
     if name in _LAZY_IMPORTS:
         module_name, attr_name = _LAZY_IMPORTS[name]
         module = import_module(module_name)

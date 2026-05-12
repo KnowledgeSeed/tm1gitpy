@@ -18,7 +18,6 @@ from tm1_git_py.services.deserializer import deserialize_model
 from tm1_git_py.services.exporter import export
 from tm1_git_py.main import _tm1_connection_from_config
 from tm1_git_py.model.model import Model
-from tm1_git_py.services.filter import filter
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +246,7 @@ def resolve_test_model_dir(request: pytest.FixtureRequest) -> str:
     raise ValueError(f"test_model directory not found at expected location: {test_model_path}")
 
 
-def load_fixture_model_tm1gitpy(obj, filter_rules: list[str] = None, model_id: str = None) -> tuple[str, Model]:
+def load_fixture_model_tm1gitpy(obj, model_id: str = None) -> tuple[str, Model]:
     dir_path = get_dir(obj)
     fixture_dir = str(Path(dir_path) / "fixture_model_tm1gitpy")
     fixture_model, errors = deserialize_model(
@@ -255,19 +254,17 @@ def load_fixture_model_tm1gitpy(obj, filter_rules: list[str] = None, model_id: s
         model_id=model_id,
         max_workers=DEFAULT_MAX_WORKERS,
     )
-    if filter_rules:
-        fixture_model = filter(fixture_model, filter_rules)
     return fixture_dir, fixture_model
 
 
-def load_fixture_changeset(obj, filter_rules: list[str] = None) -> tuple[str, Model]:
+def load_fixture_changeset(obj) -> tuple[str, Model]:
     dir_path = get_dir(obj)
     fixture_dir = str(Path(dir_path) / "fixture_changeset")
     fixture_model, errors = deserialize_model(
         fixture_dir,
         max_workers=DEFAULT_MAX_WORKERS,
     )
-    return fixture_dir, filter(fixture_model, filter_rules) if filter_rules else fixture_model
+    return fixture_dir, fixture_model
 
 
 def get_dir(obj) -> str:

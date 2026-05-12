@@ -3,11 +3,9 @@ import re
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Iterator, List, Mapping, Optional
+from typing import Any, List, Mapping, Optional
 
 from tm1_git_py.services.changeset import Change, Changeset, ChangeType, normalize_reference_path
-from tm1_git_py.model import Model, ModelStore
-from tm1_git_py.model.store_backed_sequence import StoreBackedSequence
 
 class EntityType(str, Enum):
     DIMENSION = "dimension"
@@ -164,26 +162,6 @@ class FilterRules:
         if is_excluded and force_include_branch:
             return False
         return is_excluded
-
-    def get_winning_rule(self, object_url: str) -> dict[str, str] | None:
-        """Return the winning rule for the given object URL, or None."""
-        if not self._normalized_rules:
-            return None
-        context = _parse_object_selector(object_url)
-        if not context:
-            return None
-
-        matched = [
-            r for r in self._parsed_rules
-            if _selector_rule_matches_context(r, context)
-        ]
-        if not matched:
-            return None
-
-        include_rules = [r for r in matched if r["op"] == "!"]
-        candidate_pool = include_rules or matched
-        winner = max(candidate_pool, key=_selector_rule_specificity)
-        return {"op": winner["op"], "pattern": winner["pattern"]}
 
     def _is_excluded_at_level(
         self,
@@ -569,20 +547,6 @@ class FilterRules:
         return True
 
 
-def _top_level_prefix(path_or_pattern: str) -> str:
-    """Extract top-level prefix for grouping: dimensions, cubes, processes, or ''."""
-    lower = (path_or_pattern or "").lower()
-    if lower.startswith("dimensions"):
-        return "dimensions"
-    if lower.startswith("cubes"):
-        return "cubes"
-    if lower.startswith("processes"):
-        return "processes"
-    if lower.startswith("chores"):
-        return "chores"
-    return ""
-
-
 DEFAULT_TM1_TECHNICAL_OBJECTS = [
     "Cubes('}*')",
     "Dimensions('}*')",
@@ -634,10 +598,6 @@ def with_default_leaves_ignore(filter_rules: Optional[List[str]]) -> List[str]:
         seen_keys.add(key)
         deduped_rules.append(rule)
     return deduped_rules
-
-
-def _is_default_leaves_only_rules(filter_rules: List[str]) -> bool:
-    return len(filter_rules) == 1 and _rule_compare_key(filter_rules[0]) == DEFAULT_LEAVES_HIERARCHY_RULE
 
 
 def _normalize_match_text(text: str) -> str:
@@ -759,16 +719,6 @@ def _parse_object_selector(object_url: str) -> Optional[dict[str, Any]]:
     }
 
 
-def _selector_rule_specificity(rule: dict[str, Any]) -> tuple[int, int, int, int]:
-    pattern = rule.get("pattern", "")
-    return (
-        pattern.count("|"),
-        pattern.count("/"),
-        len(pattern),
-        -pattern.count("*"),
-    )
-
-
 def _selector_rule_matches_context(rule: dict[str, Any], context: dict[str, Any]) -> bool:
     if rule["entity_type"] != context["entity_type"]:
         return False
@@ -876,14 +826,6 @@ def _compose_tm1_filter_result(
     )
 
 
-def _perform_dependency_check(model: Model):
-    kept_dim_names = {d.name for d in model.dimensions}
-    model.cubes = [c for c in model.cubes if {d.name for d in c.dimensions}.issubset(kept_dim_names)]
-
-    kept_process_names = {p.name for p in model.processes}
-    model.chores = [ch for ch in model.chores if all(t.process_name in kept_process_names for t in ch.tasks)]
-
-
 def normalize_for_path(text: str) -> str:
     chars_to_remove = "[]'\""
     for char in chars_to_remove:
@@ -924,154 +866,6 @@ def _expand_removed_paths(paths_to_remove: set[str], all_paths: List[str]) -> se
             if _is_descendant_path(path_to_remove, path):
                 expanded_paths_to_remove.add(path)
     return expanded_paths_to_remove
-
-
-def filter(model: Model, filter_rules: List[str]) -> Model:
-    effective_rules = with_default_leaves_ignore(filter_rules)
-
-    try:
-        ModelStore.for_model_id(model.model_id)
-
-        if _is_default_leaves_only_rules(effective_rules):
-            # Fast-path the implicit/default leaves exclusion without traversing all
-            # hierarchy children. This keeps compare startup responsive on large models.
-            for dim in model.dimensions:
-                dim.hierarchies = [
-                    hierarchy
-                    for hierarchy in dim.hierarchies
-                    if (getattr(hierarchy, "name", "") or "").lower() != "leaves"
-                ]
-                if dim.hierarchies and (
-                    not getattr(dim, "defaultHierarchy", None)
-                    or all(
-                        h.name != getattr(dim.defaultHierarchy, "name", None)
-                        for h in dim.hierarchies
-                    )
-                ):
-                    dim.defaultHierarchy = dim.hierarchies[0]
-            return model
-
-        logger.info(
-            "Applying model filter rules (rules=%d dimensions=%d cubes=%d processes=%d chores=%d)",
-            len(effective_rules),
-            len(model.dimensions),
-            len(model.cubes),
-            len(model.processes),
-            len(model.chores),
-        )
-        rules = FilterRules(effective_rules)
-        removed_parent_paths: set[str] = set()
-
-        def _is_descendant_of_removed(path: str) -> bool:
-            for parent in removed_parent_paths:
-                if path.startswith(parent + "|") or path.startswith(parent + "/") or path.startswith(parent + "."):
-                    return True
-            return False
-
-        def _should_remove(path: Optional[str]) -> bool:
-            if not path:
-                return False
-            if _is_descendant_of_removed(path):
-                return True
-            if rules.should_exclude(path):
-                removed_parent_paths.add(path)
-                return True
-            return False
-
-        def _filter_collection_streaming(
-            collection: Any,
-            item_url_fn: Callable[[Any], Optional[str]],
-        ) -> Any:
-            # Explicitly stream disk-backed collections through their underlying JSONL payloads.
-            if isinstance(collection, StoreBackedSequence):
-                # Materialize first: replace_with_payloads clears the underlying store.
-                kept_payloads: list[dict] = []
-                for payload in collection.iter_payloads():
-                    item = collection.item_from_payload(payload)
-                    if _should_remove(item_url_fn(item)):
-                        continue
-                    kept_payloads.append(payload)
-
-                collection.replace_with_payloads(kept_payloads)
-                return collection
-
-            return [item for item in collection if not _should_remove(item_url_fn(item))]
-
-        final_dims = []
-        for dim in model.dimensions:
-            dim_url = dim.uri()
-            if _should_remove(dim_url):
-                continue
-
-            kept_hierarchies = []
-            for hierarchy in dim.hierarchies:
-                hierarchy_url = hierarchy.uri(dim.name)
-                if _should_remove(hierarchy_url):
-                    continue
-
-                hierarchy.subsets = _filter_collection_streaming(
-                    hierarchy.subsets,
-                    lambda subset: subset.uri(dim.name, hierarchy.name),
-                )
-                hierarchy.elements = _filter_collection_streaming(
-                    hierarchy.elements,
-                    lambda element: element.uri(dim.name, hierarchy.name),
-                )
-                hierarchy.edges = _filter_collection_streaming(
-                    hierarchy.edges,
-                    lambda edge: edge.uri(dim.name, hierarchy.name),
-                )
-                kept_hierarchies.append(hierarchy)
-
-            dim.hierarchies = kept_hierarchies
-            final_dims.append(dim)
-        final_procs = [proc for proc in model.processes if not _should_remove(proc.uri())]
-
-        final_cubes = []
-        for cube in model.cubes:
-            cube_url = cube.uri()
-            if not _should_remove(cube_url):
-
-                kept_rules = []
-                for rule in cube.rules:
-                    rule_url = f"{rule.uri(cube.name)}|{normalize_for_path(rule.area)}"
-                    if not _should_remove(rule_url):
-                        kept_rules.append(rule)
-                cube.rules = kept_rules
-
-                cube.views = [
-                    view for view in cube.views
-                    if not _should_remove(view.uri(cube.name))
-                ]
-
-                final_cubes.append(cube)
-
-        final_chores = []
-        for chore in model.chores:
-            chore_url = chore.uri()
-            if not _should_remove(chore_url):
-                final_chores.append(chore)
-
-        filtered_model = Model(
-            cubes=final_cubes,
-            dimensions=final_dims,
-            processes=final_procs,
-            chores=final_chores
-        )
-
-        # _perform_dependency_check(filtered_model)
-        logger.info(
-            "Filter finished (removed_paths=%d dimensions=%d cubes=%d processes=%d chores=%d)",
-            len(removed_parent_paths),
-            len(filtered_model.dimensions),
-            len(filtered_model.cubes),
-            len(filtered_model.processes),
-            len(filtered_model.chores),
-        )
-    finally:
-        pass
-
-    return filtered_model
 
 
 def _normalize_filter_path(path: str) -> str:

@@ -10,9 +10,14 @@ import TM1py
 
 from tm1_git_py.internal.priority_thread_pool_executor import PriorityThreadPoolExecutor
 
-from tm1_git_py import filter as filter_module
 from tm1_git_py.internal.content_hash_calculator import ContentHashCalculator
-from tm1_git_py.services.filter import EntityType, FilterRules, with_default_leaves_ignore, with_technical_objects_ignore
+from tm1_git_py.services.filter import (
+    EntityType,
+    FilterRules,
+    normalize_for_path,
+    with_default_leaves_ignore,
+    with_technical_objects_ignore,
+)
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -401,7 +406,7 @@ def cubes_to_model(
                 rules_list = [Rule(area="[default]", full_statement=rule_text, comment="", name="default")]
             filtered_rules_list = []
             for rule in rules_list:
-                rule_path = f"{Rule.uri_for(cube_name)}|{filter_module.normalize_for_path(rule.area)}"
+                rule_path = f"{Rule.uri_for(cube_name)}|{normalize_for_path(rule.area)}"
                 if filter_rules.should_exclude(rule_path):
                     logger.debug("Skipping rule by filter: %s", rule_path)
                     skipped_rules += 1

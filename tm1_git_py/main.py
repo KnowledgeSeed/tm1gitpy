@@ -21,7 +21,6 @@ from tm1_git_py.internal.process_pool import (
     process_pool_executor_kwargs,
     shutdown_process_pool_now,
 )
-from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.model import Model
 from tm1_git_py.reporting.progress_reporting import (
     CallbackProgressSink,
@@ -36,7 +35,7 @@ from tm1_git_py.services.changeset import import_changeset
 from tm1_git_py.services.comparator import Comparator, TqdmComparatorProgressSink
 from tm1_git_py.services.deserializer import deserialize_model
 from tm1_git_py.services.exporter import export
-from tm1_git_py.services.filter import filter, import_filter
+from tm1_git_py.services.filter import import_filter
 from tm1_git_py.services.serializer import serialize_model
 
 logger = logging.getLogger(__name__)
@@ -173,21 +172,6 @@ def _load_filter_rules(filter_file: str | None) -> list[str]:
     return _load_from_file(raw)
 
 
-def _filter(model, filter_rules: list[str]) -> Model:
-    if filter_rules:
-        logger.info("Applying %d filter rule(s)", len(filter_rules))
-        try:
-            filtered_model = filter(model, filter_rules)
-            logger.info("Filter applied successfully")
-            return filtered_model
-        except Exception:
-            logger.exception("Error applying filter rules")
-            sys.exit(1)
-
-    logger.debug("No filter rules provided, skipping filtering")
-    return model
-
-
 def _add_common_cli_options(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--log-file",
@@ -245,39 +229,6 @@ def _cmd_export(args: argparse.Namespace) -> None:
 
     serialize_model(exported_model, model_output_folder, progress_sink=main_sink, max_workers=requested_max_workers)
     
-    logger.info("Model serialized to: %s", model_output_folder)
-
-def _cmd_filter(args: argparse.Namespace) -> None:
-    model_folder = args.model_folder or "export"
-    model_output_folder = args.model_output_folder or "export"
-    logger.info("Loading model from folder: %s", model_folder)
-
-    _prepare_model_folder(model_output_folder, args.overwrite)
-    filter_sinks: list[ProgressSink] = [
-        TqdmProgressSink(
-            base_position=0,
-            worker_count=resolve_worker_counts(None).cpu_workers,
-            leave=False,
-            thread_tracing_enabled=bool(getattr(args, "debug", False)),
-        )
-    ]
-    if bool(args.log_file):
-        filter_sinks.append(LoggingProgressSink(logger))
-    filter_progress_sink: ProgressSink = (
-        filter_sinks[0] if len(filter_sinks) == 1 else CompositeProgressSink(filter_sinks)
-    )
-    model, errors = deserialize_model(
-        model_folder,
-        progress_sink=filter_progress_sink,
-        max_workers=None,
-    )
-    if errors:
-        logger.warning("Deserialization completed with %d error(s)", len(errors))
-
-    filter_rules = _load_filter_rules(args.filter_rules)
-    filtered_model = _filter(model, filter_rules)
-
-    serialize_model(filtered_model, model_output_folder)
     logger.info("Model serialized to: %s", model_output_folder)
 
 
@@ -447,7 +398,7 @@ def _cmd_changeset_filter(args: argparse.Namespace) -> None:
 
 def main():
     tracemalloc.start()
-    parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 model export, filter, compare, and apply")
+    parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 model export, compare, apply, and changeset filtering")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_export = sub.add_parser("export", help="Export model from TM1 to a folder")
@@ -471,28 +422,6 @@ def main():
         ),
     )
     p_export.set_defaults(handler=_cmd_export)
-
-    p_filter = sub.add_parser(
-        "model-filter",
-        aliases=["filter"],
-        help="Load a model folder, apply filter rules, write output folder",
-    )
-    _add_common_cli_options(p_filter)
-    p_filter.add_argument("-m", "--model-folder", type=str, default="export", help="Input model folder")
-    p_filter.add_argument(
-        "-mo", "--model-output-folder",
-        type=str,
-        default="export",
-        help="Output folder for filtered model",
-    )
-    p_filter.add_argument("-o", "--overwrite", action="store_true", help="Clear output folder if it already exists")
-    p_filter.add_argument(
-        "-f",
-        "--filter-rules",
-        type=str,
-        help="Filter rules as file path, file:// URI, or comma-separated rules",
-    )
-    p_filter.set_defaults(handler=_cmd_filter)
 
     p_compare = sub.add_parser("compare", help="Compare two model folders and write a changeset file")
     _add_common_cli_options(p_compare)
