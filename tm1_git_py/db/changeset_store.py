@@ -216,6 +216,7 @@ class ChangesetStore:
             """,
             prepared_rows,
         )
+        self._db.commit()
 
     def append_rows(self, rows: Iterable[dict[str, Any]]) -> None:
         current_seq = self.count_rows()

@@ -521,7 +521,7 @@ class TestChangeset:
         rule_obj = Rule(area="[default]", full_statement="[default]=N:1;")
         cube_obj = Cube(
             name="MockCube",
-            dimensions=[dimension_obj],
+            dimensions=[dimension_obj.name],
             rules=[rule_obj],
             views=[view_obj],
         )
@@ -542,7 +542,7 @@ class TestChangeset:
         dim_obj = make_dimension(name="MockDim", hierarchy_names=[])
         cube_obj = Cube(
             name="MockCube",
-            dimensions=[dim_obj],
+            dimensions=[dim_obj.name],
             rules=[rule_a, rule_b],
             views=[view_obj],
         )
@@ -701,6 +701,64 @@ class TestChangeset:
         exported_payload_pretty = json.dumps(exported_payload, sort_keys=True, indent=2)
         expected_payload_pretty = json.dumps(expected_payload, sort_keys=True, indent=2)
         assert exported_payload_pretty == expected_payload_pretty
+
+    def test_export_cube_change_serializes_dimension_names_as_reference_paths(self, tmp_path):
+        changes = Changeset(changeset_id="20260413000012")
+        changes.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.CUBE,
+                uri=Cube.uri_for("Organization Units Settings"),
+                body=Cube(
+                    name="Organization Units Settings",
+                    dimensions=["Versions", "Organization Units"],
+                    rules=[],
+                    views=[],
+                ),
+            )
+        ]
+
+        export_path = tmp_path / "cube_changes.yml"
+        changes.export(export_path)
+
+        exported_payload = yaml.safe_load(export_path.read_text(encoding="utf-8"))
+        assert exported_payload["changes"][0]["body"] == {
+            "Name": "Organization Units Settings",
+            "Dimensions": [
+                "dimensions/Versions.json",
+                "dimensions/Organization Units.json",
+            ],
+        }
+
+    def test_import_cube_change_normalizes_dimension_reference_paths_to_names(self, tmp_path):
+        import_path = tmp_path / "cube_changes.yml"
+        import_path.write_text(
+            yaml.safe_dump({
+                "changeset_id": "20260413000013",
+                "changes": [
+                    {
+                        "change_type": "add",
+                        "object_type": "Cube",
+                        "uri": Cube.uri_for("Organization Units Settings"),
+                        "apply": True,
+                        "body": {
+                            "Name": "Organization Units Settings",
+                            "Dimensions": [
+                                "dimensions/Versions.json",
+                                "dimensions/Organization Units.json",
+                            ],
+                        },
+                    }
+                ],
+            }),
+            encoding="utf-8",
+        )
+
+        imported = import_changeset(import_path)
+
+        cube = imported.changes[0].body
+        assert isinstance(cube, Cube)
+        assert cube.dimensions == ["Versions", "Organization Units"]
 
 
     def test_import_changeset(self, tmp_path):

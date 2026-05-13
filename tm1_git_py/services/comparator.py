@@ -174,8 +174,8 @@ def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:
         if old_cube.name != new_cube.name:
             return False
 
-        old_dim_names = {dim.name for dim in old_cube.dimensions}
-        new_dim_names = {dim.name for dim in new_cube.dimensions}
+        old_dim_names = {str(getattr(dim, "name", dim)) for dim in old_cube.dimensions}
+        new_dim_names = {str(getattr(dim, "name", dim)) for dim in new_cube.dimensions}
         if old_dim_names != new_dim_names:
             return False
 
@@ -983,4 +983,3 @@ class Comparator:
             added_items=[new_map[name] for name in added_names],
             removed_items=[old_map[name] for name in removed_names],
         )
-

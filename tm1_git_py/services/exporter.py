@@ -424,21 +424,6 @@ def cubes_to_model(
                     _dimension = _dimensions.get(dimension)
                     if not _dimension:
                         _cube.dimensions.append(Dimension(name=dimension))
-                        # dimension_url = Dimension.uri_for(dimension)
-                        # if filter_rules.should_exclude(dimension_url):
-                        #     logger.debug(
-                        #         "Skipping cube '%s' because dependent dimension is filtered: %s",
-                        #         cube_name,
-                        #         dimension_url,
-                        #     )
-                        #     break
-                        # logger.warning(
-                        #     "Cube '%s' references missing dimension '%s'",
-                        #     cube_name,
-                        #     dimension,
-                        # )
-                        # _errors[cube_name] = f"Dimension '{dimension}' not found"
-                        # break
                     else:
                         _cube.dimensions.append(_dimension)
 

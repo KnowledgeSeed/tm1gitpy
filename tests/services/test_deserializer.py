@@ -961,6 +961,27 @@ class TestDeserializer:
         diff_cube_names = set(expected_cube_names) - set(cubes.keys())
         assert len(diff_cube_names) == 0
 
+    def test_deserialize_cubes_keeps_dimension_references_without_dimension_objects(self, tmp_path):
+        cubes_dir = tmp_path / "cubes"
+        cubes_dir.mkdir()
+        (cubes_dir / "Organization Units Settings.json").write_text(
+            json.dumps({
+                "@type": "Cube",
+                "Name": "Organization Units Settings",
+                "Dimensions": [
+                    {"@id": "Dimensions('Versions')"},
+                    {"@id": "Dimensions('Organization Units')"},
+                ],
+                "Views@Code.links": [],
+            }),
+            encoding="utf-8",
+        )
+
+        cubes, errors = deserialize_cubes(cubes_dir=cubes_dir, _dimensions={})
+
+        assert errors == {}
+        assert cubes["Organization Units Settings"].dimensions == ["Versions", "Organization Units"]
+
 
     def test_deserialize_process(self, processes_dir=test_model_dir_base / 'processes'):
         processes, errors = deserialize_processes(process_dir=processes_dir)
