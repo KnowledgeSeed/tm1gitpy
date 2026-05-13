@@ -382,6 +382,37 @@ class TestExporter:
         assert kwargs["cube_name"] == "Sales"
         assert kwargs["filter"] is not None
 
+    def test_cubes_to_model_keeps_filtered_dimension_references(self, mocker):
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Organization Units Settings"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.get.return_value = types.SimpleNamespace(
+            dimensions=["Versions", "Organization Units"],
+            has_rules=False,
+            rules=types.SimpleNamespace(body=""),
+        )
+
+        cubes, errors = cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules([
+                "Dimensions('Organization Units')",
+                "Dimensions('Versions')",
+            ]),
+        )
+
+        assert errors == {}
+        cube = cubes["Organization Units Settings"]
+        assert cube.dimensions == ["Versions", "Organization Units"]
+
+        cube_json = json.loads(cube.as_json())
+        assert cube_json["Dimensions"] == [
+            {"@id": "Dimensions('Versions')"},
+            {"@id": "Dimensions('Organization Units')"},
+        ]
+
     def test_export_no_filter_rules_disables_skip_control_flags(self, mocker):
         tm1_service = mocker.Mock()
         mock_dimensions = mocker.patch("tm1_git_py.services.exporter.dimensions_to_model", return_value=({}, {}))

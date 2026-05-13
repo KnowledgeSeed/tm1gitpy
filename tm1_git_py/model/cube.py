@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import List, Any, Dict, Optional
 
 import TM1py
@@ -41,11 +42,48 @@ from tm1_git_py.model.rule import Rule
 # 		"Channel Csoportos Flat Assignment.views/CsoportosFlatSubsetTechnical.json"
 # 	]
 # }
+def _dimension_name_from_payload(payload: Any) -> str:
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, Dimension):
+        return payload.name
+    if isinstance(payload, dict):
+        name = payload.get("name") or payload.get("Name")
+        if name:
+            return str(name)
+        dimension_id = payload.get("@id")
+        if isinstance(dimension_id, str):
+            match = re.search(r"Dimensions\('([^']*)'\)", dimension_id)
+            if match:
+                return match.group(1)
+    raise ValueError(f"Unable to resolve cube dimension name from payload: {payload!r}")
+
+
+class _DimensionNameList(list):
+    def __init__(self, values):
+        super().__init__(_dimension_name_from_payload(value) for value in values)
+
+    def append(self, value):
+        super().append(_dimension_name_from_payload(value))
+
+    def extend(self, values):
+        super().extend(_dimension_name_from_payload(value) for value in values)
+
+    def insert(self, index, value):
+        super().insert(index, _dimension_name_from_payload(value))
+
+    def __setitem__(self, index, value):
+        if isinstance(index, slice):
+            super().__setitem__(index, [_dimension_name_from_payload(item) for item in value])
+            return
+        super().__setitem__(index, _dimension_name_from_payload(value))
+
+
 class Cube:
-    def __init__(self, name, dimensions: List[Dimension], rules: List[Rule], views: List[MDXView]):
+    def __init__(self, name, dimensions: List[str], rules: List[Rule], views: List[MDXView]):
         self.type = 'Cube'
         self.name = name
-        self.dimensions = dimensions
+        self.dimensions = _DimensionNameList(dimensions)
         self.rules = rules
         self.views = views
 
@@ -53,7 +91,10 @@ class Cube:
         payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
-            "Dimensions": [{"@id": format_url("Dimensions('{}')", d.name)} for d in self.dimensions],
+            "Dimensions": [
+                {"@id": format_url("Dimensions('{}')", dimension_name)}
+                for dimension_name in self.dimensions
+            ],
         }
         if self.rules:
             payload["Rules@Code.link"] = format_url("{}.rules", self.name)
@@ -78,7 +119,7 @@ class Cube:
 
         if self.name != other.name:
             return False
-        if sorted([d.name for d in self.dimensions]) != sorted([d.name for d in other.dimensions]):
+        if sorted(self.dimensions) != sorted(other.dimensions):
             return False
         if set(self.views) != set(other.views):
             return False
@@ -89,7 +130,7 @@ class Cube:
     def __hash__(self) -> int:
         return hash((
             self.name,
-            tuple(sorted([d.name for d in self.dimensions])),
+            tuple(sorted(self.dimensions)),
             frozenset(self.rules),
             frozenset(self.views)
         ))
@@ -100,7 +141,7 @@ class Cube:
     def to_dict(self):
         return {
             'name': self.name,
-            'dimensions': [d.to_dict() for d in self.dimensions],
+            'dimensions': list(self.dimensions),
             'rules': [r.to_dict() for r in self.rules],
             'views': [v.to_dict() for v in self.views]
         }
@@ -113,7 +154,7 @@ class Cube:
 
         name = data.get("name") or data.get("Name")
         dimension_payloads = data.get("dimensions") or data.get("Dimensions") or []
-        dimensions = [Dimension.from_dict(payload) for payload in dimension_payloads]
+        dimensions = [_dimension_name_from_payload(payload) for payload in dimension_payloads]
 
         rule_payloads = data.get("rules") or data.get("Rules") or []
         rule_base_path = f"cubes/{name}"
@@ -143,7 +184,7 @@ class Cube:
 logger = logging.getLogger(__name__)
 
 def create_cube(tm1_service: TM1Service, cube: Cube) -> Response:
-    dimensions = [dim.name for dim in cube.dimensions]
+    dimensions = list(cube.dimensions)
     rule_text = cube.get_rule_text()
     cube_object = TM1py.Cube(cube.name, dimensions, rule_text)
 

@@ -1,0 +1,18 @@
+{
+	"@type":"Cube",
+	"Name":"}CubeDrill_TestCube2WithRule",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('TestDim1')"
+		},
+		{
+			"@id":"Dimensions('TestDim2')"
+		},
+		{
+			"@id":"Dimensions('}CubeDrillString')"
+		}
+	],
+	"Rules@Code.link":"}CubeDrill_TestCube2WithRule.rules",
+	"Views@Code.links":[]
+}

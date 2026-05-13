@@ -72,6 +72,10 @@
 			"Type":"String"
 		},
 		{
+			"Name":"}CubeDrillString",
+			"Type":"String"
+		},
+		{
 			"Name":"}CubeProperties",
 			"Type":"String"
 		},

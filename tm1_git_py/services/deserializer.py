@@ -942,10 +942,8 @@ def deserialize_cubes(
             pattern = r"Dimensions\('([^']*)'\)"
             match = re.search(pattern, dim['@id'])
             if match:
-                dimension = match.groups()
-                _dimension = _dimensions.get(dimension[0])
-                if _dimension:
-                    _cube.dimensions.append(_dimension)
+                dimension_name = match.group(1)
+                _cube.dimensions.append(dimension_name)
 
         view_dir_name = file_name_base + '.views'
         view_dir_path = os.path.join(cubes_dir, view_dir_name)

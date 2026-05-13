@@ -419,28 +419,11 @@ def cubes_to_model(
                 views=[],
             )
 
-            skip_cube_due_to_filtered_dimension = False
             if cube.dimensions:
                 for dimension in cube.dimensions:
                     _dimension = _dimensions.get(dimension)
                     if not _dimension:
-                        dimension_url = Dimension.uri_for(dimension)
-                        if filter_rules.should_exclude(dimension_url):
-                            logger.debug(
-                                "Skipping cube '%s' because dependent dimension is filtered: %s",
-                                cube_name,
-                                dimension_url,
-                            )
-                            skip_cube_due_to_filtered_dimension = True
-                            break
-                        logger.warning(
-                            "Cube '%s' references missing dimension '%s'",
-                            cube_name,
-                            dimension,
-                        )
-                        _errors[cube_name] = f"Dimension '{dimension}' not found"
-                        skip_cube_due_to_filtered_dimension = True
-                        break
+                        _cube.dimensions.append(Dimension(name=dimension))
                     else:
                         _cube.dimensions.append(_dimension)
 

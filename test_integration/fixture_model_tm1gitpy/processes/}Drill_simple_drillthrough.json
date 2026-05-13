@@ -1,0 +1,32 @@
+{
+	"@type":"Process",
+	"Name":"}Drill_simple_drillthrough",
+	"HasSecurityAccess":false,
+	"Code@Code.link":"}Drill_simple_drillthrough.ti",
+	"DataSource":
+	{
+		"Type":"None"
+	},
+	"Parameters":
+	[
+		{
+			"Name":"CubeName",
+			"Prompt":"",
+			"Value":"TestCube2WithRule",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDim1",
+			"Prompt":"",
+			"Value":"TestDim1Elem1",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDim2",
+			"Prompt":"",
+			"Value":"TestDim2Elem1",
+			"Type":"String"
+		}
+	],
+	"Variables":[]
+}

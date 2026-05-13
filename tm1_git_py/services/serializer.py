@@ -87,11 +87,12 @@ def serialize_model(
 
     dir = _handle_long_path(dir)
 
-    cpu_workers = max_workers
+    worker_counts = resolve_worker_counts(max_workers)
+    cpu_workers = worker_counts.cpu_workers
 
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     multi_process_progress_manager: Optional[MultiProcessProgressManager] = None
-    if resolve_worker_counts(max_workers).cpu_workers > 1 and not isinstance(progress_sink, NoopProgressSink):
+    if cpu_workers > 1 and not isinstance(progress_sink, NoopProgressSink):
         multi_process_progress_manager = MultiProcessProgressManager(progress_sink)
         multi_process_progress_manager.start()
         active_progress_sink = multi_process_progress_manager.get_multi_process_progress_queue_sink()

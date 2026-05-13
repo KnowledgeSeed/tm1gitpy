@@ -252,7 +252,7 @@ class TestSerializer:
         )
         cube = Cube(
             name=special_cube_name,
-            dimensions=[dimension],
+            dimensions=[dimension.name],
             rules=[],
             views=[view],
         )

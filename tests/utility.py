@@ -145,7 +145,7 @@ def build_mock_model(include_chore: bool = False, include_rules: bool = False, a
         )
     cube = Cube(
         name="MockCube",
-        dimensions=[dimension],
+        dimensions=[dimension.name],
         rules=[Rule(area="[Default]", full_statement="[] = N:1;", comment="")] if include_rules else [],
         views=views,
     )
@@ -207,7 +207,7 @@ def _build_mock_changeset_data():
     )
     cube_removed = Cube(
         name="MockCube",
-        dimensions=[dimension],
+        dimensions=[dimension.name],
         rules=[],
         views=[],
     )
@@ -271,13 +271,13 @@ def _objects_equal_case_builders():
         )
         cube_one = Cube(
             name="MockCube",
-            dimensions=[dimension],
+            dimensions=[dimension.name],
             rules=[],
             views=[view_one],
         )
         cube_two = Cube(
             name="MockCube",
-            dimensions=[dimension],
+            dimensions=[dimension.name],
             rules=[],
             views=[view_two],
         )
@@ -462,16 +462,10 @@ def make_cube(
         )
         rules = [rule]
 
-    dimensions = []
-    for dim_name in dimension_names:
-        dim = make_dimension(dim_name, [])
-        dimensions.append(dim)
-
     return Cube(
         name=name,
-        dimensions=dimensions,
+        dimensions=dimension_names,
         rules=rules,
         views=views,
     )
-
 

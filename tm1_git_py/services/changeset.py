@@ -779,6 +779,10 @@ def _compose_rule_text_from_changes(changes: list[Change]) -> str:
     return "\n\n".join(parts)
 
 
+def _cube_dimension_name(value: Any) -> str:
+    return str(getattr(value, "name", value))
+
+
 def _remove_body_name(body: Any) -> str:
     if isinstance(body, Rule):
         return getattr(body, "name", None) or _rule_name_from_area(body.area)
@@ -807,7 +811,10 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
     if isinstance(body, Cube):
         return {
             "Name": body.name,
-            "Dimensions": [_resolve_change_body_reference_path(d) or f"dimensions/{d.name}.json" for d in body.dimensions]
+            "Dimensions": [
+                _resolve_change_body_reference_path(d) or f"dimensions/{_cube_dimension_name(d)}.json"
+                for d in body.dimensions
+            ]
         }
 
     if isinstance(body, Subset):
@@ -896,7 +903,7 @@ def _normalize_body_payload(
     if object_type == ObjectType.CUBE:
         dimensions = normalized.get("dimensions") or normalized.get("Dimensions")
         if isinstance(dimensions, list) and dimensions and isinstance(dimensions[0], str):
-            normalized["dimensions"] = [{"name": _path_stem(path)} for path in dimensions]
+            normalized["dimensions"] = [_path_stem(path) for path in dimensions]
 
     if object_type == ObjectType.PROCESS:
         data_source = normalized.get("data_source") or normalized.get("DataSource")
@@ -1312,5 +1319,4 @@ def _resolve_change_body_reference_path(body: Any, **context: Any) -> str:
     except Exception:
         return ""
     return ""
-
 
