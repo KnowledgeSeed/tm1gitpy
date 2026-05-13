@@ -382,6 +382,57 @@ class TestExporter:
         assert kwargs["cube_name"] == "Sales"
         assert kwargs["filter"] is not None
 
+    def test_cubes_to_model_stub_dimension_when_dimension_absent_from_export_map(self, mocker):
+        """Covers exporter L422–443: a cube may list dimensions not present in ``_dimensions``.
+
+        New behavior appends ``Dimension(name=...)`` as a stub so the cube keeps full arity.
+        The legacy block at L427–441 always ``break`` on the first missing key, so trailing
+        slots were never filled (simulated below; that assembly must *not* match new output).
+        """
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        present_dim = make_dimension("PresentDim", hierarchy_names=["PresentDim"])
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["BridgeCube"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.get.return_value = types.SimpleNamespace(
+            dimensions=["PresentDim", "FilteredOutDim"],
+            has_rules=False,
+            rules=types.SimpleNamespace(body=""),
+        )
+
+        cubes, errors = cubes_to_model(
+            tm1_conn,
+            _dimensions={"PresentDim": present_dim},
+            filter_rules=FilterRules([]),
+        )
+
+        assert errors.get("BridgeCube") is None
+        cube = cubes["BridgeCube"]
+        assert len(cube.dimensions) == 2
+        assert cube.dimensions[0] is present_dim
+        assert cube.dimensions[1].name == "FilteredOutDim"
+        assert cube.dimensions[1].defaultHierarchy.name == "FilteredOutDim"
+
+        def legacy_attach_dimension_names(
+            tm1_dimension_names: list[str], exported_by_name: dict[str, Dimension]
+        ) -> list[str]:
+            """Mirrors pre-stub logic: first missing ``_dimensions`` entry aborted the loop."""
+            out: list[str] = []
+            for name in tm1_dimension_names:
+                dim_obj = exported_by_name.get(name)
+                if not dim_obj:
+                    break
+                out.append(dim_obj.name)
+            return out
+
+        assert legacy_attach_dimension_names(
+            ["PresentDim", "FilteredOutDim"], {"PresentDim": present_dim}
+        ) == ["PresentDim"]
+        assert legacy_attach_dimension_names(
+            ["FilteredOutDim", "PresentDim"], {"PresentDim": present_dim}
+        ) == []
+
     def test_export_no_filter_rules_disables_skip_control_flags(self, mocker):
         tm1_service = mocker.Mock()
         mock_dimensions = mocker.patch("tm1_git_py.services.exporter.dimensions_to_model", return_value=({}, {}))
