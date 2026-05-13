@@ -1,0 +1,11 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}CubeDrillString",
+	"Elements":[
+	  {
+		"Name": "CubeDrillString",
+		"Type": "String"
+	  }
+	],
+	"Subsets@Code.links":[]
+}

@@ -36,6 +36,10 @@
 			"Type":"String"
 		},
 		{
+			"Name":"}CubeDrill_TestCube2WithRule",
+			"Type":"String"
+		},
+		{
 			"Name":"}CubeSecurityProperties",
 			"Type":"String"
 		},

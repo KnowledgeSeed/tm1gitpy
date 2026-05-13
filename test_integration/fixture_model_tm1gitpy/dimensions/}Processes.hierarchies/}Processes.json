@@ -14,6 +14,10 @@
 		{
 			"Name":"myprocess3",
 			"Type":"String"
+		},
+		{
+			"Name":"}Drill_simple_drillthrough",
+			"Type":"String"
 		}
 	],
 	"Subsets@Code.links":[]
