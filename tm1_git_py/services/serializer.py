@@ -87,8 +87,9 @@ def serialize_model(
 
     dir = _handle_long_path(dir)
 
-    worker_counts = resolve_worker_counts(max_workers)
-    cpu_workers = worker_counts.cpu_workers
+    cpu_workers = max_workers
+    if not cpu_workers:
+        cpu_workers = resolve_worker_counts(max_workers).cpu_workers
 
     progress_sink = progress_sink if progress_sink is not None else NoopProgressSink()
     multi_process_progress_manager: Optional[MultiProcessProgressManager] = None

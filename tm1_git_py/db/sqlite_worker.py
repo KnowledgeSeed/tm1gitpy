@@ -16,6 +16,10 @@ class _ExecuteManyValues:
         self.rows = rows
 
 
+class _CommitRequest:
+    pass
+
+
 def _validate_identifier(identifier: str) -> str:
     """
     Validate and sanitize SQL identifiers (table/column names).
@@ -96,6 +100,14 @@ class SqliteWorker:
                     try:
                         token, query, values = self._sql_queue.get(timeout=1)
                     except queue.Empty:
+                        continue
+                    if isinstance(values, _CommitRequest):
+                        conn.commit()
+                        count = 0
+                        if token:
+                            with self._lock:
+                                self._results[token] = []
+                            self._notify_query_done(token)
                         continue
                     if query:
                         if isinstance(values, _ExecuteManyValues):
@@ -275,7 +287,12 @@ class SqliteWorker:
         return self.fetch_or_wait_for_result(token)
 
     def commit(self):
-        None
+        if self._close_event.is_set():
+            raise RuntimeError("Worker is closed")
+        token = uuid.uuid4().hex
+        self._sql_queue.put((token, None, _CommitRequest()), timeout=5)
+        self._notify_query_begin(token)
+        return self.fetch_or_wait_for_result(token)
 
     def execute_and_fetch(self, query, values=None, always_synchronous=True):
         query = self.normalize_sql(query)
