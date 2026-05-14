@@ -16,6 +16,7 @@ class EntityType(str, Enum):
     CUBE = "cube"
     VIEW = "view"
     RULE = "rule"
+    DRILLTHROUGH_RULE = "drillthrough_rule"
     PROCESS = "process"
     CHORE = "chore"
     TASK = "task"
@@ -36,6 +37,7 @@ _ENTITY_RULE_PATTERNS: dict[EntityType, str] = {
     EntityType.CUBE: r"^Cubes\('([^']*)'\)$",
     EntityType.VIEW: r"^Cubes\('([^']*)'\)/Views\('([^']*)'\)$",
     EntityType.RULE: r"^Cubes\('([^']*)'\)/Rules\('([^']*)'\)(?:\|.*)?$",
+    EntityType.DRILLTHROUGH_RULE: r"^Cubes\('([^']*)'\)/DrillthroughRules\('([^']*)'\)(?:\|.*)?$",
     EntityType.PROCESS: r"^Processes\('([^']*)'\)$",
     EntityType.CHORE: r"^Chores\('([^']*)'\)$",
     EntityType.TASK: r"^Chores\('([^']*)'\)/Tasks\('([^']*)'\)$",
@@ -685,7 +687,7 @@ def _parse_selector_pattern(pattern: str) -> Optional[dict[str, Any]]:
                 "area_pattern": area_pattern,
             }
 
-        if entity_type == EntityType.RULE and len(groups) >= 2:
+        if entity_type in {EntityType.RULE, EntityType.DRILLTHROUGH_RULE} and len(groups) >= 2:
             return {
                 "pattern": pattern,
                 "entity_type": entity_type,

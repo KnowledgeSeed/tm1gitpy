@@ -85,17 +85,33 @@ class Rule:
             return ""
         return match.group(1).replace("''", "'")
 
+    @staticmethod
+    def drillthrough_cube_name_from_uri(uri: str) -> str:
+        match = re.match(r"^Cubes\('((?:''|[^'])+)'\)/DrillthroughRules\('(?:''|[^'])+'\)$", uri or "")
+        if not match:
+            return ""
+        cube_name = match.group(1).replace("''", "'")
+        return f"}}CubeDrill_{cube_name}"
+
+
+def _target_rule_cube_name(uri: Optional[str]) -> str:
+    uri_text = uri or ""
+    drillthrough_cube_name = Rule.drillthrough_cube_name_from_uri(uri_text)
+    if drillthrough_cube_name:
+        return drillthrough_cube_name
+    return Rule.cube_name_from_uri(uri_text)
+
 
 def create_rule(tm1_service: TM1Service, rule: Rule, uri: Optional[str] = None) -> Response:
-    cube_name = Rule.cube_name_from_uri(uri or "")
+    cube_name = _target_rule_cube_name(uri)
     return tm1_service.cubes.update_or_create_rules(cube_name=cube_name, rules=rule.full_statement)
 
 
 def update_rule(tm1_service: TM1Service, rule: Rule, uri: Optional[str] = None) -> Response:
-    cube_name = Rule.cube_name_from_uri(uri or "")
+    cube_name = _target_rule_cube_name(uri)
     return tm1_service.cubes.update_or_create_rules(cube_name=cube_name, rules=rule.full_statement)
 
 
 def delete_rule(tm1_service: TM1Service, rule: Rule, uri: Optional[str] = None) -> Response:
-    cube_name = Rule.cube_name_from_uri(uri or "")
+    cube_name = _target_rule_cube_name(uri)
     return tm1_service.cubes.update_or_create_rules(cube_name=cube_name, rules="")

@@ -413,6 +413,97 @@ class TestExporter:
             {"@id": "Dimensions('Organization Units')"},
         ]
 
+    def test_cubes_to_model_exports_drillthrough_rules_from_technical_cube(self, mocker):
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Sales"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+
+        source_cube = types.SimpleNamespace(
+            dimensions=["Versions"],
+            has_rules=True,
+            rules=types.SimpleNamespace(body="[] = N: 1;"),
+        )
+        drill_cube = types.SimpleNamespace(
+            dimensions=["Versions", "}CubeDrillString"],
+            has_rules=True,
+            rules=types.SimpleNamespace(body="[]=s:'simple_drillthrough';"),
+        )
+        tm1_conn.cubes.exists.return_value = True
+        tm1_conn.cubes.get.side_effect = lambda cube_name: {
+            "Sales": source_cube,
+            "}CubeDrill_Sales": drill_cube,
+        }[cube_name]
+
+        cubes, errors = cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules([]),
+        )
+
+        assert errors == {}
+        cube = cubes["Sales"]
+        assert cube.get_rule_text() == "[] = N: 1;"
+        assert cube.get_drillthrough_rule_text() == "[]=s:'simple_drillthrough';"
+
+        cube_json = json.loads(cube.as_json())
+        assert cube_json["Rules@Code.link"] == "Sales.rules"
+        assert cube_json["DrillthroughRules@Code.link"] == "Sales.drillthrough.rules"
+
+    def test_cubes_to_model_omits_drillthrough_rules_without_technical_cube(self, mocker):
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Sales"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.exists.return_value = False
+        tm1_conn.cubes.get.return_value = types.SimpleNamespace(
+            dimensions=[],
+            has_rules=False,
+            rules=types.SimpleNamespace(body=""),
+        )
+
+        cubes, errors = cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules([]),
+        )
+
+        assert errors == {}
+        cube = cubes["Sales"]
+        assert cube.drillthrough_rules == []
+        assert "DrillthroughRules@Code.link" not in json.loads(cube.as_json())
+
+    def test_cubes_to_model_filters_drillthrough_rules_by_uri(self, mocker):
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Sales"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.exists.return_value = True
+        tm1_conn.cubes.get.side_effect = lambda cube_name: {
+            "Sales": types.SimpleNamespace(
+                dimensions=[],
+                has_rules=False,
+                rules=types.SimpleNamespace(body=""),
+            ),
+            "}CubeDrill_Sales": types.SimpleNamespace(
+                dimensions=[],
+                has_rules=True,
+                rules=types.SimpleNamespace(body="[]=s:'simple_drillthrough';"),
+            ),
+        }[cube_name]
+
+        cubes, errors = cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules(["Cubes('Sales')/DrillthroughRules('default')"]),
+        )
+
+        assert errors == {}
+        assert cubes["Sales"].drillthrough_rules == []
+
     def test_export_no_filter_rules_disables_skip_control_flags(self, mocker):
         tm1_service = mocker.Mock()
         mock_dimensions = mocker.patch("tm1_git_py.services.exporter.dimensions_to_model", return_value=({}, {}))

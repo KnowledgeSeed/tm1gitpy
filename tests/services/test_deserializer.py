@@ -982,6 +982,54 @@ class TestDeserializer:
         assert errors == {}
         assert cubes["Organization Units Settings"].dimensions == ["Versions", "Organization Units"]
 
+    def test_deserialize_cubes_loads_drillthrough_rules_from_technical_rule_file(self, tmp_path):
+        cubes_dir = tmp_path / "cubes"
+        cubes_dir.mkdir()
+        (cubes_dir / "Sales.json").write_text(
+            json.dumps({
+                "@type": "Cube",
+                "Name": "Sales",
+                "Dimensions": [
+                    {"@id": "Dimensions('Versions')"},
+                ],
+                "Rules@Code.link": "Sales.rules",
+                "DrillthroughRules@Code.link": "Sales.drillthrough.rules",
+                "Views@Code.links": [],
+            }),
+            encoding="utf-8",
+        )
+        (cubes_dir / "Sales.rules").write_text("[] = N: 1;", encoding="utf-8")
+        (cubes_dir / "}CubeDrill_Sales.rules").write_text(
+            "[]=s:'simple_drillthrough';",
+            encoding="utf-8",
+        )
+
+        cubes, errors = deserialize_cubes(cubes_dir=cubes_dir, _dimensions={})
+
+        assert errors == {}
+        cube = cubes["Sales"]
+        assert cube.get_rule_text() == "[] = N: 1;"
+        assert cube.get_drillthrough_rule_text() == "[]=s:'simple_drillthrough';"
+
+    def test_deserialize_cubes_without_technical_drillthrough_rule_file_is_backward_compatible(self, tmp_path):
+        cubes_dir = tmp_path / "cubes"
+        cubes_dir.mkdir()
+        (cubes_dir / "Sales.json").write_text(
+            json.dumps({
+                "@type": "Cube",
+                "Name": "Sales",
+                "Dimensions": [],
+                "DrillthroughRules@Code.link": "Sales.drillthrough.rules",
+                "Views@Code.links": [],
+            }),
+            encoding="utf-8",
+        )
+
+        cubes, errors = deserialize_cubes(cubes_dir=cubes_dir, _dimensions={})
+
+        assert errors == {}
+        assert cubes["Sales"].drillthrough_rules == []
+
 
     def test_deserialize_process(self, processes_dir=test_model_dir_base / 'processes'):
         processes, errors = deserialize_processes(process_dir=processes_dir)

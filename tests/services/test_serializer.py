@@ -184,6 +184,33 @@ class TestSerializer:
             assert json.loads(view_json.read_text(encoding='utf-8'))["Name"] == view.name
             assert view_mdx.read_text(encoding='utf-8') == view.mdx
 
+    def test_serialize_cubes_creates_drillthrough_rule_link_and_file(self, tmp_path):
+        cube = Cube(
+            name="Sales",
+            dimensions=["Versions"],
+            rules=[Rule(area="[default]", full_statement="[] = N: 1;", name="default")],
+            views=[],
+            drillthrough_rules=[
+                Rule(
+                    area="[default]",
+                    full_statement="[]=s:'simple_drillthrough';",
+                    name="default",
+                )
+            ],
+        )
+        model = Model(cubes=[cube], dimensions=[], processes=[], chores=[])
+
+        serialize_model(model, str(tmp_path), max_workers=1)
+
+        cube_dir = tmp_path / "cubes"
+        cube_json = json.loads((cube_dir / "Sales.json").read_text(encoding="utf-8"))
+        assert cube_json["Rules@Code.link"] == "Sales.rules"
+        assert cube_json["DrillthroughRules@Code.link"] == "Sales.drillthrough.rules"
+        assert (cube_dir / "Sales.rules").read_text(encoding="utf-8") == "[] = N: 1;"
+        assert (
+            cube_dir / "Sales.drillthrough.rules"
+        ).read_text(encoding="utf-8") == "[]=s:'simple_drillthrough';"
+
     def test_serialize_cubes_process_pool_ignores_unpicklable_cube_state(self, tmp_path):
         import tm1_git_py.services.serializer as serializer_module
 

@@ -191,6 +191,8 @@ def _uri_from_object(obj: Any, context: Optional[dict[str, str]] = None) -> str:
     try:
         if isinstance(obj, Rule):
             cube_name = context.get("cube_name")
+            if cube_name and context.get("rule_collection") == "drillthrough_rules":
+                return f"Cubes('{cube_name}')/DrillthroughRules('default')"
             return obj.uri(cube_name) if cube_name else ""
         if isinstance(obj, (MDXView, NativeView)):
             cube_name = context.get("cube_name")
@@ -287,7 +289,7 @@ class Comparator:
     _CHILD_RELATIONS: Mapping[type, list[tuple[str, type]]] = {
         Dimension: [("hierarchies", Hierarchy)],
         Hierarchy: [("subsets", Subset), ("elements", Element), ("edges", Edge)],
-        Cube: [("views", MDXView), ("views", NativeView), ("rules", Rule)],
+        Cube: [("views", MDXView), ("views", NativeView), ("rules", Rule), ("drillthrough_rules", Rule)],
     }
 
     _EQUALITY_OVERRIDES: Mapping[type, Callable[[Any, Any], bool]] = {
@@ -631,6 +633,8 @@ class Comparator:
                         child_context = dict(context or {})
                         if parent_cls is Cube:
                             child_context["cube_name"] = getattr(new_obj, "name", "")
+                            if child_cls is Rule:
+                                child_context["rule_collection"] = child_attr
                         if parent_cls is Dimension:
                             child_context["dimension_name"] = getattr(new_obj, "name", "")
                         if parent_cls is Hierarchy:
@@ -657,6 +661,8 @@ class Comparator:
                     child_context = dict(context or {})
                     if parent_cls is Cube:
                         child_context["cube_name"] = getattr(new_obj, "name", "")
+                        if child_cls is Rule:
+                            child_context["rule_collection"] = child_attr
                     if parent_cls is Dimension:
                         child_context["dimension_name"] = getattr(new_obj, "name", "")
                     if parent_cls is Hierarchy:
@@ -674,6 +680,8 @@ class Comparator:
                     child_context = dict(context or {})
                     if parent_cls is Cube:
                         child_context["cube_name"] = getattr(old_obj, "name", "")
+                        if child_cls is Rule:
+                            child_context["rule_collection"] = child_attr
                     if parent_cls is Dimension:
                         child_context["dimension_name"] = getattr(old_obj, "name", "")
                     if parent_cls is Hierarchy:

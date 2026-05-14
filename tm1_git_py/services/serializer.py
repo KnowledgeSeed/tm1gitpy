@@ -644,10 +644,16 @@ def serialize_cubes(cubes: List[Cube], cubes_dir, process_pool: Optional[Process
 
 def _build_cube_serialize_job(cube: Cube) -> dict[str, Any]:
     rule_text = cube.get_rule_text() if cube.rules else None
+    drillthrough_rule_text = (
+        cube.get_drillthrough_rule_text()
+        if getattr(cube, "drillthrough_rules", None)
+        else None
+    )
     return {
         "name": cube.name,
         "cube_json": cube.as_json(),
         "rule_text": rule_text,
+        "drillthrough_rule_text": drillthrough_rule_text,
         "views": [
             {
                 "name": view.name,
@@ -667,6 +673,11 @@ def _serialize_cube(cube_job: dict[str, Any], cubes_dir: str, progress_sink: Pro
     if rule_text:
         with open(os.path.join(cubes_dir, cube_name + '.rules'), 'w', encoding='utf-8') as rule_file:
             rule_file.write(str(rule_text))
+
+    drillthrough_rule_text = cube_job.get("drillthrough_rule_text")
+    if drillthrough_rule_text:
+        with open(os.path.join(cubes_dir, cube_name + '.drillthrough.rules'), 'w', encoding='utf-8') as rule_file:
+            rule_file.write(str(drillthrough_rule_text))
 
     with open(os.path.join(cubes_dir, cube_name + '.json'), 'w', encoding='utf-8') as cube_file:
         cube_file.write(str(cube_job["cube_json"]))

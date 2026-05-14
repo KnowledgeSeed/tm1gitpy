@@ -11,5 +11,6 @@
 		}
 	],
 	"Rules@Code.link":"TestCube2WithRule.rules",
+	"DrillthroughRules@Code.link":"TestCube2WithRule.drillthrough.rules",
 	"Views@Code.links":[]
 }
