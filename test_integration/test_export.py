@@ -87,6 +87,7 @@ class TestExport:
             for line in example_filter_path.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
+        filter_rules.append("Cubes/Views")
 
         model, errors = export(
             self.tm1_service,
@@ -101,6 +102,7 @@ class TestExport:
         cube_names = [c.name for c in model.cubes]
         assert not any(name.startswith("Channel") for name in dimension_names)
         assert not any(name.startswith("zSYS Maintenance Parameter") for name in cube_names)
+        assert all(not cube.views for cube in model.cubes)
 
     def test_export_force_includes_technical_cube_while_other_technical_objects_stay_ignored(self):
         forced_cube_name = "}StatsByCube"

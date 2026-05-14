@@ -43,6 +43,21 @@ _ENTITY_RULE_PATTERNS: dict[EntityType, str] = {
     EntityType.TASK: r"^Chores\('([^']*)'\)/Tasks\('([^']*)'\)$",
 }
 
+_FILTER_COLLECTION_SEGMENTS = {
+    "dimensions": "Dimensions",
+    "hierarchies": "Hierarchies",
+    "elements": "Elements",
+    "subsets": "Subsets",
+    "edges": "Edges",
+    "cubes": "Cubes",
+    "views": "Views",
+    "rules": "Rules",
+    "drillthroughrules": "DrillthroughRules",
+    "processes": "Processes",
+    "chores": "Chores",
+    "tasks": "Tasks",
+}
+
 
 @dataclass
 class Tm1FilterResult:
@@ -84,6 +99,67 @@ def _is_match_all_identifier(pattern: str) -> bool:
     return False
 
 
+def _split_unquoted(text: str, delimiter: str) -> tuple[str, str, str]:
+    in_quote = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "'":
+            if in_quote and index + 1 < len(text) and text[index + 1] == "'":
+                index += 2
+                continue
+            in_quote = not in_quote
+        elif char == delimiter and not in_quote:
+            return text[:index], delimiter, text[index + 1:]
+        index += 1
+    return text, "", ""
+
+
+def _split_selector_path(selector: str) -> list[str]:
+    segments: list[str] = []
+    remaining = selector
+    while True:
+        segment, delimiter, remaining = _split_unquoted(remaining, "/")
+        segments.append(segment)
+        if not delimiter:
+            return segments
+
+
+def _canonicalize_filter_rule(rule: str) -> str:
+    """Convert tm1git shorthand collection paths to canonical selector syntax."""
+    stripped_rule = (rule or "").strip()
+    if not stripped_rule:
+        return ""
+
+    prefix = "!" if stripped_rule.startswith("!") else ""
+    pattern = stripped_rule[1:] if prefix else stripped_rule
+    pattern = pattern.lstrip("/")
+    selector, area_delimiter, area_suffix = _split_unquoted(pattern, "|")
+
+    canonical_segments: list[str] = []
+    for segment in _split_selector_path(selector):
+        segment = segment.strip()
+        match = re.fullmatch(r"([A-Za-z]+)(\(.*\))?", segment)
+        if not match:
+            canonical_segments.append(segment)
+            continue
+
+        segment_name, selector_suffix = match.groups()
+        canonical_name = _FILTER_COLLECTION_SEGMENTS.get(segment_name.lower())
+        if not canonical_name:
+            canonical_segments.append(segment)
+            continue
+
+        if selector_suffix is None:
+            selector_suffix = "('*')"
+        canonical_segments.append(f"{canonical_name}{selector_suffix}")
+
+    canonical_rule = prefix + "/".join(canonical_segments)
+    if area_delimiter:
+        canonical_rule += area_delimiter + area_suffix
+    return canonical_rule
+
+
 @dataclass
 class FilterRules:
     """Pre-normalized filter rules for path exclusion checks."""
@@ -94,6 +170,9 @@ class FilterRules:
     def __init__(self, filter_rules: List[str], *, raise_on_invalid_rule: bool = False):
         normalized: List[str] = []
         for rule in filter_rules or []:
+            if not rule:
+                continue
+            rule = _canonicalize_filter_rule(rule)
             if not rule:
                 continue
             if not self._validate_url_rule_pattern(rule):

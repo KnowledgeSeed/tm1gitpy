@@ -595,6 +595,28 @@ class TestExporter:
         mock_processes.assert_called_once()
         assert mock_processes.call_args.args == (tm1_service,)
 
+    def test_export_shorthand_filter_rules_are_forwarded_canonically(self, mocker):
+        tm1_service = mocker.Mock()
+        filter_rules = ["Cubes/Views", "Dimensions/Hierarchies/Subsets('}*')"]
+        mock_dimensions = mocker.patch("tm1_git_py.services.exporter.dimensions_to_model", return_value=({}, {}))
+        mock_cubes = mocker.patch("tm1_git_py.services.exporter.cubes_to_model", return_value=({}, {}))
+        mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
+        mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
+
+        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+
+        expected_pf = FilterRules(
+            with_default_leaves_ignore(filter_rules)
+            + with_technical_objects_ignore(filter_rules)
+        )
+        expected_rules = expected_pf._normalized_rules
+        _, dim_kw = mock_dimensions.call_args
+        _, cube_kw = mock_cubes.call_args
+        _, proc_kw = mock_processes.call_args
+        assert dim_kw["filter_rules"]._normalized_rules == expected_rules
+        assert cube_kw["filter_rules"]._normalized_rules == expected_rules
+        assert proc_kw["filter_rules"]._normalized_rules == expected_rules
+
     def test_export_force_include_leaves_does_not_inject_default_leaves_exclude(self, mocker):
         tm1_service = mocker.Mock()
         filter_rules = ["!Dimensions('*')/Hierarchies('Leaves')"]
@@ -629,6 +651,145 @@ class TestExporter:
             filter_rules,
         )
         assert not should_exclude_path("Cubes('SalesCube')", filter_rules)
+
+    def test_should_exclude_path_supports_tm1git_shorthand_child_rules(self):
+        assert should_exclude_path(
+            "Cubes('Sales')/Views('Default')",
+            ["Cubes/Views"],
+        )
+        assert should_exclude_path(
+            "Dimensions('Product')/Hierarchies('Product')/Subsets('}Clients')",
+            ["Dimensions/Hierarchies/Subsets('}*')"],
+        )
+        assert not should_exclude_path(
+            "Dimensions('Product')/Hierarchies('Product')/Subsets('Public')",
+            ["Dimensions/Hierarchies/Subsets('}*')"],
+        )
+
+    def test_filter_rules_canonicalize_tm1git_shorthand_child_rules(self):
+        pf = FilterRules([
+            "Cubes/Views",
+            "Dimensions/Hierarchies/Subsets('}*')",
+        ])
+
+        assert pf._normalized_rules == [
+            "Cubes('*')/Views('*')",
+            "Dimensions('*')/Hierarchies('*')/Subsets('}*')",
+        ]
+        assert pf.should_exclude("Cubes('Sales')/Views('Default')")
+        assert pf.should_exclude(
+            "Dimensions('Product')/Hierarchies('Product')/Subsets('}Clients')"
+        )
+        assert not pf.should_exclude(
+            "Dimensions('Product')/Hierarchies('Product')/Subsets('Public')"
+        )
+        assert pf.get_rules_for_entity("view") == ["Cubes('*')/Views('*')"]
+        assert pf.get_rules_for_entity("subset") == [
+            "Dimensions('*')/Hierarchies('*')/Subsets('}*')"
+        ]
+
+    def test_filter_rules_canonicalize_tm1git_shorthand_root_rules(self):
+        pf = FilterRules(["Processes", "Chores/Tasks"])
+
+        assert pf._normalized_rules == [
+            "Processes('*')",
+            "Chores('*')/Tasks('*')",
+        ]
+        assert pf.should_exclude("Processes('LoadSales')")
+        assert pf.should_exclude("Chores('Daily')/Tasks('LoadSales')")
+        assert not pf.should_exclude("Cubes('Sales')")
+
+    def test_filter_rules_canonicalize_shorthand_force_include(self):
+        pf = FilterRules([
+            "Cubes/Views",
+            "!Cubes/Views('Public*')",
+        ])
+
+        assert pf._normalized_rules == [
+            "Cubes('*')/Views('*')",
+            "!Cubes('*')/Views('Public*')",
+        ]
+        assert not pf.should_exclude("Cubes('Sales')/Views('PublicDefault')")
+        assert pf.should_exclude("Cubes('Sales')/Views('PrivateDefault')")
+
+    def test_filter_rules_canonicalize_shorthand_collection_names_case_insensitively(self):
+        pf = FilterRules(["cubes/views", "!dimensions/hierarchies('Leaves')"])
+
+        assert pf._normalized_rules == [
+            "Cubes('*')/Views('*')",
+            "!Dimensions('*')/Hierarchies('Leaves')",
+        ]
+        assert pf.get_rules_for_entity("hierarchy") == [
+            "!Dimensions('*')/Hierarchies('Leaves')"
+        ]
+
+    def test_filter_rules_canonicalize_shorthand_equivalent_to_explicit_rules(self):
+        shorthand = FilterRules(["Dimensions/Hierarchies/Subsets('}*')"])
+        explicit = FilterRules(["Dimensions('*')/Hierarchies('*')/Subsets('}*')"])
+
+        shorthand_result = shorthand.to_tm1_subset_name_filter("Product", "Product")
+        explicit_result = explicit.to_tm1_subset_name_filter("Product", "Product")
+
+        assert shorthand_result.filter_expr == explicit_result.filter_expr
+        assert shorthand_result.skip_all == explicit_result.skip_all
+
+    def test_filter_rules_shorthand_root_odata_filter_matches_explicit_wildcard(self):
+        shorthand = FilterRules(["Processes"])
+        explicit = FilterRules(["Processes('*')"])
+
+        shorthand_result = shorthand.to_tm1_name_filter("process")
+        explicit_result = explicit.to_tm1_name_filter("process")
+
+        assert shorthand_result.filter_expr == explicit_result.filter_expr
+        assert shorthand_result.skip_all == explicit_result.skip_all
+        assert shorthand_result.applicable_rules == ["Processes('*')"]
+
+    def test_filter_rules_shorthand_view_odata_filter_matches_explicit_wildcard(self):
+        shorthand = FilterRules(["Cubes/Views"])
+        explicit = FilterRules(["Cubes('*')/Views('*')"])
+
+        shorthand_result = shorthand.to_tm1_child_name_filter(
+            parent_entity_type=EntityType.CUBE,
+            parent_name="Sales",
+            child_entity_type=EntityType.VIEW,
+        )
+        explicit_result = explicit.to_tm1_child_name_filter(
+            parent_entity_type=EntityType.CUBE,
+            parent_name="Sales",
+            child_entity_type=EntityType.VIEW,
+        )
+
+        assert shorthand_result.filter_expr == explicit_result.filter_expr
+        assert shorthand_result.skip_all == explicit_result.skip_all
+        assert shorthand_result.applicable_rules == ["Cubes('*')/Views('*')"]
+
+    def test_filter_rules_canonicalize_shorthand_preserves_rule_area_suffix(self):
+        pf = FilterRules(["Cubes/Rules('default')|[Sales]=N:1;"])
+
+        assert pf._normalized_rules == ["Cubes('*')/Rules('default')|[Sales]=N:1;"]
+        assert pf.should_exclude("Cubes('Sales')/Rules('default')|[Sales]=N:1;")
+
+    def test_filter_rules_canonicalize_shorthand_preserves_edge_identifier_slash(self):
+        pf = FilterRules(["Dimensions/Hierarchies/Edges('Total'/'Leaf')"])
+
+        assert pf._normalized_rules == [
+            "Dimensions('*')/Hierarchies('*')/Edges('Total'/'Leaf')"
+        ]
+        result = pf.to_tm1_edge_name_filter("Product", "Product")
+        assert result.filter_expr == (
+            "not ((ParentName eq 'Total') and (ComponentName eq 'Leaf'))"
+        )
+        assert result.skip_all is False
+
+    def test_filter_rules_canonicalize_drillthrough_rule_shorthand(self):
+        pf = FilterRules(["Cubes/DrillthroughRules"])
+
+        assert pf._normalized_rules == ["Cubes('*')/DrillthroughRules('*')"]
+        assert pf.should_exclude("Cubes('Sales')/DrillthroughRules('default')")
+
+    def test_filter_rules_keep_unknown_shorthand_invalid_in_strict_mode(self):
+        with pytest.raises(ValueError, match="does not match any entity pattern"):
+            FilterRules(["Servers/Cubes"], raise_on_invalid_rule=True)
 
     def test_import_filter_ignores_hash_comment_lines(self, tmp_path):
         rules_file = tmp_path / "filter.txt"
