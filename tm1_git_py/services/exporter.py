@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from concurrent.futures import Future, wait
 import threading
-from typing import Callable, Dict, List, MutableSequence, Optional
+from typing import Any, Callable, Dict, List, MutableSequence, Optional
 from TM1py import TM1Service
 import TM1py
 
@@ -391,14 +391,7 @@ def cubes_to_model(
 
             cube = tm1_conn.cubes.get(cube_name=cube_name)
 
-            rule_text = ""
-            if cube.has_rules:
-                raw_body = cube.rules.body
-                try:
-                    rule_data = json.loads(raw_body)
-                    rule_text = rule_data.get("Rules", "")
-                except (json.JSONDecodeError, AttributeError):
-                    rule_text = raw_body if isinstance(raw_body, str) else ""
+            rule_text = _extract_cube_rule_text(cube)
 
             # rules_list = _parse_rules(rule_text)
             rules_list = []
@@ -417,6 +410,11 @@ def cubes_to_model(
                 dimensions=[],
                 rules=filtered_rules_list,
                 views=[],
+                drillthrough_rules=_extract_drillthrough_rules(
+                    tm1_conn,
+                    cube_name,
+                    filter_rules,
+                ),
             )
 
             if cube.dimensions:
@@ -473,6 +471,57 @@ def cubes_to_model(
     return _cubes, _errors
 
 
+def _extract_cube_rule_text(cube: Any) -> str:
+    if not getattr(cube, "has_rules", False):
+        return ""
+    raw_body = getattr(getattr(cube, "rules", None), "body", "")
+    try:
+        rule_data = json.loads(raw_body)
+        return rule_data.get("Rules", "")
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return raw_body if isinstance(raw_body, str) else ""
+
+
+def _drillthrough_rule_uri(cube_name: str) -> str:
+    return f"Cubes('{cube_name}')/DrillthroughRules('default')"
+
+
+def _extract_drillthrough_rules(
+    tm1_conn: TM1Service,
+    cube_name: str,
+    filter_rules: FilterRules,
+) -> list[Rule]:
+    drill_cube_name = f"}}CubeDrill_{cube_name}"
+    try:
+        if not tm1_conn.cubes.exists(drill_cube_name):
+            return []
+        drill_cube = tm1_conn.cubes.get(cube_name=drill_cube_name)
+    except Exception:
+        logger.debug(
+            "No drillthrough rule cube resolved for '%s' via '%s'",
+            cube_name,
+            drill_cube_name,
+            exc_info=True,
+        )
+        return []
+
+    drillthrough_rule_text = _extract_cube_rule_text(drill_cube)
+    if not drillthrough_rule_text:
+        return []
+
+    rule = Rule(
+        area="[default]",
+        full_statement=drillthrough_rule_text,
+        comment="",
+        name="default",
+    )
+    rule_path = f"{_drillthrough_rule_uri(cube_name)}|{normalize_for_path(rule.area)}"
+    if filter_rules.should_exclude(rule_path):
+        logger.debug("Skipping drillthrough rule by filter: %s", rule_path)
+        return []
+    return [rule]
+
+
 def dimensions_to_model(
     tm1_conn: TM1Service,
     model_id: str,
@@ -508,22 +557,24 @@ def dimensions_to_model(
             progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Calculating hash {group_id}"))
             
             # since content_hash_calculator is not thread safe, we need to ensure the consistency of the group before calculating the hash
-            if content_hash_calculator.await_consistency(group_id=group_id, object_type=page_kind, expected_count=expected_tm1_count):
-                row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
-                    group_id=group_id,
-                    object_type=page_kind,
+            content_hash_calculator.await_consistency(
+                group_id=group_id,
+                object_type=page_kind,
+                expected_count=expected_tm1_count,
+            )
+            row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
+                group_id=group_id,
+                object_type=page_kind,
+            )
+            progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))
+            if row_count == expected_tm1_count:
+                model_store.commit_group_content_signature(
+                    group_id,
+                    row_count=row_count,
+                    content_hash=content_hash,
                 )
-                progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))
-                if row_count == expected_tm1_count:
-                    model_store.commit_group_content_signature(
-                        group_id,
-                        row_count=row_count,
-                        content_hash=content_hash,
-                    )
-                else:
-                    raise ValueError(f"Row count {row_count} does not match TM1 count {expected_tm1_count} for {page_kind}")
             else:
-                raise ValueError(f"Consistency timeout for group_id={group_id} object_type={page_kind}: expected {expected_tm1_count} rows, last saw {total_rows} after {float(timeout)}s")
+                raise ValueError(f"Row count {row_count} does not match TM1 count {expected_tm1_count} for {page_kind}")
 
         def _make_kind_done_callback(
             page_kind: str,

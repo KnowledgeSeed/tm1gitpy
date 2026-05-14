@@ -186,6 +186,65 @@ class TestComparator:
         assert unified_rule.full_statement == new_cube.get_rule_text()
         assert (isinstance(removed[0], MDXView) and removed[0].name == "tm1_bedrock_py_fp0vkg064lilmmga")
 
+    def test_comparator_detects_drillthrough_rule_modify(self):
+        old_cube = Cube(
+            name="Sales",
+            dimensions=["Versions"],
+            rules=[],
+            views=[],
+            drillthrough_rules=[
+                Rule(area="[default]", full_statement="[]=s:'old_drill';", name="default")
+            ],
+        )
+        new_cube = Cube(
+            name="Sales",
+            dimensions=["Versions"],
+            rules=[],
+            views=[],
+            drillthrough_rules=[
+                Rule(area="[default]", full_statement="[]=s:'new_drill';", name="default")
+            ],
+        )
+        model_old = Model(cubes=[old_cube], dimensions=[], processes=[], chores=[])
+        model_new = Model(cubes=[new_cube], dimensions=[], processes=[], chores=[])
+
+        changeset = Comparator().compare(model_old, model_new, mode="full")
+        modified_rule_changes = [
+            c for c in self._changes_by_type(changeset, ChangeType.MODIFY)
+            if c.object_type == ObjectType.RULE
+        ]
+
+        assert len(modified_rule_changes) == 1
+        assert modified_rule_changes[0].uri == "Cubes('Sales')/DrillthroughRules('default')"
+        assert modified_rule_changes[0].body.full_statement == "[]=s:'new_drill';"
+
+    def test_comparator_unchanged_drillthrough_rule_creates_no_change(self):
+        drillthrough_rule = Rule(
+            area="[default]",
+            full_statement="[]=s:'simple_drillthrough';",
+            name="default",
+        )
+        old_cube = Cube(
+            name="Sales",
+            dimensions=["Versions"],
+            rules=[],
+            views=[],
+            drillthrough_rules=[drillthrough_rule],
+        )
+        new_cube = Cube(
+            name="Sales",
+            dimensions=["Versions"],
+            rules=[],
+            views=[],
+            drillthrough_rules=[drillthrough_rule],
+        )
+        model_old = Model(cubes=[old_cube], dimensions=[], processes=[], chores=[])
+        model_new = Model(cubes=[new_cube], dimensions=[], processes=[], chores=[])
+
+        changeset = Comparator().compare(model_old, model_new, mode="full")
+
+        assert not changeset.has_changes()
+
     def test_comparator_skips_store_backed_compare_when_hash_matches(self, tmp_path, caplog):
         store = ModelStore.for_model_id(tmp_path.name)
 

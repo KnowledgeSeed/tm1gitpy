@@ -150,21 +150,23 @@ def _recalculate_group_signature_task(
     )
 
     # since content_hash_calculator is not thread safe, we need to ensure the consistency of the group before calculating the hash
-    if (content_hash_calculator.await_consistency(group_id=group_id, object_type=normalized, expected_count=count)):
-        row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
-            group_id=group_id,
-            object_type=normalized,
+    content_hash_calculator.await_consistency(
+        group_id=group_id,
+        object_type=normalized,
+        expected_count=count,
+    )
+    row_count, content_hash = content_hash_calculator.calculate_group_content_signature(
+        group_id=group_id,
+        object_type=normalized,
+    )
+    if row_count == count:
+        store.commit_group_content_signature(
+            group_id,
+            row_count=row_count,
+            content_hash=content_hash,
         )
-        if row_count == count:
-            store.commit_group_content_signature(
-                group_id,
-                row_count=row_count,
-                content_hash=content_hash,
-            ) 
-        else:
-            raise ValueError(f"Row count {row_count} does not match count {count}")
     else:
-        raise ValueError(f"Consistency timeout for group_id={group_id} object_type={normalized}: expected {count} rows, last saw {total_rows} after {float(timeout)}s")
+        raise ValueError(f"Row count {row_count} does not match count {count}")
 
     progress.on_event(
         ProgressEvent.make(
@@ -933,10 +935,32 @@ def deserialize_cubes(
                     rule_text = file.read()
                     _progress_mark(progress, rule_file_path)
                     # rules_list = _parse_rules(rule_text, cube_name=file_name_base)
-                    rules_list = []
                     if rule_text:
                         rules_list = [Rule(area="[default]", full_statement=rule_text, comment="", name="default")]
-            _cube = Cube(name=cube_json['Name'], dimensions=[], rules=rules_list, views=[])
+
+            drillthrough_rules_list = []
+            drillthrough_rule_file_path = os.path.join(cubes_dir, f"}}CubeDrill_{file_name_base}.rules")
+            if os.path.exists(drillthrough_rule_file_path):
+                _progress_start(progress, drillthrough_rule_file_path, "reading cube drillthrough rules")
+                with open(drillthrough_rule_file_path, 'r', encoding='utf-8') as file:
+                    drillthrough_rule_text = file.read()
+                    _progress_mark(progress, drillthrough_rule_file_path)
+                    if drillthrough_rule_text:
+                        drillthrough_rules_list = [
+                            Rule(
+                                area="[default]",
+                                full_statement=drillthrough_rule_text,
+                                comment="",
+                                name="default",
+                            )
+                        ]
+            _cube = Cube(
+                name=cube_json['Name'],
+                dimensions=[],
+                rules=rules_list,
+                views=[],
+                drillthrough_rules=drillthrough_rules_list,
+            )
 
         for dim in cube_json['Dimensions']:
             pattern = r"Dimensions\('([^']*)'\)"
@@ -1032,7 +1056,7 @@ def deserialize_cubes(
                     )
         cubes[_cube.name] = _cube
         if count_callback is not None:
-            count_callback(1 + len(_cube.rules) + len(_cube.views))
+            count_callback(1 + len(_cube.rules) + len(_cube.drillthrough_rules) + len(_cube.views))
     return cubes, cube_errors
 
 

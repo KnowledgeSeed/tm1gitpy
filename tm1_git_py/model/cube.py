@@ -80,12 +80,20 @@ class _DimensionNameList(list):
 
 
 class Cube:
-    def __init__(self, name, dimensions: List[str], rules: List[Rule], views: List[MDXView]):
+    def __init__(
+            self,
+            name,
+            dimensions: List[str],
+            rules: List[Rule],
+            views: List[MDXView],
+            drillthrough_rules: Optional[List[Rule]] = None,
+    ):
         self.type = 'Cube'
         self.name = name
         self.dimensions = _DimensionNameList(dimensions)
         self.rules = rules
         self.views = views
+        self.drillthrough_rules = drillthrough_rules or []
 
     def as_json(self):
         payload: Dict[str, Any] = {
@@ -98,6 +106,8 @@ class Cube:
         }
         if self.rules:
             payload["Rules@Code.link"] = format_url("{}.rules", self.name)
+        if self.drillthrough_rules:
+            payload["DrillthroughRules@Code.link"] = format_url("{}.drillthrough.rules", self.name)
         payload["Views@Code.links"] = [
             format_url("{}.views/{}.json", self.name, v.name) for v in self.views
         ]
@@ -105,9 +115,16 @@ class Cube:
         return s.replace(":[\n", ":\n\t[\n")
 
     def get_rule_text(self) -> str:
-        if not self.rules: return ""
+        return self._rule_text(self.rules)
+
+    def get_drillthrough_rule_text(self) -> str:
+        return self._rule_text(self.drillthrough_rules)
+
+    @staticmethod
+    def _rule_text(rules: List[Rule]) -> str:
+        if not rules: return ""
         content_parts = []
-        for rule in self.rules:
+        for rule in rules:
             if rule.comment:
                 content_parts.append(rule.comment)
             content_parts.append(rule.full_statement)
@@ -125,6 +142,8 @@ class Cube:
             return False
         if set(self.rules) != set(other.rules):
             return False
+        if set(self.drillthrough_rules) != set(other.drillthrough_rules):
+            return False
         return True
 
     def __hash__(self) -> int:
@@ -132,6 +151,7 @@ class Cube:
             self.name,
             tuple(sorted(self.dimensions)),
             frozenset(self.rules),
+            frozenset(self.drillthrough_rules),
             frozenset(self.views)
         ))
 
@@ -143,6 +163,7 @@ class Cube:
             'name': self.name,
             'dimensions': list(self.dimensions),
             'rules': [r.to_dict() for r in self.rules],
+            'drillthrough_rules': [r.to_dict() for r in self.drillthrough_rules],
             'views': [v.to_dict() for v in self.views]
         }
 
@@ -157,10 +178,19 @@ class Cube:
         dimensions = [_dimension_name_from_payload(payload) for payload in dimension_payloads]
 
         rule_payloads = data.get("rules") or data.get("Rules") or []
-        rule_base_path = f"cubes/{name}"
         rules = [
-            Rule.from_dict(payload, source_path=f"{rule_base_path}.rules", cube_name=name)
+            Rule.from_dict(payload)
             for payload in rule_payloads
+        ]
+        drillthrough_rule_payloads = (
+            data.get("drillthrough_rules")
+            or data.get("drillthroughRules")
+            or data.get("DrillthroughRules")
+            or []
+        )
+        drillthrough_rules = [
+            Rule.from_dict(payload)
+            for payload in drillthrough_rule_payloads
         ]
 
         view_payloads = data.get("views") or data.get("Views") or []
@@ -168,7 +198,13 @@ class Cube:
             MDXView.from_dict(payload, cube_name=name)
             for payload in view_payloads
         ]
-        return cls(name=name, dimensions=dimensions, rules=rules, views=views)
+        return cls(
+            name=name,
+            dimensions=dimensions,
+            rules=rules,
+            views=views,
+            drillthrough_rules=drillthrough_rules,
+        )
 
     @staticmethod
     def uri_for(cube_name: str) -> str:

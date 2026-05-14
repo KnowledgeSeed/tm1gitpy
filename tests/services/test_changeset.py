@@ -2,6 +2,7 @@ import threading
 
 from tm1_git_py.db.sqlite_worker import SqliteWorker
 from tm1_git_py.db.changeset_store import ChangesetStore
+from tm1_git_py.services.apply import delete_object, update_object
 from tests.unit_common import *
 
 
@@ -101,6 +102,70 @@ class TestChangeset:
                 object_type=ObjectType.PROCESS.value,
                 uri=process.uri(),
             )
+
+    def test_create_object_routes_drillthrough_rule_to_technical_cube(self, mocker):
+        tm1_service = mocker.Mock()
+        rule = make_rule(area="[default]", full_statement="[]=s:'simple_drillthrough';")
+
+        create_object(
+            tm1_service=tm1_service,
+            object_instance=rule,
+            object_type=ObjectType.RULE.value,
+            uri="Cubes('Sales')/DrillthroughRules('default')",
+        )
+
+        tm1_service.cubes.update_or_create_rules.assert_called_once_with(
+            cube_name="}CubeDrill_Sales",
+            rules="[]=s:'simple_drillthrough';",
+        )
+
+    def test_update_object_routes_drillthrough_rule_to_technical_cube(self, mocker):
+        tm1_service = mocker.Mock()
+        rule = make_rule(area="[default]", full_statement="[]=s:'updated_drill';")
+
+        update_object(
+            tm1_service=tm1_service,
+            object_instance=rule,
+            object_type=ObjectType.RULE.value,
+            uri="Cubes('Sales')/DrillthroughRules('default')",
+        )
+
+        tm1_service.cubes.update_or_create_rules.assert_called_once_with(
+            cube_name="}CubeDrill_Sales",
+            rules="[]=s:'updated_drill';",
+        )
+
+    def test_delete_object_routes_drillthrough_rule_to_technical_cube(self, mocker):
+        tm1_service = mocker.Mock()
+        rule = make_rule(area="[default]", full_statement="[]=s:'old_drill';")
+
+        delete_object(
+            tm1_service=tm1_service,
+            object_instance=rule,
+            object_type=ObjectType.RULE.value,
+            uri="Cubes('Sales')/DrillthroughRules('default')",
+        )
+
+        tm1_service.cubes.update_or_create_rules.assert_called_once_with(
+            cube_name="}CubeDrill_Sales",
+            rules="",
+        )
+
+    def test_update_object_keeps_regular_rule_on_source_cube(self, mocker):
+        tm1_service = mocker.Mock()
+        rule = make_rule(area="[default]", full_statement="[] = N: 1;")
+
+        update_object(
+            tm1_service=tm1_service,
+            object_instance=rule,
+            object_type=ObjectType.RULE.value,
+            uri="Cubes('Sales')/Rules('default')",
+        )
+
+        tm1_service.cubes.update_or_create_rules.assert_called_once_with(
+            cube_name="Sales",
+            rules="[] = N: 1;",
+        )
 
     def test_apply_continues_after_duplicate_create_for_technical_object(self, mocker, caplog):
         technical_process = make_process(name="}Stats")
