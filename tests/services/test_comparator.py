@@ -359,6 +359,25 @@ class TestComparator:
         assert any(h.name == "Leaves" for h in model1.dimensions[0].hierarchies)
         assert any(h.name == "Leaves" for h in model2.dimensions[0].hierarchies)
 
+    def test_comparator_uses_canonical_tm1git_shorthand_filter_rules(self):
+        model1 = build_mock_model()
+        model2 = build_mock_model()
+        model2.cubes[0].views[0].mdx = (
+            "SELECT {TM1FILTERBYLEVEL({TM1SUBSETALL([MockDim].[MockHier])}, 0)} "
+            "ON 0 FROM [MockCube]"
+        )
+
+        unfiltered = Comparator().compare(model1, model2, mode="full")
+        assert any(change.object_type == ObjectType.MDX_VIEW for change in unfiltered.changes)
+
+        filtered = Comparator().compare(
+            model1,
+            model2,
+            mode="full",
+            filter_rules=["Cubes/Views"],
+        )
+        assert not any(change.object_type == ObjectType.MDX_VIEW for change in filtered.changes)
+
     def test_comparator_streaming_store_backed_elements_and_edges(self, tmp_path):
         """StoreBackedSequence merge compare should match in-memory list compare."""
 
