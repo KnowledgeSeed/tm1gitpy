@@ -1,9 +1,0 @@
-{"Name":"Quantity","Type":"Numeric"}
-{"Name":"Revenue","Type":"Numeric"}
-{"Name":"Discount","Type":"Numeric"}
-{"Name":"Cost of Sold Goods","Type":"Numeric"}
-{"Name":"Allocated Cost","Type":"Numeric"}
-{"Name":"Transportation and Packaging Cost","Type":"Numeric"}
-{"Name":"Margin","Type":"Numeric"}
-{"Name":"Price","Type":"Numeric"}
-{"Name":"Discount Perc.","Type":"Numeric"}
