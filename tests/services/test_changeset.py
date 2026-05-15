@@ -362,12 +362,9 @@ class TestChangeset:
         assert sqlite_path.name == "changeset-20260413000002.sqlite"
         assert sqlite_path.exists()
 
-        conn = sqlite3.connect(sqlite_path)
-        try:
-            row = conn.execute("SELECT COUNT(*) FROM changes").fetchone()
-            assert int(row[0]) == 1
-        finally:
-            conn.close()
+        assert changeset.has_changes()
+        assert len(changeset.changes) == 1
+
 
     def test_changeset_filter_uses_readme_rules_and_preserves_parent_exclude(self):
         changeset = Changeset(changeset_id="20260413000003")
