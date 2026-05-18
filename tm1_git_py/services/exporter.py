@@ -419,12 +419,7 @@ def cubes_to_model(
 
             if cube.dimensions:
                 for dimension in cube.dimensions:
-                    _dimension = _dimensions.get(dimension)
-                    if not _dimension:
-                        _cube.dimensions.append(Dimension(name=dimension))
-                    else:
-                        _cube.dimensions.append(_dimension)
-
+                    _cube.dimensions.append(dimension)
 
             _cubes[cube_name] = _cube
 

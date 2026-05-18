@@ -59,26 +59,6 @@ def _dimension_name_from_payload(payload: Any) -> str:
     raise ValueError(f"Unable to resolve cube dimension name from payload: {payload!r}")
 
 
-class _DimensionNameList(list):
-    def __init__(self, values):
-        super().__init__(_dimension_name_from_payload(value) for value in values)
-
-    def append(self, value):
-        super().append(_dimension_name_from_payload(value))
-
-    def extend(self, values):
-        super().extend(_dimension_name_from_payload(value) for value in values)
-
-    def insert(self, index, value):
-        super().insert(index, _dimension_name_from_payload(value))
-
-    def __setitem__(self, index, value):
-        if isinstance(index, slice):
-            super().__setitem__(index, [_dimension_name_from_payload(item) for item in value])
-            return
-        super().__setitem__(index, _dimension_name_from_payload(value))
-
-
 class Cube:
     def __init__(
             self,
@@ -90,7 +70,7 @@ class Cube:
     ):
         self.type = 'Cube'
         self.name = name
-        self.dimensions = _DimensionNameList(dimensions)
+        self.dimensions = dimensions
         self.rules = rules
         self.views = views
         self.drillthrough_rules = drillthrough_rules or []
