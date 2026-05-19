@@ -425,6 +425,161 @@ class TestDeserializer:
         assert hierarchy_obj.edges.content_signature()[0] == len(hierarchy_obj.edges)
         assert hierarchy_obj.subsets.content_signature()[0] == len(hierarchy_obj.subsets)
 
+    def test_deserialize_dimensions_preserves_hierarchy_sort_metadata_and_indexes(self, tmp_path):
+        dimensions_dir = tmp_path / "dimensions"
+        hierarchy_dir = dimensions_dir / "MyDim.hierarchies"
+        hierarchy_dir.mkdir(parents=True)
+        (dimensions_dir / "MyDim.json").write_text(
+            json.dumps(
+                {
+                    "@type": "Dimension",
+                    "Name": "MyDim",
+                    "DefaultHierarchy": {
+                        "@id": "Dimensions('MyDim')/Hierarchies('MyHier')"
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (hierarchy_dir / "MyHier.json").write_text(
+            json.dumps(
+                {
+                    "@type": "Hierarchy",
+                    "Name": "MyHier",
+                    "ElementsSortType": "BYINPUT",
+                    "ElementsSortSense": "DESCENDING",
+                    "ComponentsSortType": "BYHIERARCHY",
+                    "ComponentsSortSense": "DESCENDING",
+                    "Elements": [
+                        {"Name": "B", "Type": "Numeric"},
+                        {"Name": "A", "Type": "Numeric"},
+                    ],
+                    "Edges": [
+                        {"ParentName": "P", "ComponentName": "B", "Weight": 1},
+                        {"ParentName": "P", "ComponentName": "A", "Weight": 1},
+                    ],
+                    "Subsets@Code.links": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        dimensions, errors = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
+
+        assert errors == {}
+        hierarchy_obj = dimensions["MyDim"].hierarchies[0]
+        assert hierarchy_obj.elements_sort_type == "ByInput"
+        assert hierarchy_obj.elements_sort_sense == "Descending"
+        assert hierarchy_obj.components_sort_type == "ByHierarchy"
+        assert hierarchy_obj.components_sort_sense == "Descending"
+        assert hierarchy_obj.elements.sort_metadata() == {
+            "ElementsSortType": "ByInput",
+            "ElementsSortSense": "Descending",
+            "ComponentsSortType": "ByHierarchy",
+            "ComponentsSortSense": "Descending",
+        }
+        assert [
+            (payload["Name"], payload["ElementIndex"])
+            for payload in hierarchy_obj.elements.iter_payloads(
+                order_by_internal_index=True,
+                include_internal_indexes=True,
+            )
+        ] == [("B", 0), ("A", 1)]
+        assert [
+            (payload["ComponentName"], payload["ComponentIndex"])
+            for payload in hierarchy_obj.edges.iter_payloads(
+                order_by_internal_index=True,
+                include_internal_indexes=True,
+            )
+        ] == [("B", 0), ("A", 1)]
+
+    def test_deserialize_dimensions_keeps_missing_sort_metadata_missing(self, tmp_path):
+        dimensions_dir = tmp_path / "dimensions"
+        hierarchy_dir = dimensions_dir / "MyDim.hierarchies"
+        hierarchy_dir.mkdir(parents=True)
+        (dimensions_dir / "MyDim.json").write_text(
+            json.dumps(
+                {
+                    "@type": "Dimension",
+                    "Name": "MyDim",
+                    "DefaultHierarchy": {
+                        "@id": "Dimensions('MyDim')/Hierarchies('MyHier')"
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (hierarchy_dir / "MyHier.json").write_text(
+            json.dumps(
+                {
+                    "@type": "Hierarchy",
+                    "Name": "MyHier",
+                    "Elements": [{"Name": "A", "Type": "Numeric"}],
+                    "Subsets@Code.links": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        dimensions, errors = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
+
+        assert errors == {}
+        hierarchy_obj = dimensions["MyDim"].hierarchies[0]
+        assert hierarchy_obj.elements_sort_type is None
+        assert hierarchy_obj.elements_sort_sense is None
+        assert hierarchy_obj.components_sort_type is None
+        assert hierarchy_obj.components_sort_sense is None
+        assert hierarchy_obj.effective_elements_sort_type == "ByName"
+        assert hierarchy_obj.effective_elements_sort_sense == "Ascending"
+        assert hierarchy_obj.elements.sort_metadata() == {}
+
+    def test_deserialize_dimensions_preserves_explicit_default_sort_metadata(self, tmp_path):
+        dimensions_dir = tmp_path / "dimensions"
+        hierarchy_dir = dimensions_dir / "MyDim.hierarchies"
+        hierarchy_dir.mkdir(parents=True)
+        (dimensions_dir / "MyDim.json").write_text(
+            json.dumps(
+                {
+                    "@type": "Dimension",
+                    "Name": "MyDim",
+                    "DefaultHierarchy": {
+                        "@id": "Dimensions('MyDim')/Hierarchies('MyHier')"
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (hierarchy_dir / "MyHier.json").write_text(
+            json.dumps(
+                {
+                    "@type": "Hierarchy",
+                    "Name": "MyHier",
+                    "ElementsSortType": "BYNAME",
+                    "ElementsSortSense": "ASCENDING",
+                    "ComponentsSortType": "BYNAME",
+                    "ComponentsSortSense": "ASCENDING",
+                    "Elements": [{"Name": "A", "Type": "Numeric"}],
+                    "Subsets@Code.links": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        dimensions, errors = _call_deserialize_dimensions(dimensions_dir, tmp_path.name)
+
+        assert errors == {}
+        hierarchy_obj = dimensions["MyDim"].hierarchies[0]
+        assert hierarchy_obj.elements_sort_type == "ByName"
+        assert hierarchy_obj.elements_sort_sense == "Ascending"
+        assert hierarchy_obj.components_sort_type == "ByName"
+        assert hierarchy_obj.components_sort_sense == "Ascending"
+        assert hierarchy_obj.elements.sort_metadata() == {
+            "ElementsSortType": "ByName",
+            "ElementsSortSense": "Ascending",
+            "ComponentsSortType": "ByName",
+            "ComponentsSortSense": "Ascending",
+        }
+
     def test_deserialize_rebuilds_store_groups_when_source_hierarchy_is_newer(self, tmp_path):
         src_dimensions = test_model_dir_base / "dimensions"
         dimensions_dir = tmp_path / "dimensions"
@@ -868,6 +1023,144 @@ class TestDeserializer:
         seq.extend_payloads([{"Name": "A", "Type": "Numeric"}])
         assert len(seq) == 1
         assert seq[0] == Element(name="A", type="Numeric")
+
+    def test_element_and_edge_internal_indexes_do_not_affect_json_or_equality(self):
+        indexed_element = Element(name="A", type="Numeric", element_index=7)
+        plain_element = Element(name="A", type="Numeric")
+        indexed_edge = Edge(parent="P", component_name="C", weight=1, component_index=9)
+        plain_edge = Edge(parent="P", component_name="C", weight=1)
+
+        assert indexed_element == plain_element
+        assert indexed_edge == plain_edge
+        assert "ElementIndex" not in indexed_element.to_dict()
+        assert "ElementIndex" not in json.loads(indexed_element.as_json())
+        assert "ComponentIndex" not in indexed_edge.to_dict()
+        assert "ComponentIndex" not in json.loads(indexed_edge.as_json())
+
+    def test_store_backed_sequence_retains_internal_indexes_without_exposing_by_default(self, tmp_path):
+        store = ModelStore.for_model_id(tmp_path.name + "_indexes")
+        elements = StoreBackedSequence.for_elements_sink(
+            store=store,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        edges = StoreBackedSequence.for_edges_sink(
+            store=store,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        elements.replace_with_payloads(())
+        edges.replace_with_payloads(())
+
+        elements.extend_payloads(
+            [
+                {"Name": "B", "Type": "Numeric", "ElementIndex": 10},
+                {"Name": "A", "Type": "String", "ElementIndex": 11},
+            ]
+        )
+        edges.extend(
+            [
+                Edge(parent="P2", component_name="C2", weight=1, component_index=20),
+                Edge(parent="P1", component_name="C1", weight=2, component_index=21),
+            ]
+        )
+
+        default_element_payload = next(elements.iter_payloads())
+        default_edge_payload = next(edges.iter_payloads())
+        assert "ElementIndex" not in default_element_payload
+        assert "ComponentIndex" not in default_edge_payload
+
+        indexed_elements = list(elements.iter_payloads(include_internal_indexes=True))
+        indexed_edges = list(edges.iter_payloads(include_internal_indexes=True))
+        assert [payload["ElementIndex"] for payload in indexed_elements] == [11, 10]
+        assert [payload["ComponentIndex"] for payload in indexed_edges] == [21, 20]
+
+    def test_store_backed_sequence_assigns_internal_indexes_when_missing(self, tmp_path):
+        store = ModelStore.for_model_id(tmp_path.name + "_auto_indexes")
+        seq = StoreBackedSequence.for_elements_sink(
+            store=store,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        seq.replace_with_payloads(())
+        seq.extend_payloads(
+            [
+                {"Name": "B", "Type": "Numeric"},
+                {"Name": "A", "Type": "String"},
+            ]
+        )
+
+        payloads = list(seq.iter_payloads(include_internal_indexes=True))
+        assert [payload["ElementIndex"] for payload in payloads] == [1, 0]
+
+    def test_store_backed_sequence_uses_explicit_start_index_for_out_of_order_pages(self, tmp_path):
+        store = ModelStore.for_model_id(tmp_path.name + "_page_indexes")
+        seq = StoreBackedSequence.for_elements_sink(
+            store=store,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        seq.replace_with_payloads(())
+
+        seq.extend_payloads(
+            [
+                {"Name": "C", "Type": "Numeric"},
+                {"Name": "D", "Type": "String"},
+            ],
+            start_index=2,
+        )
+        seq.extend_payloads(
+            [
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "String"},
+            ],
+            start_index=0,
+        )
+
+        by_identity = list(seq.iter_payloads(include_internal_indexes=True))
+        by_index = list(
+            seq.iter_payloads(
+                order_by_internal_index=True,
+                include_internal_indexes=True,
+            )
+        )
+        assert [(payload["Name"], payload["ElementIndex"]) for payload in by_identity] == [
+            ("A", 0),
+            ("B", 1),
+            ("C", 2),
+            ("D", 3),
+        ]
+        assert [payload["Name"] for payload in by_index] == ["A", "B", "C", "D"]
+
+    def test_deserializer_batch_insert_assigns_indexes_from_json_order(self, tmp_path):
+        store = ModelStore.for_model_id(tmp_path.name + "_deserialize_indexes")
+        seq = StoreBackedSequence.for_edges_sink(
+            store=store,
+            dimension_name="D",
+            hierarchy_name="H",
+        )
+        seq.replace_with_payloads(())
+
+        deserializer_module._append_payloads_in_batches(
+            store=store,
+            group_id=seq.group_id,
+            payloads=[
+                {"ParentName": "P", "ComponentName": "B", "Weight": 1},
+                {"ParentName": "P", "ComponentName": "A", "Weight": 1},
+            ],
+            start_index=0,
+        )
+
+        payloads = list(
+            seq.iter_payloads(
+                order_by_internal_index=True,
+                include_internal_indexes=True,
+            )
+        )
+        assert [(payload["ComponentName"], payload["ComponentIndex"]) for payload in payloads] == [
+            ("B", 0),
+            ("A", 1),
+        ]
 
     def test_store_backed_sequence_persists_empty_string_for_null_identity_fields(self, tmp_path):
         store = ModelStore.for_model_id(tmp_path.name + "_empty_identity")

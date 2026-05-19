@@ -10,6 +10,7 @@ from tqdm import tqdm
 from tm1_git_py.services.changeset import Changeset, Change, ChangeType, ObjectType
 from tm1_git_py.model import Hierarchy, MDXView, NativeView, Subset, Element, Edge, Rule
 from tm1_git_py.model.store_backed_sequence import StoreBackedSequence
+from tm1_git_py.model.hierarchy import hierarchy_has_sort_metadata, hierarchy_sort_metadata_json
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
@@ -162,11 +163,75 @@ def _dimensions_equal_shallow(old_dimension: Dimension, new_dimension: Dimension
 
 def _hierarchies_equal_shallow(old_hierarchy: Hierarchy, new_hierarchy: Hierarchy) -> bool:
     try:
-        return old_hierarchy.name == new_hierarchy.name
+        if old_hierarchy.name != new_hierarchy.name:
+            return False
+        if hierarchy_sort_metadata_json(old_hierarchy) != hierarchy_sort_metadata_json(new_hierarchy):
+            return False
+        if hierarchy_has_sort_metadata(old_hierarchy) or hierarchy_has_sort_metadata(new_hierarchy):
+            if _hierarchy_element_order_signature(old_hierarchy) != _hierarchy_element_order_signature(new_hierarchy):
+                return False
+            if _hierarchy_edge_order_signature(old_hierarchy) != _hierarchy_edge_order_signature(new_hierarchy):
+                return False
+        return True
 
     except AttributeError as exc:
         logger.error("Hierarchy comparison failed due to missing attributes: %s", exc)
         return False
+
+
+def _hierarchy_element_order_signature(hierarchy: Hierarchy) -> dict[str, Optional[int]]:
+    return {
+        str(name): index
+        for name, index in _iter_hierarchy_order_signature(
+            getattr(hierarchy, "elements", []),
+            object_type=Element,
+        )
+    }
+
+
+def _hierarchy_edge_order_signature(hierarchy: Hierarchy) -> dict[tuple[str, str], Optional[int]]:
+    return {
+        (str(parent), str(component)): index
+        for (parent, component), index in _iter_hierarchy_order_signature(
+            getattr(hierarchy, "edges", []),
+            object_type=Edge,
+        )
+    }
+
+
+def _iter_hierarchy_order_signature(
+    collection: Iterable[Any],
+    *,
+    object_type: type,
+) -> Iterable[tuple[Any, Optional[int]]]:
+    if isinstance(collection, StoreBackedSequence):
+        for payload in collection.iter_payloads(
+            ordered_by_identity=True,
+            include_internal_indexes=True,
+        ):
+            if object_type is Element:
+                yield payload.get("Name"), _optional_int(payload.get("ElementIndex"))
+            elif object_type is Edge:
+                yield (
+                    payload.get("ParentName"),
+                    payload.get("ComponentName"),
+                ), _optional_int(payload.get("ComponentIndex"))
+        return
+
+    for item in collection:
+        if object_type is Element and isinstance(item, Element):
+            yield getattr(item, "name", ""), _optional_int(getattr(item, "element_index", None))
+        elif object_type is Edge and isinstance(item, Edge):
+            yield (
+                getattr(item, "parent", ""),
+                getattr(item, "component_name", ""),
+            ), _optional_int(getattr(item, "component_index", None))
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    return int(value)
 
 
 def _cubes_equal_shallow(old_cube: Cube, new_cube: Cube) -> bool:

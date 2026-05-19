@@ -67,6 +67,143 @@ class TestExporter:
 
         assert seen == {"cpu_workers": 2, "io_workers": 6}
 
+    def test_get_hierarchy_sort_metadata_uses_default_member_for_single_hierarchy(self):
+        tm1_conn = mock.Mock()
+        tm1_conn.cells.execute_mdx_elements_value_dict.return_value = {
+            "SORTELEMENTSTYPE|Products": "BYNAME",
+            "SORTELEMENTSSENSE|Products": "DESCENDING",
+            "SORTCOMPONENTSTYPE|Products": "BYHIERARCHY",
+            "SORTCOMPONENTSSENSE|Products": "ASCENDING",
+        }
+
+        result = exporter_module.get_hierarchy_sort_metadata(
+            tm1_conn,
+            "Products",
+            ["Products"],
+        )
+
+        mdx = tm1_conn.cells.execute_mdx_elements_value_dict.call_args.args[0]
+        assert "[}Dimensions].[}Dimensions].[Products]" in mdx
+        assert "[}Dimensions].[}Dimensions].[Products:Products]" not in mdx
+        assert result == {
+            ("Products", "Products"): {
+                "ElementsSortType": "ByName",
+                "ElementsSortSense": "Descending",
+                "ComponentsSortType": "ByHierarchy",
+                "ComponentsSortSense": "Ascending",
+            }
+        }
+
+    def test_get_hierarchy_sort_metadata_uses_default_member_for_case_variant_default_hierarchy(self):
+        tm1_conn = mock.Mock()
+        tm1_conn.cells.execute_mdx_elements_value_dict.return_value = {
+            "SORTELEMENTSTYPE|}Views_TestCube3WithView": "BYNAME",
+        }
+
+        exporter_module.get_hierarchy_sort_metadata(
+            tm1_conn,
+            "}Views_TestCube3WithView",
+            ["}Views_testcube3withview"],
+        )
+
+        mdx = tm1_conn.cells.execute_mdx_elements_value_dict.call_args.args[0]
+        assert "[}Dimensions].[}Dimensions].[}Views_TestCube3WithView]" in mdx
+        assert "}Views_TestCube3WithView:}Views_testcube3withview" not in mdx
+
+    def test_get_hierarchy_sort_metadata_uses_qualified_member_for_alternate_hierarchy(self):
+        tm1_conn = mock.Mock()
+        tm1_conn.cells.execute_mdx_elements_value_dict.side_effect = [
+            {"SORTELEMENTSTYPE|Products": "BYINPUT"},
+            {"SORTCOMPONENTSSENSE|Products:Leaves": "DESCENDING"},
+        ]
+
+        result = exporter_module.get_hierarchy_sort_metadata(
+            tm1_conn,
+            "Products",
+            ["Products", "Leaves"],
+        )
+
+        first_mdx = tm1_conn.cells.execute_mdx_elements_value_dict.call_args_list[0].args[0]
+        second_mdx = tm1_conn.cells.execute_mdx_elements_value_dict.call_args_list[1].args[0]
+        assert "[}Dimensions].[}Dimensions].[Products]" in first_mdx
+        assert "[}Dimensions].[}Dimensions].[Products:Products]" not in first_mdx
+        assert "[}Dimensions].[}Dimensions].[Products:Leaves]" in second_mdx
+        assert result == {
+            ("Products", "Products"): {"ElementsSortType": "ByInput"},
+            ("Products", "Leaves"): {"ComponentsSortSense": "Descending"},
+        }
+
+    def test_get_hierarchy_sort_metadata_omits_missing_or_empty_cells(self):
+        tm1_conn = mock.Mock()
+        tm1_conn.cells.execute_mdx_elements_value_dict.return_value = {
+            "SORTELEMENTSTYPE|Products": None,
+            "SORTELEMENTSSENSE|Products": "",
+            "SORTCOMPONENTSTYPE|Products": "BYLEVEL",
+            "IGNORED|Products": "DESCENDING",
+        }
+
+        result = exporter_module.get_hierarchy_sort_metadata(
+            tm1_conn,
+            "Products",
+            ["Products"],
+        )
+
+        assert result == {
+            ("Products", "Products"): {
+                "ComponentsSortType": "ByLevel",
+            }
+        }
+
+    def test_dimensions_to_model_applies_sort_metadata_to_hierarchy(self, monkeypatch):
+        import uuid
+
+        model_id = f"export_sort_metadata_{uuid.uuid4().hex}"
+        tm1_conn = mock.Mock()
+        hierarchy_identity = types.SimpleNamespace(
+            name="Products",
+            etag=None,
+            cardinality=0,
+        )
+
+        monkeypatch.setattr(exporter_module, "get_dimension_names", lambda *args, **kwargs: ["Products"])
+        monkeypatch.setattr(exporter_module, "get_hierarchy_names", lambda *args, **kwargs: [hierarchy_identity])
+        monkeypatch.setattr(
+            exporter_module,
+            "get_hierarchy_sort_metadata",
+            lambda *args, **kwargs: {
+                ("Products", "Products"): {
+                    "ElementsSortType": "ByInput",
+                    "ElementsSortSense": "Descending",
+                    "ComponentsSortType": "ByHierarchy",
+                    "ComponentsSortSense": "Descending",
+                }
+            },
+        )
+        monkeypatch.setattr(exporter_module, "get_elements_count", lambda *args, **kwargs: 0)
+        monkeypatch.setattr(exporter_module, "get_edges_count", lambda *args, **kwargs: 0)
+        monkeypatch.setattr(exporter_module, "get_subsets_count", lambda *args, **kwargs: 0)
+
+        dimensions, errors = exporter_module.dimensions_to_model(
+            tm1_conn,
+            model_id=model_id,
+            filter_rules=FilterRules([]),
+            progress_sink=exporter_module.NoopProgressSink(),
+            worker_counts=exporter_module.resolve_worker_counts(1),
+        )
+
+        assert errors == {}
+        hierarchy = dimensions["Products"].hierarchies[0]
+        assert hierarchy.elements_sort_type == "ByInput"
+        assert hierarchy.elements_sort_sense == "Descending"
+        assert hierarchy.components_sort_type == "ByHierarchy"
+        assert hierarchy.components_sort_sense == "Descending"
+        assert hierarchy.elements.sort_metadata() == {
+            "ElementsSortType": "ByInput",
+            "ElementsSortSense": "Descending",
+            "ComponentsSortType": "ByHierarchy",
+            "ComponentsSortSense": "Descending",
+        }
+
     def test_export_no_longer_accepts_serialize(self):
         import inspect
 

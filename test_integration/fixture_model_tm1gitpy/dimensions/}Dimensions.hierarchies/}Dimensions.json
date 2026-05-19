@@ -1,6 +1,8 @@
 {
 	"@type":"Hierarchy",
 	"Name":"}Dimensions",
+	"ElementsSortType":"ByName",
+	"ElementsSortSense":"Ascending",
 	"Elements":
 	[
 		{

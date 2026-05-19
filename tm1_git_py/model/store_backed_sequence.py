@@ -8,11 +8,17 @@ T = TypeVar("T")
 
 
 def _element_to_dict(item: Element) -> dict[str, Any]:
-    return item.to_dict()
+    payload = item.to_dict()
+    if item.element_index is not None:
+        payload["ElementIndex"] = item.element_index
+    return payload
 
 
 def _edge_to_dict(item: Edge) -> dict[str, Any]:
-    return item.to_dict()
+    payload = item.to_dict()
+    if item.component_index is not None:
+        payload["ComponentIndex"] = item.component_index
+    return payload
 
 
 def _subset_to_dict(item: Subset) -> dict[str, Any]:
@@ -155,7 +161,12 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
             payloads,
         )
 
-    def extend_payloads(self, payloads: Iterable[dict[str, Any]]) -> None:
+    def extend_payloads(
+        self,
+        payloads: Iterable[dict[str, Any]],
+        *,
+        start_index: Optional[int] = None,
+    ) -> None:
         """
         Append rows from REST/OData-shaped dicts without building model objects first.
 
@@ -167,21 +178,35 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         batch = list(payloads)
         if not batch:
             return
-        self._active_store().append_payloads(self.group_id, batch)
+        self._active_store().append_payloads(self.group_id, batch, start_index=start_index)
 
-    def iter_payloads(self, *, ordered_by_identity: bool = False) -> Iterator[dict[str, Any]]:
-        yield from self._active_store().iter_payloads(self.group_id, progress_label=True, ordered_by_identity=ordered_by_identity)
+    def iter_payloads(
+        self,
+        *,
+        ordered_by_identity: bool = False,
+        order_by_internal_index: bool = False,
+        include_internal_indexes: bool = False,
+    ) -> Iterator[dict[str, Any]]:
+        yield from self._active_store().iter_payloads(
+            self.group_id,
+            progress_label=True,
+            ordered_by_identity=ordered_by_identity,
+            order_by_internal_index=order_by_internal_index,
+            include_internal_indexes=include_internal_indexes,
+        )
 
     def iter_payload_json_strings(
         self,
         *,
         ordered_by_identity: bool = False,
+        order_by_internal_index: bool = False,
         progress_label: Optional[str] = None,
         progress_every: int = 10_000,
     ) -> Iterator[str]:
         yield from self._active_store().iter_payload_json_strings(
             self.group_id,
             ordered_by_identity=ordered_by_identity,
+            order_by_internal_index=order_by_internal_index,
             progress_label=progress_label,
             progress_every=progress_every,
         )
@@ -201,7 +226,7 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
 
     def filter_in_place(self, predicate: Callable[[T], bool]) -> int:
         kept_payloads = []
-        for payload in self.iter_payloads():
+        for payload in self.iter_payloads(include_internal_indexes=True):
             item = self._item_from_payload(payload)
             if predicate(item):
                 kept_payloads.append(payload)
@@ -254,3 +279,9 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
 
     def filter_rules(self) -> list[str]:
         return self._active_store().group_filter_rules(self.group_id)
+
+    def set_sort_metadata(self, sort_metadata: dict[str, Any]) -> None:
+        self._active_store().set_group_sort_metadata(self.group_id, sort_metadata)
+
+    def sort_metadata(self) -> dict[str, str]:
+        return self._active_store().group_sort_metadata(self.group_id)

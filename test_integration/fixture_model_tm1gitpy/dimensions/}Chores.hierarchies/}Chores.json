@@ -1,6 +1,8 @@
 {
 	"@type":"Hierarchy",
 	"Name":"}Chores",
+	"ElementsSortType":"ByName",
+	"ElementsSortSense":"Ascending",
 	"Elements":[],
 	"Subsets@Code.links":[]
 }

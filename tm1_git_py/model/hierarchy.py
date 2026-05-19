@@ -1,29 +1,119 @@
-import json
 import io
+import json
 import logging
 import os
 import re
 import time
 import uuid
 from typing import List, Any, Dict, Optional, Tuple, MutableSequence, Iterator
+
 import TM1py
+import orjson
 from TM1py import TM1Service
 from TM1py.Utils import format_url
 from requests import Response
 
-from tm1_git_py.reporting.progress_reporting import ProgressEvent, ProgressSink
-
-# Keep CRUD helpers imported in module namespace for compatibility with existing patches/tests.
-from .element import Element, create_element, delete_element, update_element
-from .edge import Edge
-from .subset import Subset
 from tm1_git_py.db.model_store import ModelStore
+from tm1_git_py.reporting.progress_reporting import ProgressEvent, ProgressSink
+from .edge import Edge
+# Keep CRUD helpers imported in module namespace for compatibility with existing patches/tests.
+from .element import Element
 from .store_backed_sequence import StoreBackedSequence
+from .subset import Subset
 from .tm1git_json import dump_as_tm1git
-import orjson
-
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_HIERARCHY_SORT_TYPE = "ByName"
+DEFAULT_HIERARCHY_SORT_SENSE = "Ascending"
+
+_HIERARCHY_SORT_TYPE_VALUES = {
+    "BYINPUT": "ByInput",
+    "BYNAME": "ByName",
+    "BYLEVEL": "ByLevel",
+    "BYHIERARCHY": "ByHierarchy",
+}
+_HIERARCHY_SORT_SENSE_VALUES = {
+    "ASCENDING": "Ascending",
+    "DESCENDING": "Descending",
+}
+_HIERARCHY_SORT_JSON_FIELDS = (
+    ("elements_sort_type", "ElementsSortType", DEFAULT_HIERARCHY_SORT_TYPE),
+    ("elements_sort_sense", "ElementsSortSense", DEFAULT_HIERARCHY_SORT_SENSE),
+    ("components_sort_type", "ComponentsSortType", DEFAULT_HIERARCHY_SORT_TYPE),
+    ("components_sort_sense", "ComponentsSortSense", DEFAULT_HIERARCHY_SORT_SENSE),
+)
+
+
+def _normalize_hierarchy_sort_value(value: Optional[str], values: dict[str, str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    lookup_key = text.replace("_", "").replace(" ", "").upper()
+    return values.get(lookup_key, text)
+
+
+def _normalize_hierarchy_sort_type(value: Optional[str]) -> Optional[str]:
+    return _normalize_hierarchy_sort_value(value, _HIERARCHY_SORT_TYPE_VALUES)
+
+
+def _normalize_hierarchy_sort_sense(value: Optional[str]) -> Optional[str]:
+    return _normalize_hierarchy_sort_value(value, _HIERARCHY_SORT_SENSE_VALUES)
+
+
+def _stored_hierarchy_sort_type(value: Optional[str]) -> Optional[str]:
+    return _normalize_hierarchy_sort_type(value)
+
+
+def _stored_hierarchy_sort_sense(value: Optional[str]) -> Optional[str]:
+    return _normalize_hierarchy_sort_sense(value)
+
+
+def hierarchy_sort_metadata_json(hierarchy: Any) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for attr_name, json_key, default_value in _HIERARCHY_SORT_JSON_FIELDS:
+        value = getattr(hierarchy, attr_name, None)
+        if value is None:
+            continue
+        metadata[json_key] = value
+    return metadata
+
+
+def hierarchy_has_sort_metadata(hierarchy: Any) -> bool:
+    return bool(hierarchy_sort_metadata_json(hierarchy))
+
+
+def _order_value(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
+def ordered_hierarchy_items(hierarchy: Any, key: str, collection: MutableSequence[Any]) -> list[Any]:
+    indexed_order = hierarchy_has_sort_metadata(hierarchy)
+    items = list(collection)
+    type_map = {
+        "Elements": "element",
+        "Edges": "component"
+    }
+    if indexed_order:
+        return [
+            item
+            for _, item in sorted(
+                enumerate(items),
+                key=lambda indexed: (
+                    getattr(indexed[1], f"{type_map.get(key)}_index", None) is None,
+                    getattr(indexed[1], f"{type_map.get(key)}_index", indexed[0]),
+                    indexed[0],
+                ),
+            )
+        ]
+
+    if key == "Elements":
+        items.sort(key=lambda item: (_order_value(getattr(item, "name", None)), _order_value(getattr(item, "type", None))))
+    elif key == "Edges":
+        items.sort(key=lambda item: (_order_value(getattr(item, "component_name", None)), _order_value(getattr(item, "parent", None))))
+    return items
 
 
 def _loads_json(payload_json: str) -> dict:
@@ -207,11 +297,14 @@ class _HierarchyStagedWriter:
         total_rows = elements_count + edges_count + subsets_count
 
         progress_sink.on_event(ProgressEvent.worker_line(current=0, total=max(1, total_rows), message=f"Serializing hierarchy ({self.hierarchy_name})"))
+        order_by_internal_index = hierarchy_has_sort_metadata(self.hierarchy)
         
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")
             fh.write('\t"@type":' + json.dumps("Hierarchy", ensure_ascii=False) + ",\n")
             fh.write("\t\"Name\":" + json.dumps(self.hierarchy_name, ensure_ascii=False) + ",\n")
+            for key, value in hierarchy_sort_metadata_json(self.hierarchy).items():
+                fh.write("\t" + json.dumps(key, ensure_ascii=False) + ":" + json.dumps(value, ensure_ascii=False) + ",\n")
             elements_empty = elements_count == 0
             if elements_empty:
                 fh.write('\t"Elements":[],\n')
@@ -221,6 +314,7 @@ class _HierarchyStagedWriter:
                     "Elements",
                     self.elements_ref.iter_payload_json_strings(
                         ordered_by_identity=True,
+                        order_by_internal_index=order_by_internal_index,
                         progress_label=f"{self.hierarchy_name}:Elements",
                         progress_every=self.JSON_DUMP_PROGRESS_EVERY,
                     ),
@@ -236,6 +330,7 @@ class _HierarchyStagedWriter:
                     "Edges",
                     self.edges_ref.iter_payload_json_strings(
                         ordered_by_identity=True,
+                        order_by_internal_index=order_by_internal_index,
                         progress_label=f"{self.hierarchy_name}:Edges",
                         progress_every=self.JSON_DUMP_PROGRESS_EVERY,
                     ),
@@ -270,6 +365,10 @@ class Hierarchy:
         elements_filter_rules: Optional[list[str]] = None,
         edges_filter_rules: Optional[list[str]] = None,
         subsets_filter_rules: Optional[list[str]] = None,
+        elements_sort_type: Optional[str] = None,
+        elements_sort_sense: Optional[str] = None,
+        components_sort_type: Optional[str] = None,
+        components_sort_sense: Optional[str] = None,
     ):
         _ = elements_filter_rules, edges_filter_rules, subsets_filter_rules
         if model_id:
@@ -308,9 +407,29 @@ class Hierarchy:
         self.hierarchy_etag = hierarchy_etag
         self.model_id = model_id
         self.dimension_name = dimension_name
+        self.elements_sort_type = _stored_hierarchy_sort_type(elements_sort_type)
+        self.elements_sort_sense = _stored_hierarchy_sort_sense(elements_sort_sense)
+        self.components_sort_type = _stored_hierarchy_sort_type(components_sort_type)
+        self.components_sort_sense = _stored_hierarchy_sort_sense(components_sort_sense)
         self.elements = elements if elements is not None else []
         self.edges = edges if edges is not None else []
         self.subsets = subsets if subsets is not None else []
+
+    @property
+    def effective_elements_sort_type(self) -> str:
+        return self.elements_sort_type or DEFAULT_HIERARCHY_SORT_TYPE
+
+    @property
+    def effective_elements_sort_sense(self) -> str:
+        return self.elements_sort_sense or DEFAULT_HIERARCHY_SORT_SENSE
+
+    @property
+    def effective_components_sort_type(self) -> str:
+        return self.components_sort_type or DEFAULT_HIERARCHY_SORT_TYPE
+
+    @property
+    def effective_components_sort_sense(self) -> str:
+        return self.components_sort_sense or DEFAULT_HIERARCHY_SORT_SENSE
 
     def as_json(self):
         buf = io.StringIO()
@@ -332,11 +451,7 @@ class Hierarchy:
     def _write_array(self, fh, key: str, collection: MutableSequence[Any], *, indent: str = "\t") -> None:
         item_prefix = indent * 2
         fh.write(f'{indent}"{key}":\n{indent}[')
-        if key == "Elements":
-            items = list(collection)
-            items.sort(key=lambda item: ((getattr(item, "name", None) or ""), (getattr(item, "type", None) or "")))
-        else:
-            items = list(collection)
+        items = ordered_hierarchy_items(self, key, collection)
         first = True
         for item in items:
             if first:
@@ -354,6 +469,8 @@ class Hierarchy:
         fh.write("{\n")
         fh.write("\t\"@type\":" + json.dumps(self.type, ensure_ascii=False) + ",\n")
         fh.write("\t\"Name\":" + json.dumps(self.name, ensure_ascii=False) + ",\n")
+        for key, value in hierarchy_sort_metadata_json(self).items():
+            fh.write("\t" + json.dumps(key, ensure_ascii=False) + ":" + json.dumps(value, ensure_ascii=False) + ",\n")
         if not self.elements:
             fh.write('\t"Elements":[],\n')
         else:
@@ -372,6 +489,9 @@ class Hierarchy:
         
         if self.name != other.name:
             return False
+
+        if self._effective_sort_metadata() != other._effective_sort_metadata():
+            return False
         
         if set(self.elements) != set(other.elements):
             return False
@@ -387,6 +507,7 @@ class Hierarchy:
     def __hash__(self) -> int:
         return hash((
             self.name,
+            self._effective_sort_metadata(),
             frozenset(self.elements),
             frozenset(self.edges),
             frozenset(self.subsets),
@@ -396,12 +517,29 @@ class Hierarchy:
         return f"{self.type}('{self.name}')"
 
     def to_dict(self):
-        return {
+        result = {
             'name': self.name,
             'elements': [e.to_dict() for e in self.elements],
             'edges': [e.to_dict() for e in self.edges],
             'subsets': [s.to_dict() for s in self.subsets],
         }
+        if self.elements_sort_type is not None:
+            result["elements_sort_type"] = self.elements_sort_type
+        if self.elements_sort_sense is not None:
+            result["elements_sort_sense"] = self.elements_sort_sense
+        if self.components_sort_type is not None:
+            result["components_sort_type"] = self.components_sort_type
+        if self.components_sort_sense is not None:
+            result["components_sort_sense"] = self.components_sort_sense
+        return result
+
+    def _effective_sort_metadata(self) -> tuple[str, str, str, str]:
+        return (
+            self.effective_elements_sort_type,
+            self.effective_elements_sort_sense,
+            self.effective_components_sort_type,
+            self.effective_components_sort_sense,
+        )
 
     @classmethod
     def from_dict(
@@ -432,6 +570,10 @@ class Hierarchy:
             elements=elements,
             edges=edges,
             subsets=subsets,
+            elements_sort_type=data.get("elements_sort_type") or data.get("ElementsSortType"),
+            elements_sort_sense=data.get("elements_sort_sense") or data.get("ElementsSortSense"),
+            components_sort_type=data.get("components_sort_type") or data.get("ComponentsSortType"),
+            components_sort_sense=data.get("components_sort_sense") or data.get("ComponentsSortSense"),
         )
 
     @staticmethod

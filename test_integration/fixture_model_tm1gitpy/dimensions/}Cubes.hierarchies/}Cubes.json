@@ -1,6 +1,8 @@
 {
 	"@type":"Hierarchy",
 	"Name":"}Cubes",
+	"ElementsSortType":"ByName",
+	"ElementsSortSense":"Ascending",
 	"Elements":
 	[
 		{

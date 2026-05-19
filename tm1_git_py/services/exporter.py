@@ -21,7 +21,12 @@ from tm1_git_py.services.filter import (
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
-from tm1_git_py.model.hierarchy import Hierarchy
+from tm1_git_py.model.hierarchy import (
+    Hierarchy,
+    _normalize_hierarchy_sort_sense,
+    _normalize_hierarchy_sort_type,
+    hierarchy_sort_metadata_json,
+)
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.nativeview import NativeView
@@ -58,6 +63,19 @@ from tm1_git_py.tm1_api.hierarchy_service import get_all_names as get_hierarchy_
 
 logger = logging.getLogger(__name__)
 
+_DIMENSION_PROPERTY_SORT_FIELDS = (
+    "SORTELEMENTSTYPE",
+    "SORTELEMENTSSENSE",
+    "SORTCOMPONENTSTYPE",
+    "SORTCOMPONENTSSENSE",
+)
+_DIMENSION_PROPERTY_TO_HIERARCHY_SORT_FIELD = {
+    "SORTELEMENTSTYPE": "ElementsSortType",
+    "SORTELEMENTSSENSE": "ElementsSortSense",
+    "SORTCOMPONENTSTYPE": "ComponentsSortType",
+    "SORTCOMPONENTSSENSE": "ComponentsSortSense",
+}
+
 
 class _InlineExecutor:
     def __enter__(self) -> "_InlineExecutor":
@@ -74,6 +92,91 @@ class _InlineExecutor:
         except BaseException as exc:
             future.set_exception(exc)
         return future
+
+
+def _escape_mdx_member_name(name: str) -> str:
+    return str(name).replace("]", "]]")
+
+
+def _dimension_properties_member_name(
+    dimension_name: str,
+    hierarchy_name: str,
+) -> str:
+    if str(hierarchy_name).casefold() == str(dimension_name).casefold():
+        return dimension_name
+    return f"{dimension_name}:{hierarchy_name}"
+
+
+def _hierarchy_sort_metadata_mdx(
+    dimension_name: str,
+    hierarchy_name: str,
+) -> str:
+    properties = ",".join(
+        f"[}}DimensionProperties].[{property_name}]"
+        for property_name in _DIMENSION_PROPERTY_SORT_FIELDS
+    )
+    member_name = _escape_mdx_member_name(
+        _dimension_properties_member_name(
+            dimension_name,
+            hierarchy_name,
+        )
+    )
+    return (
+        "SELECT \n"
+        f"   {{{properties}}} * {{[}}Dimensions].[}}Dimensions].[{member_name}]}} \n"
+        "  ON 0 \n"
+        "FROM [}DimensionProperties] \n"
+    )
+
+
+def _sort_property_from_mdx_cell_key(key: Any) -> Optional[str]:
+    normalized_key = str(key).upper()
+    for property_name in _DIMENSION_PROPERTY_SORT_FIELDS:
+        if property_name in normalized_key:
+            return property_name
+    return None
+
+
+def _normalize_hierarchy_sort_metadata_value(property_name: str, value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if str(value).strip() == "":
+        return None
+    if property_name in ("SORTELEMENTSTYPE", "SORTCOMPONENTSTYPE"):
+        return _normalize_hierarchy_sort_type(str(value))
+    return _normalize_hierarchy_sort_sense(str(value))
+
+
+def _parse_hierarchy_sort_metadata_response(response: Any) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for key, value in dict(response or {}).items():
+        property_name = _sort_property_from_mdx_cell_key(key)
+        if property_name is None:
+            continue
+        normalized_value = _normalize_hierarchy_sort_metadata_value(property_name, value)
+        if normalized_value is None:
+            continue
+        metadata[_DIMENSION_PROPERTY_TO_HIERARCHY_SORT_FIELD[property_name]] = normalized_value
+    return metadata
+
+
+def get_hierarchy_sort_metadata(
+    tm1_conn: TM1Service,
+    dimension_name: str,
+    hierarchy_names: List[str],
+) -> dict[tuple[str, str], dict[str, str]]:
+    hierarchy_names = list(hierarchy_names)
+    result: dict[tuple[str, str], dict[str, str]] = {}
+    for hierarchy_name in hierarchy_names:
+        mdx = _hierarchy_sort_metadata_mdx(
+            dimension_name,
+            hierarchy_name,
+        )
+        response = tm1_conn.cells.execute_mdx_elements_value_dict(mdx)
+        metadata = _parse_hierarchy_sort_metadata_response(response)
+        if metadata:
+            result[(dimension_name, hierarchy_name)] = metadata
+    return result
 
 
 @dataclass
@@ -577,6 +680,7 @@ def dimensions_to_model(
             group_id: Optional[int],
             sequence: MutableSequence,
             filter_rules_for_sequence: list[str],
+            sort_metadata_for_sequence: dict[str, str],
         ) -> Callable[[HierarchyFuture], None]:
             def _on_done(done_hf: HierarchyFuture) -> None:
                 pages = done_hf.pages_for(page_kind)
@@ -585,6 +689,8 @@ def dimensions_to_model(
                 etag_persister(done_hf.hierarchy)
                 if hasattr(sequence, "set_filter_rules"):
                     sequence.set_filter_rules(filter_rules_for_sequence)
+                if hasattr(sequence, "set_sort_metadata"):
+                    sequence.set_sort_metadata(sort_metadata_for_sequence)
                 if group_id is None:
                     return
                 count = done_hf.tm1_object_counts[page_kind]
@@ -598,7 +704,7 @@ def dimensions_to_model(
             page = fn(tm1_conn=tm1_conn, dimension_name=dim_name, hierarchy_name=hierarchy_name, filter=filter_expr, skip=skip, top=top, count=True)
             progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1))
             if hasattr(mutable_list, "extend_payloads"):
-                mutable_list.extend_payloads(page.raw_rows)
+                mutable_list.extend_payloads(page.raw_rows, start_index=skip)
             else:
                 mutable_list.extend(page.objects)
             progress_sink.on_event(ProgressEvent.total_line(current_delta=len(page.objects)))
@@ -647,10 +753,16 @@ def dimensions_to_model(
             try:
                 hierarchies_tm1_filter = filter_rules.to_tm1_hierarchy_name_filter(dim_name)
                 hierarchy_identities = [] if hierarchies_tm1_filter.skip_all else get_hierarchy_names(tm1_conn, dim_name, filter=hierarchies_tm1_filter.filter_expr)
+                sort_metadata_by_hierarchy = get_hierarchy_sort_metadata(
+                    tm1_conn,
+                    dim_name,
+                    [hierarchy_identity.name for hierarchy_identity in hierarchy_identities],
+                )
                 hierarchy_list: List[Hierarchy] = []
 
                 for idx, hierarchy_identity in enumerate(hierarchy_identities):
                     hierarchy_name = hierarchy_identity.name
+                    sort_metadata = sort_metadata_by_hierarchy.get((dim_name, hierarchy_name), {})
                     incoming_hierarchy_etag = hierarchy_identity.etag
                     incoming_cardinality = hierarchy_identity.cardinality
                     elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
@@ -682,7 +794,19 @@ def dimensions_to_model(
                         elements_filter_rules=elements_tm1_filter.applicable_rules,
                         edges_filter_rules=edges_tm1_filter.applicable_rules,
                         subsets_filter_rules=subsets_tm1_filter.applicable_rules,
+                        elements_sort_type=sort_metadata.get("ElementsSortType"),
+                        elements_sort_sense=sort_metadata.get("ElementsSortSense"),
+                        components_sort_type=sort_metadata.get("ComponentsSortType"),
+                        components_sort_sense=sort_metadata.get("ComponentsSortSense"),
                     )
+                    current_sort_metadata = hierarchy_sort_metadata_json(hierarchy)
+                    if incoming_hierarchy_etag is not None:
+                        if can_reuse_elements and hasattr(hierarchy.elements, "sort_metadata"):
+                            can_reuse_elements = hierarchy.elements.sort_metadata() == current_sort_metadata
+                        if can_reuse_subsets and hasattr(hierarchy.subsets, "sort_metadata"):
+                            can_reuse_subsets = hierarchy.subsets.sort_metadata() == current_sort_metadata
+                        if can_reuse_edges and hasattr(hierarchy.edges, "sort_metadata"):
+                            can_reuse_edges = hierarchy.edges.sort_metadata() == current_sort_metadata
                     hierarchy_list.append(hierarchy)
 
                     if not can_reuse_elements and hasattr(hierarchy.elements, "replace_with_payloads"):
@@ -743,6 +867,7 @@ def dimensions_to_model(
                             getattr(sequence, "group_id", None),
                             sequence,
                             tm1_filter.applicable_rules,
+                            current_sort_metadata,
                         )
                         count_future = executor.submit(
                             _count_and_submit_pages,
