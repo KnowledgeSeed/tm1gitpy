@@ -8,9 +8,6 @@ from TM1py import TM1Service
 from requests import Response
 
 from tm1_git_py import Changeset
-from tm1_git_py.services.changeset import ChangeType, Change, ObjectType
-from tm1_git_py.services.changeset_status import ChangeSetStatusStore
-from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS, should_exclude_path
 from tm1_git_py.model import Cube, MDXView, Dimension, Hierarchy, Subset, Process, Chore, Element, Edge, Rule
 from tm1_git_py.reporting.progress_reporting import (
     NoopProgressSink,
@@ -20,7 +17,9 @@ from tm1_git_py.reporting.progress_reporting import (
     ProgressSink,
     ProgressUnit,
 )
-from tm1_git_py.internal.validation import validate_changeset
+from tm1_git_py.services.changeset import ChangeType, Change
+from tm1_git_py.services.changeset_status import ChangeSetStatusStore
+from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS, should_exclude_path
 
 logger = logging.getLogger(__name__)
 

@@ -167,6 +167,34 @@ class TestChangeset:
             rules="[] = N: 1;",
         )
 
+    def test_static_subset_apply_dispatch_uses_subset_crud_helpers(self, mocker):
+        tm1_service = mocker.Mock()
+        uri = Subset.uri_for("Dim_A", "Hier_A", "Bikes")
+        static_subset = Subset(
+            name="Bikes",
+            element_ids=[Element.uri_for("Dim_A", "Hier_A", "Bike")],
+        )
+        mock_create = mocker.patch("tm1_git_py.model.subset.create_subset", return_value="created")
+        mock_update = mocker.patch("tm1_git_py.model.subset.update_subset", return_value="updated")
+
+        create_result = create_object(
+            tm1_service=tm1_service,
+            object_instance=static_subset,
+            object_type=ObjectType.SUBSET.value,
+            uri=uri,
+        )
+        update_result = update_object(
+            tm1_service=tm1_service,
+            object_instance=static_subset,
+            object_type=ObjectType.SUBSET.value,
+            uri=uri,
+        )
+
+        mock_create.assert_called_once_with(tm1_service, static_subset, uri=uri)
+        mock_update.assert_called_once_with(tm1_service, static_subset, uri=uri)
+        assert create_result == "created"
+        assert update_result == "updated"
+
     def test_apply_continues_after_duplicate_create_for_technical_object(self, mocker, caplog):
         technical_process = make_process(name="}Stats")
         regular_process = make_process(name="RegularProcess")
@@ -241,7 +269,7 @@ class TestChangeset:
         ]
 
         # For deletes, precedence is:
-        # mdx_views -> rules -> cubes -> edges -> elements -> subsets -> hierarchies -> dimensions -> chore -> process
+        # mdx_views -> rules -> cubes -> edges -> subsets -> elements -> hierarchies -> dimensions -> chore -> process
         assert deleted_types == [MDXView, Cube, Edge, Element, Chore, Process]
 
 
@@ -276,8 +304,8 @@ class TestChangeset:
         ]
 
         # For creates, precedence is:
-        # dimensions -> hierarchies -> subsets -> elements -> edges -> cubes -> mdx_views -> rules -> processes -> chores
-        assert created_types == [Subset, Element, Element, Edge, Edge, MDXView]
+        # dimensions -> hierarchies -> elements -> subsets -> edges -> cubes -> mdx_views -> rules -> processes -> chores
+        assert created_types == [Element, Element, Subset, Edge, Edge, MDXView]
 
 
     def test_apply_uses_sorted_order_for_update(self, mocker):
@@ -313,6 +341,116 @@ class TestChangeset:
         # For updates, precedence is:
         # subsets -> mdx_views -> unified rules -> processes -> chores
         assert updated_types == [Subset, MDXView, Rule, Process, Chore]
+
+    def test_apply_orders_static_subset_add_after_referenced_element_add(self, mocker):
+        element_uri = Element.uri_for("Dim_A", "Hier_A", "Bike")
+        static_subset = Subset(name="Bikes", element_ids=[element_uri])
+        element = Element(name="Bike", type="Numeric")
+        changeset = Changeset(changeset_id="20260521000001")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.SUBSET,
+                uri=Subset.uri_for("Dim_A", "Hier_A", "Bikes"),
+                body=static_subset,
+            ),
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.ELEMENT,
+                uri=element_uri,
+                body=element,
+            ),
+        ]
+
+        mock_create = mocker.patch(
+            "tm1_git_py.services.apply.create_object",
+            side_effect=lambda **kwargs: types.SimpleNamespace(
+                url=kwargs["uri"],
+                status_code=200,
+                ok=True,
+            ),
+        )
+
+        success, _ = apply(tm1_service=mocker.Mock(), changeset=changeset, fail_fast=False)
+
+        assert success
+        assert [
+            call.kwargs["object_type"]
+            for call in mock_create.call_args_list
+        ] == ["Element", "Subset"]
+
+    def test_apply_orders_subset_modify_before_element_remove_in_same_hierarchy(self, mocker):
+        element_uri = Element.uri_for("Dim_A", "Hier_A", "Bike")
+        static_subset = Subset(
+            name="Bikes",
+            element_ids=[Element.uri_for("Dim_A", "Hier_A", "Helmet")],
+        )
+        changeset = Changeset(changeset_id="20260521000002")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.ELEMENT,
+                uri=element_uri,
+                body=Element(name="Bike", type="Numeric"),
+            ),
+            Change(
+                change_type=ChangeType.MODIFY,
+                object_type=ObjectType.SUBSET,
+                uri=Subset.uri_for("Dim_A", "Hier_A", "Bikes"),
+                body=static_subset,
+            ),
+        ]
+
+        operations = []
+        mocker.patch(
+            "tm1_git_py.services.apply.update_object",
+            side_effect=lambda **kwargs: operations.append(("modify", kwargs["object_type"]))
+            or types.SimpleNamespace(url=kwargs["uri"], status_code=200, ok=True),
+        )
+        mocker.patch(
+            "tm1_git_py.services.apply.delete_object",
+            side_effect=lambda **kwargs: operations.append(("remove", kwargs["object_type"]))
+            or types.SimpleNamespace(url=kwargs["uri"], status_code=200, ok=True),
+        )
+
+        success, _ = apply(tm1_service=mocker.Mock(), changeset=changeset, fail_fast=False)
+
+        assert success
+        assert operations == [("modify", "Subset"), ("remove", "Element")]
+
+    def test_apply_orders_subset_remove_before_element_remove_in_same_hierarchy(self, mocker):
+        changeset = Changeset(changeset_id="20260521000004")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.ELEMENT,
+                uri=Element.uri_for("Dim_A", "Hier_A", "Bike"),
+                body=Element(name="Bike", type="Numeric"),
+            ),
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.SUBSET,
+                uri=Subset.uri_for("Dim_A", "Hier_A", "Bikes"),
+                body=Subset(name="Bikes", element_ids=[]),
+            ),
+        ]
+
+        mock_delete = mocker.patch(
+            "tm1_git_py.services.apply.delete_object",
+            side_effect=lambda **kwargs: types.SimpleNamespace(
+                url=kwargs["uri"],
+                status_code=200,
+                ok=True,
+            ),
+        )
+
+        success, _ = apply(tm1_service=mocker.Mock(), changeset=changeset, fail_fast=False)
+
+        assert success
+        assert [
+            call.kwargs["object_type"]
+            for call in mock_delete.call_args_list
+        ] == ["Subset", "Element"]
 
     def test_apply_skips_changes_marked_apply_false(self, mocker):
         changeset = Changeset(changeset_id="20260413000001")
@@ -725,15 +863,6 @@ class TestChangeset:
             },
             "changes": [
                 {
-                    "change_type": "remove",
-                    "object_type": "MDXView",
-                    "uri": MDXView.uri_for("Cube_One", "View_To_Delete"),
-                    "apply": True,
-                    "body": {
-                        "Name": "View_To_Delete",
-                    },
-                },
-                {
                     "change_type": "add",
                     "object_type": "Subset",
                     "uri": Subset.uri_for("Dim_New", "Hier_New", "Subset_Create"),
@@ -755,6 +884,15 @@ class TestChangeset:
                             "dimensions/Dim_Update.hierarchies/Added.json",
                         ],
                         "DefaultHierarchy": "dimensions/Dim_Update.hierarchies/Base.json",
+                    },
+                },
+                {
+                    "change_type": "remove",
+                    "object_type": "MDXView",
+                    "uri": MDXView.uri_for("Cube_One", "View_To_Delete"),
+                    "apply": True,
+                    "body": {
+                        "Name": "View_To_Delete",
                     },
                 },
             ],
@@ -791,6 +929,36 @@ class TestChangeset:
                 "dimensions/Organization Units.json",
             ],
         }
+
+    def test_export_import_static_subset_change_preserves_element_reference_ids(self, tmp_path):
+        element_ids = [
+            Element.uri_for("Product", "Product", "Bike"),
+            Element.uri_for("Product", "Product", "Helmet"),
+        ]
+        changes = Changeset(changeset_id="20260521000003")
+        changes.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.SUBSET,
+                uri=Subset.uri_for("Product", "Product", "Export"),
+                body=Subset(name="Export", element_ids=element_ids),
+            )
+        ]
+
+        export_path = tmp_path / "static_subset_changes.yml"
+        changes.export(export_path)
+
+        exported_payload = yaml.safe_load(export_path.read_text(encoding="utf-8"))
+        assert exported_payload["changes"][0]["body"] == {
+            "Name": "Export",
+            "Elements": [{"@id": element_id} for element_id in element_ids],
+        }
+
+        imported = import_changeset(export_path)
+        imported_subset = imported.changes[0].body
+        assert isinstance(imported_subset, Subset)
+        assert imported_subset.element_ids == element_ids
+        assert imported_subset.is_static is True
 
     def test_import_cube_change_normalizes_dimension_reference_paths_to_names(self, tmp_path):
         import_path = tmp_path / "cube_changes.yml"

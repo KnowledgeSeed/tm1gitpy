@@ -218,6 +218,77 @@ class TestExporter:
         assert result.skip == 10
         assert result.top == 50
 
+    def test_subset_service_get_subsets_page_reads_static_element_reference_ids(self, mocker):
+        tm1_conn = mocker.Mock()
+        response = mocker.Mock()
+        first_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Bike')"
+        second_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Helmet')"
+        response.json.return_value = {
+            "value": [
+                {
+                    "Name": "Export",
+                    "Expression": None,
+                    "Elements": [
+                        {"@odata.id": first_element_id},
+                        {"@odata.id": second_element_id},
+                    ],
+                }
+            ],
+            "@odata.count": 1,
+        }
+        tm1_conn.connection.GET.return_value = response
+
+        result = subset_service._get_subsets_page(
+            tm1_conn,
+            dimension_name="Product",
+            hierarchy_name="Product",
+            filter="startswith(Name,'Ex')",
+            skip=2,
+            top=10,
+            count=True,
+        )
+
+        tm1_conn.connection.GET.assert_called_once_with(
+            "/Dimensions('Product')/Hierarchies('Product')/Subsets"
+            "?$select=Name,Expression&$expand=Elements/$ref"
+            "&$filter=startswith(Name,'Ex')&$skip=2&$top=10&$count=true",
+            async_requests_mode=True,
+        )
+        assert result.count == 1
+        assert result.objects[0].element_ids == [first_element_id, second_element_id]
+        assert result.objects[0].is_static is True
+
+    def test_subset_service_get_subsets_page_keeps_dynamic_subset_expression_only(self, mocker):
+        tm1_conn = mocker.Mock()
+        response = mocker.Mock()
+        response.json.return_value = {
+            "value": [
+                {
+                    "Name": "All Products",
+                    "Expression": "{[Product].[Product].Members}",
+                    "Elements": [
+                        {
+                            "@odata.id": (
+                                "Dimensions('Product')/Hierarchies('Product')/"
+                                "Elements('Bike')"
+                            )
+                        }
+                    ],
+                }
+            ]
+        }
+        tm1_conn.connection.GET.return_value = response
+
+        result = subset_service._get_subsets_page(
+            tm1_conn,
+            dimension_name="Product",
+            hierarchy_name="Product",
+        )
+
+        assert result.objects[0].expression == "{[Product].[Product].Members}"
+        assert result.objects[0].element_ids == []
+        assert result.objects[0].is_dynamic is True
+
     def test_cubes_to_model_uses_cube_service_names(self, mocker):
         from tm1_git_py.services.exporter import cubes_to_model
 

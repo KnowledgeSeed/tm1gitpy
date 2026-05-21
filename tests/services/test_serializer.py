@@ -88,6 +88,55 @@ class TestSerializer:
         assert hierarchy_obj.edges.source_json_mtime_ns() == expected_mtime_ns
         assert hierarchy_obj.subsets.source_json_mtime_ns() == expected_mtime_ns
 
+    def test_serialize_store_backed_subsets_writes_dynamic_or_static_payload_shape(self, tmp_path):
+        import uuid
+
+        first_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Bike')"
+        second_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Helmet')"
+        model_id = f"serialize_subsets_{uuid.uuid4().hex}"
+        hierarchy_obj = Hierarchy(
+            name="Product",
+            dimension_name="Product",
+            model_id=model_id,
+        )
+        hierarchy_obj.subsets.extend(
+            [
+                Subset(name="Dynamic", expression="{[Product].[Product].Members}"),
+                Subset(name="Static", element_ids=[first_element_id, second_element_id]),
+            ]
+        )
+        dimension_obj = Dimension(
+            name="Product",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+
+        dim_dir = tmp_path / "dimensions"
+        dim_dir.mkdir()
+        serialize_dimensions(
+            [dimension_obj],
+            str(dim_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+
+        subset_dir = dim_dir / "Product.hierarchies" / "Product.subsets"
+        dynamic_payload = json.loads((subset_dir / "Dynamic.json").read_text(encoding="utf-8"))
+        static_payload = json.loads((subset_dir / "Static.json").read_text(encoding="utf-8"))
+
+        assert dynamic_payload == {
+            "@type": "Subset",
+            "Name": "Dynamic",
+            "Expression": "{[Product].[Product].Members}",
+        }
+        assert "Elements" not in dynamic_payload
+        assert static_payload == {
+            "@type": "Subset",
+            "Name": "Static",
+            "Elements": [{"@id": first_element_id}, {"@id": second_element_id}],
+        }
+        assert "Expression" not in static_payload
+
         
     def test_serialize_dimensions_creates_hierarchy_and_subset_files(self, tmp_path):
         model = build_mock_model()
