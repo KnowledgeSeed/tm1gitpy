@@ -37,5 +37,9 @@
 			"Weight":1
 		}
 	],
-	"Subsets@Code.links":[]
+	"Subsets@Code.links":
+	[
+		"TestDimMultiHier.subsets/TestDimMultiHierDynamicSubset.json",
+		"TestDimMultiHier.subsets/TestDimMultiHierStaticSubset.json"
+	]
 }

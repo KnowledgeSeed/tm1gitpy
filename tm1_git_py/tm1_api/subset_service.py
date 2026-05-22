@@ -68,12 +68,12 @@ def _get_subsets_page(
     subsets_resource = "PrivateSubsets" if private else "Subsets"
 
     base_url = format_url(
-        "/Dimensions('{}')/Hierarchies('{}')/{}?$select=Name,Expression",
+        "/Dimensions('{}')/Hierarchies('{}')/{}?$select=Name,Expression&$expand=Elements/$ref",
         dimension_name,
         hierarchy_name,
         subsets_resource,
     )
-    # Append OData pagination params; $select=Name is already in base
+    # Append pagination after the subset fields and element-reference expansion.
     params: List[str] = []
     if filter:
         params.append(f"$filter={filter}")
@@ -92,10 +92,7 @@ def _get_subsets_page(
     data = response.json()
 
     raw_rows = list(data.get("value", []))
-    subsets = [
-        Subset(name=item.get("Name", ""), expression=item.get("Expression") or "")
-        for item in raw_rows
-    ]
+    subsets = [Subset.from_dict(item) for item in raw_rows]
     total_count = data.get("@odata.count")
     if total_count is not None:
         total_count = int(total_count)

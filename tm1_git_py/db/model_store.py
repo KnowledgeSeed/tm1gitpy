@@ -61,7 +61,7 @@ def _identity_chunk_query_for_type(payload_table: str, normalized: str) -> str:
         )
     if normalized in ("subset", "subsets"):
         return (
-            f"SELECT Name FROM {payload_table} "
+            f"SELECT Name, Expression, Elements FROM {payload_table} "
             "WHERE group_id=? ORDER BY Name LIMIT ? OFFSET ?"
         )
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
@@ -73,7 +73,11 @@ def _identity_line_for_type(normalized: str, row: tuple[Any, ...]) -> str:
     if normalized in ("edge", "edges"):
         return f"{_empty_if_none(row[0])}\x1f{_empty_if_none(row[1])}\x1f{_empty_if_none(row[2])}"
     if normalized in ("subset", "subsets"):
-        return str(_empty_if_none(row[0]))
+        return (
+            f"{_empty_if_none(row[0])}\x1f"
+            f"{_empty_if_none(row[1])}\x1f"
+            f"{_empty_if_none(row[2])}"
+        )
     raise ValueError(f"Unsupported group object type for parallel identity hashing: '{normalized}'")
 
 
@@ -240,7 +244,7 @@ class ModelStore:
         expected_object_tables = {
             "element_objects": {"group_id", "Name", "Type", "ElementIndex"},
             "edge_objects": {"group_id", "ParentName", "ComponentName", "Weight", "ComponentIndex"},
-            "subset_objects": {"group_id", "Name", "Expression"},
+            "subset_objects": {"group_id", "Name", "Expression", "Elements"},
         }
         for table_name, expected_cols in expected_object_tables.items():
             if not self._table_exists(table_name):
@@ -314,6 +318,7 @@ class ModelStore:
                 group_id INTEGER NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
                 Name TEXT NOT NULL,
                 Expression TEXT NULL,
+                Elements JSONB NULL,
                 PRIMARY KEY(group_id, Name)
             ) WITHOUT ROWID
             """
@@ -390,8 +395,60 @@ class ModelStore:
         if normalized in ("edge", "edges"):
             return ("ParentName", "ComponentName", "Weight", "ComponentIndex")
         if normalized in ("subset", "subsets"):
-            return ("Name", "Expression")
+            return ("Name", "Expression", "Elements")
         raise ValueError(f"Unsupported group object type: '{normalized}'")
+
+    @staticmethod
+    def _subset_element_ids_from_payload(payload: dict[str, Any]) -> list[str]:
+        element_payloads = payload.get("element_ids")
+        if element_payloads is None:
+            element_payloads = payload.get("elements")
+        if element_payloads is None:
+            element_payloads = payload.get("Elements")
+        if element_payloads is None:
+            return []
+        element_ids: list[str] = []
+        for element_payload in element_payloads:
+            if isinstance(element_payload, str):
+                element_ids.append(element_payload)
+                continue
+            if isinstance(element_payload, dict):
+                element_id = element_payload.get("@id") or element_payload.get("@odata.id")
+                if isinstance(element_id, str):
+                    element_ids.append(element_id)
+                    continue
+            raise ValueError(f"Unable to resolve subset element reference id from payload: {element_payload!r}")
+        return element_ids
+
+    @staticmethod
+    def _subset_expression_from_payload(payload: dict[str, Any]) -> Any:
+        expression = payload.get("Expression")
+        if expression is None:
+            expression = payload.get("expression")
+        return expression
+
+    @staticmethod
+    def _subset_elements_from_storage(raw_elements: Any) -> list[dict[str, str]]:
+        if raw_elements in (None, ""):
+            return []
+        stored = _json_loads(str(raw_elements))
+        return [{"@id": str(element_id)} for element_id in stored]
+
+    def _payload_values_for_type(self, normalized: str, payload: dict[str, Any]) -> tuple[Any, ...]:
+        if normalized in ("element", "elements"):
+            name = payload.get("Name")
+            if name is None:
+                name = payload.get("name")
+            return (
+                "" if name is None else name,
+                payload.get("Type") or payload.get("type"),
+                self._internal_index_from_payload(
+                    payload,
+                    "ElementIndex",
+                    "element_index",
+                    default_index=default_index,
+                ),
+            )
 
     @staticmethod
     def _internal_index_from_payload(
@@ -412,20 +469,6 @@ class ModelStore:
         *,
         default_index: Optional[int] = None,
     ) -> tuple[Any, ...]:
-        if normalized in ("element", "elements"):
-            name = payload.get("Name")
-            if name is None:
-                name = payload.get("name")
-            return (
-                "" if name is None else name,
-                payload.get("Type") or payload.get("type"),
-                self._internal_index_from_payload(
-                    payload,
-                    "ElementIndex",
-                    "element_index",
-                    default_index=default_index,
-                ),
-            )
         if normalized in ("edge", "edges"):
             weight = payload.get("Weight")
             if weight is None:
@@ -458,9 +501,14 @@ class ModelStore:
             name = payload.get("Name")
             if name is None:
                 name = payload.get("name")
+            expression = self._subset_expression_from_payload(payload)
+            elements_json = None
+            if expression in (None, ""):
+                elements_json = _json_dumps(self._subset_element_ids_from_payload(payload))
             return (
                 "" if name is None else name,
-                payload.get("Expression") or payload.get("expression"),
+                expression,
+                elements_json,
             )
         raise ValueError(f"Unsupported group object type: '{normalized}'")
 
@@ -489,10 +537,15 @@ class ModelStore:
                 payload["ComponentIndex"] = self._cell(row, "ComponentIndex", 3)
             return payload
         if normalized in ("subset", "subsets"):
-            return {
-                "name": self._cell(row, "Name", 0),
-                "expression": self._cell(row, "Expression", 1),
-            }
+            payload = {"name": self._cell(row, "Name", 0)}
+            expression = self._cell(row, "Expression", 1)
+            if expression not in (None, ""):
+                payload["expression"] = expression
+            else:
+                payload["Elements"] = self._subset_elements_from_storage(
+                    self._cell(row, "Elements", 2)
+                )
+            return payload
         raise ValueError(f"Unsupported group object type: '{normalized}'")
 
     @staticmethod
@@ -524,10 +577,18 @@ class ModelStore:
             )
         if normalized in ("subset", "subsets"):
             name = payload.get("Name") or payload.get("name")
-            expression = payload.get("Expression") or payload.get("expression")
+            expression = self._subset_expression_from_payload(payload)
+            if expression not in (None, ""):
+                return (
+                    "{"
+                    f"\"expression\":{self._value_json(expression)},"
+                    f"\"name\":{self._value_json(name)}"
+                    "}"
+                )
+            elements = [{"@id": element_id} for element_id in self._subset_element_ids_from_payload(payload)]
             return (
                 "{"
-                f"\"expression\":{self._value_json(expression)},"
+                f"\"Elements\":{self._value_json(elements)},"
                 f"\"name\":{self._value_json(name)}"
                 "}"
             )
@@ -550,9 +611,18 @@ class ModelStore:
                 "\t\t}"
             )
         if normalized in ("subset", "subsets"):
+            expression = self._cell(row, "Expression", 1)
+            if expression not in (None, ""):
+                return (
+                    "{\n"
+                    f"\t\t\t\"expression\":{self._value_json(expression)},\n"
+                    f"\t\t\t\"name\":{self._value_json(self._cell(row, 'Name', 0))}\n"
+                    "\t\t}"
+                )
+            elements = self._subset_elements_from_storage(self._cell(row, "Elements", 2))
             return (
                 "{\n"
-                f"\t\t\t\"expression\":{self._value_json(self._cell(row, 'Expression', 1))},\n"
+                f"\t\t\t\"Elements\":{self._value_json(elements)},\n"
                 f"\t\t\t\"name\":{self._value_json(self._cell(row, 'Name', 0))}\n"
                 "\t\t}"
             )

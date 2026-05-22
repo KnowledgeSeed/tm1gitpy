@@ -489,10 +489,15 @@ def _ensure_hierarchy_store_groups(
                     _progress_start(progress, subset_path, "inserting subsets")
                     subset_json = _json_load_file(subset_path)
                     _progress_mark(progress, subset_path)
-                    yield {
+                    subset_payload = {
                         "name": subset_json.get("Name") or subset_json.get("name"),
                         "expression": subset_json.get("Expression") or subset_json.get("expression"),
                     }
+                    if "Elements" in subset_json:
+                        subset_payload["Elements"] = subset_json["Elements"]
+                    elif "elements" in subset_json:
+                        subset_payload["elements"] = subset_json["elements"]
+                    yield subset_payload
 
             _append_payloads_in_batches(
                 store=store,

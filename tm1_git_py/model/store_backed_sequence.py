@@ -173,7 +173,9 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
         Each dict must include the fields expected by
         ``ModelStore._payload_values_for_type`` for this sequence's ``object_type``
         (elements: ``Name``/``Type``; edges: ``ParentName``/``ComponentName``/``Weight``;
-        subsets: ``Name``/``Expression``). Mixed-case keys from TM1 JSON are accepted.
+        dynamic subsets: ``Name``/``Expression``; static subsets: ``Name`` plus
+        ``Elements`` or ``element_ids`` reference IDs). Mixed-case keys from TM1
+        JSON are accepted.
         """
         batch = list(payloads)
         if not batch:

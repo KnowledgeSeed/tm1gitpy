@@ -70,8 +70,8 @@ _CHILD_RELATIONS: dict[type, list[str]] = {
 OBJECT_PRECEDENCE = {
     'Dimension': 0,
     'Hierarchy': 1,
-    'Subset': 2,
-    'Element': 3,
+    'Element': 2,
+    'Subset': 3,
     'Edge': 4,
     'Cube': 5,
     'MDXView': 6,
@@ -86,8 +86,8 @@ DELETE_OBJECT_PRECEDENCE = {
     'Rule': 2,
     'Cube': 3,
     'Edge': 4,
-    'Element': 5,
-    'Subset': 6,
+    'Subset': 5,
+    'Element': 6,
     'Hierarchy': 7,
     'Dimension': 8,
     'Chore': 9,
@@ -246,9 +246,9 @@ def _change_sort_fields(change: "Change") -> dict[str, Any]:
     object_type = body.__class__.__name__
     precedence_map = DELETE_OBJECT_PRECEDENCE if change.change_type == ChangeType.REMOVE else OBJECT_PRECEDENCE
     type_rank = {
-        ChangeType.REMOVE: 0,
-        ChangeType.ADD: 1,
-        ChangeType.MODIFY: 2,
+        ChangeType.ADD: 0,
+        ChangeType.MODIFY: 1,
+        ChangeType.REMOVE: 2,
     }.get(change.change_type, 99)
 
     body_name = getattr(body, "name", None)
@@ -1319,4 +1319,3 @@ def _resolve_change_body_reference_path(body: Any, **context: Any) -> str:
     except Exception:
         return ""
     return ""
-

@@ -1,0 +1,16 @@
+{
+	"@type":"Hierarchy",
+	"Name":"}Subsets_testdimmultihier",
+	"Elements":
+	[
+		{
+			"Name":"TestDimMultiHierDynamicSubset",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimMultiHierStaticSubset",
+			"Type":"String"
+		}
+	],
+	"Subsets@Code.links":[]
+}

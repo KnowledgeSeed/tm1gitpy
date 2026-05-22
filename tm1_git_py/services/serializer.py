@@ -53,7 +53,7 @@ _STORE_OBJECT_CONFIG = {
     },
     "subsets": {
         "table": "subset_objects",
-        "columns": ("Name", "Expression"),
+        "columns": ("Name", "Expression", "Elements"),
         "fallback_order": "Name",
         "indexed_order": "Name",
     },
@@ -450,6 +450,33 @@ def _json_value(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _subset_elements_from_store(raw_elements: Any) -> list[dict[str, str]]:
+    if raw_elements in (None, ""):
+        return []
+    return [{"@id": str(element_id)} for element_id in json.loads(str(raw_elements))]
+
+
+def _subset_row_payload(name: Any, expression: Any, raw_elements: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"name": name}
+    if expression not in (None, ""):
+        payload["expression"] = expression
+    else:
+        payload["Elements"] = _subset_elements_from_store(raw_elements)
+    return payload
+
+
+def _subset_file_payload(name: Any, expression: Any, raw_elements: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "@type": "Subset",
+        "Name": name,
+    }
+    if expression not in (None, ""):
+        payload["Expression"] = expression
+    else:
+        payload["Elements"] = _subset_elements_from_store(raw_elements)
+    return payload
+
+
 def _payload_json_from_row(object_type: str, row: tuple[Any, ...]) -> str:
     if object_type == "elements":
         return (
@@ -467,12 +494,12 @@ def _payload_json_from_row(object_type: str, row: tuple[Any, ...]) -> str:
             "\t\t}"
         )
     if object_type == "subsets":
-        return (
-            "{\n"
-            f"\t\t\t\"expression\":{_json_value(row[1])},\n"
-            f"\t\t\t\"name\":{_json_value(row[0])}\n"
-            "\t\t}"
-        )
+        payload = _subset_row_payload(row[0], row[1], row[2])
+        fields = [
+            f"\t\t\t{_json_value(key)}:{_json_value(value)}"
+            for key, value in payload.items()
+        ]
+        return "{\n" + ",\n".join(fields) + "\n\t\t}"
     raise ValueError(f"Unsupported store object type: {object_type}")
 
 
@@ -492,9 +519,25 @@ def _payload_json_from_payload(object_type: str, payload: dict[str, Any]) -> str
             ),
         )
     if object_type == "subsets":
+        elements = payload.get("Elements")
+        if elements is None:
+            elements = payload.get("elements")
+        if elements is None:
+            elements = payload.get("element_ids")
         return _payload_json_from_row(
             "subsets",
-            (payload.get("Name"), payload.get("Expression")),
+            (
+                payload.get("Name"),
+                payload.get("Expression"),
+                json.dumps(
+                    [
+                        item if isinstance(item, str) else item.get("@id") or item.get("@odata.id")
+                        for item in elements or []
+                    ],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            ),
         )
     raise ValueError(f"Unsupported payload object type: {object_type}")
 
@@ -689,13 +732,9 @@ def _write_store_backed_subsets(subsets_dir: str, store: dict[str, Any]) -> None
         if _store_row_count(conn, "subsets", subsets_group_id) == 0:
             return
         os.makedirs(subsets_dir, exist_ok=True)
-        for name, expression in _iter_store_payload_rows(conn, "subsets", subsets_group_id):
+        for name, expression, raw_elements in _iter_store_payload_rows(conn, "subsets", subsets_group_id):
             subset_json = json.dumps(
-                {
-                    "@type": "Subset",
-                    "Name": name,
-                    "Expression": expression,
-                },
+                _subset_file_payload(name, expression, raw_elements),
                 indent='\t',
             )
             _write_text_staged(os.path.join(subsets_dir, str(name) + '.json'), subset_json)
