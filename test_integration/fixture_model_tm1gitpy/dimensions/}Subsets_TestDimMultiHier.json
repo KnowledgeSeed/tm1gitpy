@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}Subsets_TestDimMultiHier",
+	"Hierarchies@Code.links":
+	[
+		"}Subsets_TestDimMultiHier.hierarchies/}Subsets_testdimmultihier.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Subsets_TestDimMultiHier')/Hierarchies('}Subsets_testdimmultihier')"
+	}
+}

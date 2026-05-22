@@ -276,6 +276,118 @@ class TestDeserializer:
         payload = json.loads(hierarchy_file.read_text(encoding="utf-8"))
         assert payload["Elements"] == [{"Name": "E1", "Type": "Numeric"}]
 
+    def test_static_subset_elements_round_trip_through_store_backed_deserialize(self, tmp_path):
+        first_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Bike')"
+        second_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Helmet')"
+        hierarchy_obj = Hierarchy(
+            name="Product",
+            dimension_name="Product",
+            model_id=tmp_path.name + "_source",
+        )
+        hierarchy_obj.subsets.extend(
+            [
+                Subset(name="Dynamic", expression="{[Product].[Product].Members}"),
+                Subset(name="Static", element_ids=[first_element_id, second_element_id]),
+            ]
+        )
+        dimension_obj = Dimension(
+            name="Product",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+
+        source_dimensions_dir = tmp_path / "source" / "dimensions"
+        source_dimensions_dir.mkdir(parents=True)
+        serialize_dimensions(
+            [dimension_obj],
+            str(source_dimensions_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+
+        dimensions, errors = _call_deserialize_dimensions(
+            source_dimensions_dir,
+            tmp_path.name + "_deserialized",
+        )
+        assert errors == {}
+
+        roundtrip_dimensions_dir = tmp_path / "roundtrip" / "dimensions"
+        roundtrip_dimensions_dir.mkdir(parents=True)
+        serialize_dimensions(
+            list(dimensions.values()),
+            str(roundtrip_dimensions_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+
+        subsets_dir = roundtrip_dimensions_dir / "Product.hierarchies" / "Product.subsets"
+        dynamic_payload = json.loads((subsets_dir / "Dynamic.json").read_text(encoding="utf-8"))
+        static_payload = json.loads((subsets_dir / "Static.json").read_text(encoding="utf-8"))
+        assert dynamic_payload == {
+            "@type": "Subset",
+            "Name": "Dynamic",
+            "Expression": "{[Product].[Product].Members}",
+        }
+        assert static_payload == {
+            "@type": "Subset",
+            "Name": "Static",
+            "Elements": [{"@id": first_element_id}, {"@id": second_element_id}],
+        }
+
+    def test_subset_shapes_round_trip_from_in_memory_serializer(self, tmp_path):
+        first_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Bike')"
+        second_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Helmet')"
+        hierarchy_obj = Hierarchy(
+            name="Product",
+            elements=[],
+            edges=[],
+            subsets=[
+                Subset(name="Dynamic", expression="{[Product].[Product].Members}"),
+                Subset(name="Static", element_ids=[first_element_id, second_element_id]),
+            ],
+        )
+        dimension_obj = Dimension(
+            name="Product",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+
+        source_dimensions_dir = tmp_path / "source_in_memory" / "dimensions"
+        source_dimensions_dir.mkdir(parents=True)
+        serialize_dimensions(
+            [dimension_obj],
+            str(source_dimensions_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+
+        dimensions, errors = _call_deserialize_dimensions(
+            source_dimensions_dir,
+            tmp_path.name + "_in_memory_deserialized",
+        )
+        assert errors == {}
+
+        roundtrip_dimensions_dir = tmp_path / "roundtrip_in_memory" / "dimensions"
+        roundtrip_dimensions_dir.mkdir(parents=True)
+        serialize_dimensions(
+            list(dimensions.values()),
+            str(roundtrip_dimensions_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+
+        subsets_dir = roundtrip_dimensions_dir / "Product.hierarchies" / "Product.subsets"
+        assert json.loads((subsets_dir / "Dynamic.json").read_text(encoding="utf-8")) == {
+            "@type": "Subset",
+            "Name": "Dynamic",
+            "Expression": "{[Product].[Product].Members}",
+        }
+        assert json.loads((subsets_dir / "Static.json").read_text(encoding="utf-8")) == {
+            "@type": "Subset",
+            "Name": "Static",
+            "Elements": [{"@id": first_element_id}, {"@id": second_element_id}],
+        }
+
     def test_serialize_dimensions_skips_rewrite_when_hierarchy_staged_writer_enabled(self, tmp_path, monkeypatch):
         hierarchy_obj = Hierarchy(
             name="MyHier",
@@ -952,6 +1064,59 @@ class TestDeserializer:
             ]
         )
         assert list(seq_e.iter_payloads()) == list(seq_p.iter_payloads())
+
+    def test_store_backed_sequence_keeps_dynamic_and_static_subset_payload_shapes(self, tmp_path):
+        first_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Bike')"
+        second_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Helmet')"
+        store = ModelStore.for_model_id(tmp_path.name + "_subset_payloads")
+        subsets = StoreBackedSequence.for_subsets_sink(
+            store=store,
+            dimension_name="Product",
+            hierarchy_name="Product",
+        )
+        subsets.replace_with_payloads(())
+
+        subsets.extend_payloads(
+            [
+                {"Name": "Dynamic", "Expression": "{[Product].[Product].Members}"},
+                {
+                    "Name": "Static",
+                    "Expression": None,
+                    "Elements": [
+                        {"@odata.id": first_element_id},
+                        {"@odata.id": second_element_id},
+                    ],
+                },
+            ]
+        )
+
+        payloads = list(subsets.iter_payloads(ordered_by_identity=True))
+        assert payloads == [
+            {"name": "Dynamic", "expression": "{[Product].[Product].Members}"},
+            {
+                "name": "Static",
+                "Elements": [{"@id": first_element_id}, {"@id": second_element_id}],
+            },
+        ]
+        assert subsets[0] == Subset(name="Dynamic", expression="{[Product].[Product].Members}")
+        assert subsets[1] == Subset(name="Static", element_ids=[first_element_id, second_element_id])
+
+    def test_store_backed_sequence_subset_extend_keeps_static_element_ids(self, tmp_path):
+        element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Bike')"
+        store = ModelStore.for_model_id(tmp_path.name + "_subset_items")
+        subsets = StoreBackedSequence.for_subsets_sink(
+            store=store,
+            dimension_name="Product",
+            hierarchy_name="Product",
+        )
+        subsets.replace_with_payloads(())
+
+        subsets.extend([Subset(name="Static", element_ids=[element_id])])
+
+        assert list(subsets.iter_payloads()) == [
+            {"name": "Static", "Elements": [{"@id": element_id}]},
+        ]
+        assert subsets[0].element_ids == [element_id]
 
 
     def test_deserialize_cubes(self, cubes_dir=test_model_dir_base / 'cubes'):

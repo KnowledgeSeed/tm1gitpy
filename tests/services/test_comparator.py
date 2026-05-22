@@ -73,6 +73,57 @@ class TestComparator:
         sig_w2 = seq.recalculate_content_signature_parallel()
         assert sig_w1 != sig_w2
 
+    def test_subset_store_content_signature_includes_static_element_ids(self, tmp_path):
+        """Static subset member changes must not be hidden behind a matching store hash."""
+        model_id = f"subset_sig_{tmp_path.name}"
+        first_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Bike')"
+        second_element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Helmet')"
+        old_hierarchy = Hierarchy(
+            name="Product",
+            dimension_name="Product",
+            model_id=model_id + "_old",
+        )
+        new_hierarchy = Hierarchy(
+            name="Product",
+            dimension_name="Product",
+            model_id=model_id + "_new",
+        )
+        matching_hierarchy = Hierarchy(
+            name="Product",
+            dimension_name="Product",
+            model_id=model_id + "_matching",
+        )
+        old_hierarchy.subsets.append(Subset(name="Static", element_ids=[first_element_id]))
+        new_hierarchy.subsets.append(Subset(name="Static", element_ids=[second_element_id]))
+        matching_hierarchy.subsets.append(Subset(name="Static", element_ids=[first_element_id]))
+
+        old_signature = old_hierarchy.subsets.recalculate_content_signature_parallel()
+        new_signature = new_hierarchy.subsets.recalculate_content_signature_parallel()
+        matching_signature = matching_hierarchy.subsets.recalculate_content_signature_parallel()
+        assert old_signature != new_signature
+        assert old_signature == matching_signature
+
+        old_dimension = Dimension(
+            name="Product",
+            hierarchies=[old_hierarchy],
+            defaultHierarchy=old_hierarchy,
+        )
+        new_dimension = Dimension(
+            name="Product",
+            hierarchies=[new_hierarchy],
+            defaultHierarchy=new_hierarchy,
+        )
+        changeset = Comparator().compare(
+            Model(dimensions=[old_dimension], cubes=[], processes=[], chores=[]),
+            Model(dimensions=[new_dimension], cubes=[], processes=[], chores=[]),
+            mode="full",
+        )
+        modified_subsets = self._bodies_by(
+            self._changes_by_type(changeset, ChangeType.MODIFY),
+            Subset,
+        )
+        assert modified_subsets == [Subset(name="Static", element_ids=[second_element_id])]
+
 
     def test_comparator_no_changes_round_trip(self, tmp_path):
         model1, error1 = deserialize_model(str(test_model_dir_base))

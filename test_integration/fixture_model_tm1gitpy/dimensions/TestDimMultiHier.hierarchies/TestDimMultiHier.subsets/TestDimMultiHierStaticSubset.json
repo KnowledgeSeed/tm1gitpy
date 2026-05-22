@@ -1,0 +1,12 @@
+{
+	"@type": "Subset",
+	"Name": "TestDimMultiHierStaticSubset",
+	"Elements": [
+		{
+			"@id": "Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')/Elements('DimElem1')"
+		},
+		{
+			"@id": "Dimensions('TestDimMultiHier')/Hierarchies('TestDimMultiHier')/Elements('DimElem2')"
+		}
+	]
+}

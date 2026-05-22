@@ -5,16 +5,11 @@ import pytest
 from TM1py import Cube, Dimension, Hierarchy, TM1Service
 
 from test_integration.test_base import (
-    DEFAULT_MAX_WORKERS,
     export_check_no_errors,
     load_fixture_model_tm1gitpy,
     tm1_service,
     check_no_diff,
 )
-from tm1_git_py.db.changeset_store import ChangesetStore
-from tm1_git_py.services.changeset import ChangeType, Changeset, Change, ObjectType
-from tm1_git_py.services.comparator import Comparator
-from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
 from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.element import Element
 from tm1_git_py.model.hierarchy import Hierarchy as GitHierarchy
@@ -22,8 +17,10 @@ from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
-from tm1_git_py.model.subset import Subset as GitSubset
 from tm1_git_py.model.ti import TI
+from tm1_git_py.services.changeset import ChangeType, Changeset, Change, ObjectType
+from tm1_git_py.services.comparator import Comparator
+from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
 
 
 @pytest.mark.usefixtures("tm1_service")
@@ -680,38 +677,107 @@ class TestChangesetApply:
     # Subset tests
     # -----------------------------------------------------------------------
 
-    @pytest.mark.skip
-    def test_apply_add_subset(self):
+    def test_apply_add_static_subset(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
             self, model_id=self._fixture_model_id_no_meta
         )
-        subset_name = "zz_temp_subset_add"
+
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "TestDimMultiHierStaticSubset"
+
         self.tm1_service.subsets.delete(
             subset_name=subset_name,
-            dimension_name="TestDim1",
-            hierarchy_name="TestDim1",
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
         )
-        changeset = Changeset("add_subset_case")
-        changeset.changes = [
-            Change(
-                change_type=ChangeType.ADD,
-                object_type=ObjectType.SUBSET,
-                uri=GitSubset.uri_for("TestDim1", "TestDim1", subset_name),
-                body=GitSubset(
-                    name=subset_name, expression="{[TestDim1].[TestDim1].Members}"
-                ),
-            )
-        ]
-        self.apply(changeset)
-        subset_obj = self.tm1_service.subsets.get(
-            subset_name=subset_name,
-            dimension_name="TestDim1",
-            hierarchy_name="TestDim1",
-        )
-        assert subset_obj is not None
+        test_model = export_check_no_errors(self)
 
-    @pytest.mark.skip
-    def test_apply_remove_subset(self):
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+
+    def test_apply_modify_static_subset(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "TestDimMultiHierStaticSubset"
+
+        subset = self.tm1_service.subsets.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, subset_name=subset_name)
+        subset.elements.append("b")
+        self.tm1_service.subsets.update(subset)
+
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+
+    def test_apply_remove_static_subset(self):
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "zz_temp_static_subset_remove"
+
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        subset_kwargs = {
+            "subset_name": subset_name,
+            "dimension_name": dimension_name,
+            "hierarchy_name": hierarchy_name,
+            "elements": ["a", "b"]
+        }
+        subset = TM1py.Subset(**subset_kwargs)
+        self.tm1_service.subsets.create(subset)
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+
+    def test_apply_add_dynamic_subset(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "TestDimMultiHierDynamicSubset"
+
+        self.tm1_service.subsets.delete(
+            subset_name=subset_name,
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+        )
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+    def test_apply_remove_dynamic_subset(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
             self, model_id=self._fixture_model_id_no_meta
         )
@@ -739,52 +805,32 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self, self._f_with_meta)
         check_no_diff(fixture_dir, test_model)
 
-    def test_apply_modify_subset(self):
+    def test_apply_modify_dynamic_subset(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
             self, model_id=self._fixture_model_id_no_meta
         )
-        subset_name = "zz_temp_subset_modify"
-        subset_obj = TM1py.Subset(
-            subset_name=subset_name,
-            dimension_name="TestDim1",
-            hierarchy_name="TestDim1",
-            expression="{[TestDim1].[TestDim1].Members}",
-        )
-        self.tm1_service.subsets.update_or_create(subset_obj)
 
-        changeset = Changeset("modify_subset_case")
-        changeset.changes = [
-            Change(
-                change_type=ChangeType.MODIFY,
-                object_type=ObjectType.SUBSET,
-                uri=GitSubset.uri_for("TestDim1", "TestDim1", subset_name),
-                body=GitSubset(
-                    name=subset_name,
-                    expression="{[TestDim1].[TestDim1].[TestDim1Elem1]}",
-                ),
-            )
-        ]
-        try:
-            self.apply(changeset)
-            updated_subset = self.tm1_service.subsets.get(
-                subset_name=subset_name,
-                dimension_name="TestDim1",
-                hierarchy_name="TestDim1",
-            )
-            assert "TestDim1Elem1" in updated_subset.expression
-        finally:
-            try:
-                # clean-up
-                self.tm1_service.hierarchies.delete("}Subsets_TestDim1", "}Subsets_TestDim1")
-                self.tm1_service.dimensions.delete("}Subsets_TestDim1")
-                self.tm1_service.subsets.delete(subset_name=subset_name, dimension_name="TestDim1", hierarchy_name="TestDim1")
-                # test_model = export_check_no_errors(self)
-                # changeset = self.compare(test_model, fixture_model)
-                # self.apply(changeset)
-                test_model = export_check_no_errors(self, self._f_with_meta)
-                check_no_diff(fixture_dir, test_model)
-            except Exception:
-                pass
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "TestDimMultiHierDynamicSubset"
+
+        subset = self.tm1_service.subsets.get(
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+            subset_name=subset_name,
+        )
+        subset.expression = "{[TestDimMultiHier].[TestDimMultiHier].[DimElem1]}"
+        self.tm1_service.subsets.update(subset)
+
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Hierarchy tests
