@@ -361,7 +361,8 @@ class ModelStore:
         )
         return int(self._cell(row, "COUNT(*)", 0)) if row is not None else 0
 
-    def _identity_order_clause_for_type(self, normalized: str) -> str:
+    @staticmethod
+    def _identity_order_clause_for_type(normalized: str) -> str:
         if normalized in ("element", "elements"):
             return "Name"
         if normalized in ("edge", "edges"):
@@ -389,7 +390,8 @@ class ModelStore:
             return "Name"
         raise ValueError(f"Unsupported group object type for parallel identity ordering: '{normalized}'")
 
-    def _payload_columns_for_type(self, normalized: str) -> tuple[str, ...]:
+    @staticmethod
+    def _payload_columns_for_type(normalized: str) -> tuple[str, ...]:
         if normalized in ("element", "elements"):
             return ("Name", "Type", "ElementIndex")
         if normalized in ("edge", "edges"):
@@ -434,22 +436,6 @@ class ModelStore:
         stored = _json_loads(str(raw_elements))
         return [{"@id": str(element_id)} for element_id in stored]
 
-    def _payload_values_for_type(self, normalized: str, payload: dict[str, Any]) -> tuple[Any, ...]:
-        if normalized in ("element", "elements"):
-            name = payload.get("Name")
-            if name is None:
-                name = payload.get("name")
-            return (
-                "" if name is None else name,
-                payload.get("Type") or payload.get("type"),
-                self._internal_index_from_payload(
-                    payload,
-                    "ElementIndex",
-                    "element_index",
-                    default_index=default_index,
-                ),
-            )
-
     @staticmethod
     def _internal_index_from_payload(
         payload: dict[str, Any],
@@ -469,6 +455,20 @@ class ModelStore:
         *,
         default_index: Optional[int] = None,
     ) -> tuple[Any, ...]:
+        if normalized in ("element", "elements"):
+            name = payload.get("Name")
+            if name is None:
+                name = payload.get("name")
+            return (
+                "" if name is None else name,
+                payload.get("Type") or payload.get("type"),
+                self._internal_index_from_payload(
+                    payload,
+                    "ElementIndex",
+                    "element_index",
+                    default_index=default_index,
+                ),
+            )
         if normalized in ("edge", "edges"):
             weight = payload.get("Weight")
             if weight is None:
@@ -820,7 +820,7 @@ class ModelStore:
             nonlocal pending_rows, next_log_at
             if not pending_rows:
                 return
-            batch_count = len(pending_rows)
+
             self._conn.executemany_sync(
                 insert_sql,
                 pending_rows,

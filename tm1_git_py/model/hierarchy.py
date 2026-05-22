@@ -17,7 +17,7 @@ from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.reporting.progress_reporting import ProgressEvent, ProgressSink
 from .edge import Edge
 # Keep CRUD helpers imported in module namespace for compatibility with existing patches/tests.
-from .element import Element
+from .element import Element, create_element, delete_element, update_element
 from .store_backed_sequence import StoreBackedSequence
 from .subset import Subset
 from .tm1git_json import dump_as_tm1git
