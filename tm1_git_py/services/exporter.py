@@ -1,30 +1,22 @@
 import json
 import logging
 import re
-from dataclasses import dataclass, field
 from concurrent.futures import Future, wait
-import threading
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, MutableSequence, Optional
-from TM1py import TM1Service
+
 import TM1py
+from TM1py import TM1Service
 
-from tm1_git_py.internal.priority_thread_pool_executor import PriorityThreadPoolExecutor
-
+from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.internal.content_hash_calculator import ContentHashCalculator
-from tm1_git_py.services.filter import (
-    EntityType,
-    FilterRules,
-    normalize_for_path,
-    with_default_leaves_ignore,
-    with_technical_objects_ignore,
-)
+from tm1_git_py.internal.priority_thread_pool_executor import PriorityThreadPoolExecutor
+from tm1_git_py.internal.worker_config import WorkerCounts, resolve_worker_counts
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.hierarchy import (
     Hierarchy,
-    _normalize_hierarchy_sort_sense,
-    _normalize_hierarchy_sort_type,
     hierarchy_sort_metadata_json,
 )
 from tm1_git_py.model.mdxview import MDXView
@@ -32,20 +24,22 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
-from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 from tm1_git_py.reporting.progress_reporting import (
     MultiProcessProgressManager,
     NoopProgressSink,
     ProgressEvent,
-    ProgressKind,
-    ProgressScope,
     ProgressSink,
-    ProgressUnit,
 )
-from tm1_git_py.internal.worker_config import WorkerCounts, resolve_worker_counts
-
+from tm1_git_py.services.filter import (
+    EntityType,
+    FilterRules,
+    normalize_for_path,
+    with_default_leaves_ignore,
+    with_technical_objects_ignore,
+)
+from tm1_git_py.services.sort_metadata import get_hierarchy_sort_metadata
 from tm1_git_py.tm1_api import (
     get_cube_names,
     get_edges_count,
@@ -60,21 +54,7 @@ from tm1_git_py.tm1_api import (
 from tm1_git_py.tm1_api.dimension_service import get_names as get_dimension_names
 from tm1_git_py.tm1_api.hierarchy_service import get_all_names as get_hierarchy_names
 
-
 logger = logging.getLogger(__name__)
-
-_DIMENSION_PROPERTY_SORT_FIELDS = (
-    "SORTELEMENTSTYPE",
-    "SORTELEMENTSSENSE",
-    "SORTCOMPONENTSTYPE",
-    "SORTCOMPONENTSSENSE",
-)
-_DIMENSION_PROPERTY_TO_HIERARCHY_SORT_FIELD = {
-    "SORTELEMENTSTYPE": "ElementsSortType",
-    "SORTELEMENTSSENSE": "ElementsSortSense",
-    "SORTCOMPONENTSTYPE": "ComponentsSortType",
-    "SORTCOMPONENTSSENSE": "ComponentsSortSense",
-}
 
 
 class _InlineExecutor:
@@ -92,91 +72,6 @@ class _InlineExecutor:
         except BaseException as exc:
             future.set_exception(exc)
         return future
-
-
-def _escape_mdx_member_name(name: str) -> str:
-    return str(name).replace("]", "]]")
-
-
-def _dimension_properties_member_name(
-    dimension_name: str,
-    hierarchy_name: str,
-) -> str:
-    if str(hierarchy_name).casefold() == str(dimension_name).casefold():
-        return dimension_name
-    return f"{dimension_name}:{hierarchy_name}"
-
-
-def _hierarchy_sort_metadata_mdx(
-    dimension_name: str,
-    hierarchy_name: str,
-) -> str:
-    properties = ",".join(
-        f"[}}DimensionProperties].[{property_name}]"
-        for property_name in _DIMENSION_PROPERTY_SORT_FIELDS
-    )
-    member_name = _escape_mdx_member_name(
-        _dimension_properties_member_name(
-            dimension_name,
-            hierarchy_name,
-        )
-    )
-    return (
-        "SELECT \n"
-        f"   {{{properties}}} * {{[}}Dimensions].[}}Dimensions].[{member_name}]}} \n"
-        "  ON 0 \n"
-        "FROM [}DimensionProperties] \n"
-    )
-
-
-def _sort_property_from_mdx_cell_key(key: Any) -> Optional[str]:
-    normalized_key = str(key).upper()
-    for property_name in _DIMENSION_PROPERTY_SORT_FIELDS:
-        if property_name in normalized_key:
-            return property_name
-    return None
-
-
-def _normalize_hierarchy_sort_metadata_value(property_name: str, value: Any) -> Optional[str]:
-    if value is None:
-        return None
-    if str(value).strip() == "":
-        return None
-    if property_name in ("SORTELEMENTSTYPE", "SORTCOMPONENTSTYPE"):
-        return _normalize_hierarchy_sort_type(str(value))
-    return _normalize_hierarchy_sort_sense(str(value))
-
-
-def _parse_hierarchy_sort_metadata_response(response: Any) -> dict[str, str]:
-    metadata: dict[str, str] = {}
-    for key, value in dict(response or {}).items():
-        property_name = _sort_property_from_mdx_cell_key(key)
-        if property_name is None:
-            continue
-        normalized_value = _normalize_hierarchy_sort_metadata_value(property_name, value)
-        if normalized_value is None:
-            continue
-        metadata[_DIMENSION_PROPERTY_TO_HIERARCHY_SORT_FIELD[property_name]] = normalized_value
-    return metadata
-
-
-def get_hierarchy_sort_metadata(
-    tm1_conn: TM1Service,
-    dimension_name: str,
-    hierarchy_names: List[str],
-) -> dict[tuple[str, str], dict[str, str]]:
-    hierarchy_names = list(hierarchy_names)
-    result: dict[tuple[str, str], dict[str, str]] = {}
-    for hierarchy_name in hierarchy_names:
-        mdx = _hierarchy_sort_metadata_mdx(
-            dimension_name,
-            hierarchy_name,
-        )
-        response = tm1_conn.cells.execute_mdx_elements_value_dict(mdx)
-        metadata = _parse_hierarchy_sort_metadata_response(response)
-        if metadata:
-            result[(dimension_name, hierarchy_name)] = metadata
-    return result
 
 
 @dataclass

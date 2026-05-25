@@ -16,7 +16,8 @@ from tm1_git_py.model.hierarchy import (
     DEFAULT_HIERARCHY_SORT_TYPE,
     hierarchy_sort_metadata_json,
 )
-from tm1_git_py.services.exporter import export, get_hierarchy_sort_metadata
+from tm1_git_py.services.exporter import export
+from tm1_git_py.services.sort_metadata import get_hierarchy_sort_metadata
 from tm1_git_py.services.serializer import serialize_model
 
 
