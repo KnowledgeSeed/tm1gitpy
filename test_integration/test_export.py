@@ -12,10 +12,7 @@ from test_integration.test_base import (
     export_check_no_errors,
     tm1_service,
 )
-from tm1_git_py.model.hierarchy import (
-    DEFAULT_HIERARCHY_SORT_TYPE,
-    hierarchy_sort_metadata_json,
-)
+from tm1_git_py.model.hierarchy import hierarchy_sort_metadata_json
 from tm1_git_py.services.exporter import export
 from tm1_git_py.services.filter import FilterRules
 from tm1_git_py.services.sort_metadata import get_hierarchy_sort_metadata
@@ -92,48 +89,56 @@ class TestExport:
         for key, value in serialized_metadata.items():
             assert payload[key] == value
 
-    def test_export_preserves_alternate_hierarchy_sort_metadata_when_present(self):
-        dimension_name = "TestDimMultiHier"
-        hierarchy_names = ["TestDimMultiHier", "Hier1", "Hier2"]
-        raw_metadata = get_hierarchy_sort_metadata(
-            self.tm1_service,
-            dimension_name,
-            hierarchy_names,
+    def test_export_preserves_test_dim_sorting_hierarchy_metadata_and_order(self):
+        """
+        TestDimSorting hierarchy sort scenarios:
+
+        | Hierarchy | Elements type | Elements sense | Components type | Components sense |
+        | --- | --- | --- | --- | --- |
+        | TestDimSorting | default | default | default | default |
+        | TestDimSorting_elements_byhierdesc_components_byinputasc | ByHierarchy | Descending | ByInput | Ascending |
+        | TestDimSorting_elements_byinput_components_byinput | ByInput | Ascending | ByInput | Ascending |
+        | TestDimSorting_elements_byinput_components_bynameasc | ByInput | Ascending | ByName | Ascending |
+        | TestDimSorting_elements_byinput_components_bynamedesc | ByInput | Ascending | ByName | Descending |
+        | TestDimSorting_elements_bylevelasc_components_bynameasc | ByLevel | Ascending | ByName | Ascending |
+        | TestDimSorting_elements_bynameasc_components_bynameasc | ByName | Ascending | ByName | Ascending |
+        | TestDimSorting_elements_bynamedesc_components_bynamedesc | ByName | Descending | ByName | Descending |
+        """
+        dimension_name = "TestDimSorting"
+        expected_hierarchy_dir = (
+            Path(__file__).resolve().parent
+            / "fixture_model_tm1gitpy"
+            / "dimensions"
+            / f"{dimension_name}.hierarchies"
         )
-        if not raw_metadata:
-            pytest.skip(f"No }}DimensionProperties sort metadata configured for {dimension_name}")
 
         model = export_check_no_errors(
             self,
             filter_rules=[f"!Dimensions('{dimension_name}')"],
-            model_id="integration-export-sort-alternate",
+            model_id="integration-export-test-dim-sorting",
         )
-        dimension = next(dim for dim in model.dimensions if dim.name == dimension_name)
-        exported_by_name = {hier.name: hier for hier in dimension.hierarchies}
 
         with tempfile.TemporaryDirectory() as temp_dir:
             serialize_model(model, temp_dir, max_workers=DEFAULT_MAX_WORKERS)
-            for (metadata_dimension, hierarchy_name), metadata in raw_metadata.items():
-                assert metadata_dimension == dimension_name
-                hierarchy = exported_by_name[hierarchy_name]
-                assert hierarchy.effective_elements_sort_type == metadata.get(
-                    "ElementsSortType",
-                    DEFAULT_HIERARCHY_SORT_TYPE,
-                )
-                payload = json.loads(
-                    (
-                        Path(temp_dir)
-                        / "dimensions"
-                        / f"{dimension_name}.hierarchies"
-                        / f"{hierarchy_name}.json"
-                    ).read_text(encoding="utf-8")
-                )
-                assert [item["Name"] for item in payload["Elements"]] == [
-                    item["Name"]
-                    for item in hierarchy.elements.iter_payloads(order_by_internal_index=True)
-                ]
-                for key, value in hierarchy_sort_metadata_json(hierarchy).items():
-                    assert payload[key] == value
+            actual_hierarchy_dir = (
+                Path(temp_dir)
+                / "dimensions"
+                / f"{dimension_name}.hierarchies"
+            )
+
+            expected_paths = [
+                path
+                for path in sorted(expected_hierarchy_dir.glob("*.json"))
+            ]
+            assert expected_paths
+
+            for expected_path in expected_paths:
+                actual_path = actual_hierarchy_dir / expected_path.name
+                assert actual_path.exists(), f"Missing exported hierarchy: {actual_path}"
+
+                expected_payload = json.loads(expected_path.read_text(encoding="utf-8"))
+                actual_payload = json.loads(actual_path.read_text(encoding="utf-8"))
+                assert actual_payload == expected_payload
 
     def test_export_filters_control_objects_with_skip_flags(self):
         model, errors = export(

@@ -77,6 +77,8 @@ def hierarchy_sort_metadata_json(hierarchy: Any) -> dict[str, str]:
         value = getattr(hierarchy, attr_name, None)
         if value is None:
             continue
+        if json_key.endswith("SortSense") and value == default_value:
+            continue
         metadata[json_key] = value
     return metadata
 
@@ -85,12 +87,19 @@ def hierarchy_has_sort_metadata(hierarchy: Any) -> bool:
     return bool(hierarchy_sort_metadata_json(hierarchy))
 
 
+def hierarchy_has_sort_order_metadata(hierarchy: Any) -> bool:
+    for attr_name, _, _ in _HIERARCHY_SORT_JSON_FIELDS:
+        if getattr(hierarchy, attr_name, None) is not None:
+            return True
+    return False
+
+
 def _order_value(value: Any) -> str:
     return "" if value is None else str(value)
 
 
 def ordered_hierarchy_items(hierarchy: Any, key: str, collection: MutableSequence[Any]) -> list[Any]:
-    indexed_order = hierarchy_has_sort_metadata(hierarchy)
+    indexed_order = hierarchy_has_sort_order_metadata(hierarchy)
     items = list(collection)
     type_map = {
         "Elements": "element",
@@ -297,7 +306,7 @@ class _HierarchyStagedWriter:
         total_rows = elements_count + edges_count + subsets_count
 
         progress_sink.on_event(ProgressEvent.worker_line(current=0, total=max(1, total_rows), message=f"Serializing hierarchy ({self.hierarchy_name})"))
-        order_by_internal_index = hierarchy_has_sort_metadata(self.hierarchy)
+        order_by_internal_index = hierarchy_has_sort_order_metadata(self.hierarchy)
         
         with open(self.inprogress_path, "w", encoding="utf-8") as fh:
             fh.write("{\n")

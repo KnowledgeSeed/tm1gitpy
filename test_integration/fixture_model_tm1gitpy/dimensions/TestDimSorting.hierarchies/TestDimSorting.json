@@ -1,0 +1,16 @@
+{
+	"@type":"Hierarchy",
+	"Name":"TestDimSorting",
+	"Elements":
+	[
+		{
+			"Name":"b3",
+			"Type":"Numeric"
+		},
+		{
+			"Name":"c2",
+			"Type":"Numeric"
+		}
+	],
+	"Subsets@Code.links":[]
+}

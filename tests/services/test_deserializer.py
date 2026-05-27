@@ -645,7 +645,7 @@ class TestDeserializer:
         assert hierarchy_obj.effective_elements_sort_sense == "Ascending"
         assert hierarchy_obj.elements.sort_metadata() == {}
 
-    def test_deserialize_dimensions_preserves_explicit_default_sort_metadata(self, tmp_path):
+    def test_deserialize_dimensions_keeps_explicit_default_types_but_omits_default_senses(self, tmp_path):
         dimensions_dir = tmp_path / "dimensions"
         hierarchy_dir = dimensions_dir / "MyDim.hierarchies"
         hierarchy_dir.mkdir(parents=True)
@@ -687,9 +687,7 @@ class TestDeserializer:
         assert hierarchy_obj.components_sort_sense == "Ascending"
         assert hierarchy_obj.elements.sort_metadata() == {
             "ElementsSortType": "ByName",
-            "ElementsSortSense": "Ascending",
             "ComponentsSortType": "ByName",
-            "ComponentsSortSense": "Ascending",
         }
 
     def test_deserialize_rebuilds_store_groups_when_source_hierarchy_is_newer(self, tmp_path):

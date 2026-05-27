@@ -204,6 +204,50 @@ class TestExporter:
             "ComponentsSortSense": "Descending",
         }
 
+    def test_dimensions_to_model_stores_only_serialized_sort_metadata_for_reuse(self, monkeypatch):
+        import uuid
+
+        model_id = f"export_sort_defaults_{uuid.uuid4().hex}"
+        tm1_conn = mock.Mock()
+        hierarchy_identity = types.SimpleNamespace(
+            name="Products",
+            etag=None,
+            cardinality=0,
+        )
+
+        monkeypatch.setattr(exporter_module, "get_dimension_names", lambda *args, **kwargs: ["Products"])
+        monkeypatch.setattr(exporter_module, "get_hierarchy_names", lambda *args, **kwargs: [hierarchy_identity])
+        monkeypatch.setattr(
+            exporter_module,
+            "get_hierarchy_sort_metadata",
+            lambda *args, **kwargs: {
+                ("Products", "Products"): {
+                    "ElementsSortType": "ByHierarchy",
+                    "ElementsSortSense": "Ascending",
+                    "ComponentsSortType": "ByName",
+                    "ComponentsSortSense": "Ascending",
+                }
+            },
+        )
+        monkeypatch.setattr(exporter_module, "get_elements_count", lambda *args, **kwargs: 0)
+        monkeypatch.setattr(exporter_module, "get_edges_count", lambda *args, **kwargs: 0)
+        monkeypatch.setattr(exporter_module, "get_subsets_count", lambda *args, **kwargs: 0)
+
+        dimensions, errors = exporter_module.dimensions_to_model(
+            tm1_conn,
+            model_id=model_id,
+            filter_rules=FilterRules([]),
+            progress_sink=exporter_module.NoopProgressSink(),
+            worker_counts=exporter_module.resolve_worker_counts(1),
+        )
+
+        assert errors == {}
+        hierarchy = dimensions["Products"].hierarchies[0]
+        assert hierarchy.elements.sort_metadata() == {
+            "ElementsSortType": "ByHierarchy",
+            "ComponentsSortType": "ByName",
+        }
+
     def test_export_no_longer_accepts_serialize(self):
         import inspect
 
