@@ -94,17 +94,19 @@ class TestExport:
 
         | Hierarchy | Elements type | Elements sense | Components type | Components sense |
         | --- | --- | --- | --- | --- |
+        | TestDimSorting | default | default | default | default |
+        | TestDimSorting_elements_byhierdesc_components_byinputasc | ByHierarchy | Descending | ByInput | Ascending |
         | TestDimSorting_elements_byinput_components_byinput | ByInput | Ascending | ByInput | Ascending |
         | TestDimSorting_elements_byinput_components_bynameasc | ByInput | Ascending | ByName | Ascending |
         | TestDimSorting_elements_byinput_components_bynamedesc | ByInput | Ascending | ByName | Descending |
+        | TestDimSorting_elements_bylevelasc_components_bynameasc | ByLevel | Ascending | ByName | Ascending |
         | TestDimSorting_elements_bynameasc_components_bynameasc | ByName | Ascending | ByName | Ascending |
         | TestDimSorting_elements_bynamedesc_components_bynamedesc | ByName | Descending | ByName | Descending |
         """
         dimension_name = "TestDimSorting"
         expected_hierarchy_dir = (
-            Path(__file__).resolve().parents[1]
-            / "examples"
-            / "fixture_model_tm1git"
+            Path(__file__).resolve().parent
+            / "fixture_model_tm1gitpy"
             / "dimensions"
             / f"{dimension_name}.hierarchies"
         )
@@ -126,7 +128,6 @@ class TestExport:
             expected_paths = [
                 path
                 for path in sorted(expected_hierarchy_dir.glob("*.json"))
-                if path.stem != dimension_name
             ]
             assert expected_paths
 
