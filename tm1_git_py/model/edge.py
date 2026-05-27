@@ -16,11 +16,14 @@ class Edge:
         self,
         parent,
         component_name,
-        weight
+        weight,
+        *,
+        component_index: Optional[int] = None,
     ):
         self.parent = parent
         self.component_name = component_name
         self.weight = weight
+        self.component_index = component_index
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Edge):
@@ -68,10 +71,14 @@ class Edge:
             weight = data.get("Weight")
         if weight is None:
             weight = 1
+        component_index = data.get("component_index")
+        if component_index is None:
+            component_index = data.get("ComponentIndex")
         return cls(
             parent=parent,
             component_name=component,
             weight=weight,
+            component_index=component_index,
         )
 
     @staticmethod

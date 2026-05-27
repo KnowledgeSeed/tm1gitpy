@@ -17,10 +17,13 @@ class Element:
     def __init__(
         self,
         name: str,
-        type: str
+        type: str,
+        *,
+        element_index: Optional[int] = None,
     ):
         self.name = name
         self.type = type
+        self.element_index = element_index
     """
     def __init__(self, data: dict):
         for key, value in data.items():
@@ -58,9 +61,13 @@ class Element:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Element":
         name = data.get("name") or data.get("Name") or None
+        element_index = data.get("element_index")
+        if element_index is None:
+            element_index = data.get("ElementIndex")
         return cls(
             name=name,
             type=data.get("type") or data.get("Type") or None,
+            element_index=element_index,
         )
 
     @staticmethod

@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}Hierarchies_TestDimSorting",
+	"Hierarchies@Code.links":
+	[
+		"}Hierarchies_TestDimSorting.hierarchies/}Hierarchies_TestDimSorting.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Hierarchies_TestDimSorting')/Hierarchies('}Hierarchies_TestDimSorting')"
+	}
+}

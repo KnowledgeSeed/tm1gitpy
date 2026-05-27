@@ -711,6 +711,105 @@ class TestComparator:
         assert "Starting Element streaming compare old_size=0" in caplog.text
         assert "Starting Edge streaming compare old_size=0" in caplog.text
 
+    def test_comparator_detects_hierarchy_sort_metadata_change(self):
+        h_old = Hierarchy(name="H1", elements=[], edges=[], subsets=[])
+        h_new = Hierarchy(
+            name="H1",
+            elements=[],
+            edges=[],
+            subsets=[],
+            elements_sort_type="ByInput",
+        )
+        d_old = Dimension(name="DimA", hierarchies=[h_old], defaultHierarchy=h_old)
+        d_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+
+        changeset = Comparator().compare(
+            Model(dimensions=[d_old], cubes=[], processes=[], chores=[]),
+            Model(dimensions=[d_new], cubes=[], processes=[], chores=[]),
+            mode="full",
+        )
+
+        hierarchy_changes = [c for c in changeset.changes if c.object_type == ObjectType.HIERARCHY]
+        assert len(hierarchy_changes) == 1
+        assert hierarchy_changes[0].change_type == ChangeType.MODIFY
+        assert hierarchy_changes[0].uri == "Dimensions('DimA')/Hierarchies('H1')"
+
+    def test_comparator_detects_element_move_as_hierarchy_change_without_element_noise(self):
+        h_old = Hierarchy(
+            name="H1",
+            elements=[
+                Element(name="A", type="Numeric", element_index=0),
+                Element(name="B", type="Numeric", element_index=1),
+            ],
+            edges=[],
+            subsets=[],
+            elements_sort_type="ByInput",
+        )
+        h_new = Hierarchy(
+            name="H1",
+            elements=[
+                Element(name="A", type="Numeric", element_index=1),
+                Element(name="B", type="Numeric", element_index=0),
+            ],
+            edges=[],
+            subsets=[],
+            elements_sort_type="ByInput",
+        )
+        d_old = Dimension(name="DimA", hierarchies=[h_old], defaultHierarchy=h_old)
+        d_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+
+        changeset = Comparator().compare(
+            Model(dimensions=[d_old], cubes=[], processes=[], chores=[]),
+            Model(dimensions=[d_new], cubes=[], processes=[], chores=[]),
+            mode="full",
+        )
+
+        assert [c.object_type for c in changeset.changes].count(ObjectType.HIERARCHY) == 1
+        assert not [c for c in changeset.changes if c.object_type == ObjectType.ELEMENT]
+
+    def test_comparator_detects_store_backed_edge_move_without_edge_noise(self, tmp_path):
+        store = ModelStore.for_model_id(f"cmp_order_{tmp_path.name}")
+
+        old_edges = StoreBackedSequence.for_edges_sink(
+            store=store,
+            dimension_name="DimA",
+            hierarchy_name="H1_old_order",
+        )
+        new_edges = StoreBackedSequence.for_edges_sink(
+            store=store,
+            dimension_name="DimA",
+            hierarchy_name="H1_new_order",
+        )
+        old_edges.replace_with_payloads(())
+        new_edges.replace_with_payloads(())
+        old_edges.extend_payloads(
+            [
+                {"ParentName": "P", "ComponentName": "A", "Weight": 1},
+                {"ParentName": "P", "ComponentName": "B", "Weight": 1},
+            ],
+            start_index=0,
+        )
+        new_edges.extend_payloads(
+            [
+                {"ParentName": "P", "ComponentName": "B", "Weight": 1},
+                {"ParentName": "P", "ComponentName": "A", "Weight": 1},
+            ],
+            start_index=0,
+        )
+        h_old = Hierarchy(name="H1", elements=[], edges=old_edges, subsets=[], components_sort_type="ByInput")
+        h_new = Hierarchy(name="H1", elements=[], edges=new_edges, subsets=[], components_sort_type="ByInput")
+        d_old = Dimension(name="DimA", hierarchies=[h_old], defaultHierarchy=h_old)
+        d_new = Dimension(name="DimA", hierarchies=[h_new], defaultHierarchy=h_new)
+
+        changeset = Comparator().compare(
+            Model(dimensions=[d_old], cubes=[], processes=[], chores=[]),
+            Model(dimensions=[d_new], cubes=[], processes=[], chores=[]),
+            mode="full",
+        )
+
+        assert [c.object_type for c in changeset.changes].count(ObjectType.HIERARCHY) == 1
+        assert not [c for c in changeset.changes if c.object_type == ObjectType.EDGE]
+
     def test_comparator_tracks_native_view_changes(self):
         model1 = build_mock_model()
         model2 = build_mock_model()

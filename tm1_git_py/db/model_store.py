@@ -231,6 +231,7 @@ class ModelStore:
             "object_type",
             "etag",
             "filter_rules_json",
+            "sort_metadata_json",
             "row_count",
             "content_hash",
             "hash_algo",
@@ -241,8 +242,8 @@ class ModelStore:
         if actual_groups != expected_groups:
             return True
         expected_object_tables = {
-            "element_objects": {"group_id", "Name", "Type"},
-            "edge_objects": {"group_id", "ParentName", "ComponentName", "Weight"},
+            "element_objects": {"group_id", "Name", "Type", "ElementIndex"},
+            "edge_objects": {"group_id", "ParentName", "ComponentName", "Weight", "ComponentIndex"},
             "subset_objects": {"group_id", "Name", "Expression", "Elements"},
         }
         for table_name, expected_cols in expected_object_tables.items():
@@ -278,6 +279,7 @@ class ModelStore:
                 object_type TEXT NOT NULL,
                 etag TEXT NULL,
                 filter_rules_json JSONB NULL,
+                sort_metadata_json JSONB NULL,
                 row_count INTEGER NOT NULL DEFAULT 0,
                 content_hash TEXT NOT NULL,
                 hash_algo TEXT NOT NULL,
@@ -293,6 +295,7 @@ class ModelStore:
                 group_id INTEGER NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
                 Name TEXT NOT NULL,
                 Type TEXT NULL,
+                ElementIndex INTEGER NULL,
                 PRIMARY KEY(group_id, Name)
             ) WITHOUT ROWID
             """
@@ -304,6 +307,7 @@ class ModelStore:
                 ParentName TEXT NOT NULL,
                 ComponentName TEXT NOT NULL,
                 Weight NUMERIC NULL,
+                ComponentIndex INTEGER NULL,
                 PRIMARY KEY(group_id, ParentName, ComponentName)
             ) WITHOUT ROWID
             """
@@ -357,7 +361,8 @@ class ModelStore:
         )
         return int(self._cell(row, "COUNT(*)", 0)) if row is not None else 0
 
-    def _identity_order_clause_for_type(self, normalized: str) -> str:
+    @staticmethod
+    def _identity_order_clause_for_type(normalized: str) -> str:
         if normalized in ("element", "elements"):
             return "Name"
         if normalized in ("edge", "edges"):
@@ -365,6 +370,15 @@ class ModelStore:
         if normalized in ("subset", "subsets"):
             return "Name"
         raise ValueError(f"Unsupported group object type for identity ordering: '{normalized}'")
+
+    def _internal_index_order_clause_for_type(self, normalized: str) -> str:
+        if normalized in ("element", "elements"):
+            return "ElementIndex IS NULL, ElementIndex, Name"
+        if normalized in ("edge", "edges"):
+            return "ComponentIndex IS NULL, ComponentIndex, ParentName, ComponentName"
+        if normalized in ("subset", "subsets"):
+            return self._identity_order_clause_for_type(normalized)
+        raise ValueError(f"Unsupported group object type for internal index ordering: '{normalized}'")
 
     @staticmethod
     def _parallel_identity_order_clause_for_type(normalized: str) -> str:
@@ -376,11 +390,12 @@ class ModelStore:
             return "Name"
         raise ValueError(f"Unsupported group object type for parallel identity ordering: '{normalized}'")
 
-    def _payload_columns_for_type(self, normalized: str) -> tuple[str, ...]:
+    @staticmethod
+    def _payload_columns_for_type(normalized: str) -> tuple[str, ...]:
         if normalized in ("element", "elements"):
-            return ("Name", "Type")
+            return ("Name", "Type", "ElementIndex")
         if normalized in ("edge", "edges"):
-            return ("ParentName", "ComponentName", "Weight")
+            return ("ParentName", "ComponentName", "Weight", "ComponentIndex")
         if normalized in ("subset", "subsets"):
             return ("Name", "Expression", "Elements")
         raise ValueError(f"Unsupported group object type: '{normalized}'")
@@ -421,7 +436,25 @@ class ModelStore:
         stored = _json_loads(str(raw_elements))
         return [{"@id": str(element_id)} for element_id in stored]
 
-    def _payload_values_for_type(self, normalized: str, payload: dict[str, Any]) -> tuple[Any, ...]:
+    @staticmethod
+    def _internal_index_from_payload(
+        payload: dict[str, Any],
+        *keys: str,
+        default_index: Optional[int] = None,
+    ) -> Optional[int]:
+        for key in keys:
+            value = payload.get(key)
+            if value is not None:
+                return int(value)
+        return default_index
+
+    def _payload_values_for_type(
+        self,
+        normalized: str,
+        payload: dict[str, Any],
+        *,
+        default_index: Optional[int] = None,
+    ) -> tuple[Any, ...]:
         if normalized in ("element", "elements"):
             name = payload.get("Name")
             if name is None:
@@ -429,6 +462,12 @@ class ModelStore:
             return (
                 "" if name is None else name,
                 payload.get("Type") or payload.get("type"),
+                self._internal_index_from_payload(
+                    payload,
+                    "ElementIndex",
+                    "element_index",
+                    default_index=default_index,
+                ),
             )
         if normalized in ("edge", "edges"):
             weight = payload.get("Weight")
@@ -450,6 +489,13 @@ class ModelStore:
                 "" if parent_name is None else parent_name,
                 "" if component_name is None else component_name,
                 weight,
+                self._internal_index_from_payload(
+                    payload,
+                    "ComponentIndex",
+                    "component_index",
+                    "edge_index",
+                    default_index=default_index,
+                ),
             )
         if normalized in ("subset", "subsets"):
             name = payload.get("Name")
@@ -466,18 +512,30 @@ class ModelStore:
             )
         raise ValueError(f"Unsupported group object type: '{normalized}'")
 
-    def _payload_dict_from_row_for_type(self, normalized: str, row: Any) -> dict[str, Any]:
+    def _payload_dict_from_row_for_type(
+        self,
+        normalized: str,
+        row: Any,
+        *,
+        include_internal_indexes: bool = False,
+    ) -> dict[str, Any]:
         if normalized in ("element", "elements"):
-            return {
+            payload = {
                 "Name": self._cell(row, "Name", 0),
                 "Type": self._cell(row, "Type", 1),
             }
+            if include_internal_indexes:
+                payload["ElementIndex"] = self._cell(row, "ElementIndex", 2)
+            return payload
         if normalized in ("edge", "edges"):
-            return {
+            payload = {
                 "ParentName": self._cell(row, "ParentName", 0),
                 "ComponentName": self._cell(row, "ComponentName", 1),
                 "Weight": self._cell(row, "Weight", 2),
             }
+            if include_internal_indexes:
+                payload["ComponentIndex"] = self._cell(row, "ComponentIndex", 3)
+            return payload
         if normalized in ("subset", "subsets"):
             payload = {"name": self._cell(row, "Name", 0)}
             expression = self._cell(row, "Expression", 1)
@@ -582,8 +640,8 @@ class ModelStore:
         now = time.time_ns()
         self._conn.run_sync(
             """
-            INSERT INTO groups(dimension_name, hierarchy_name, object_type, etag, filter_rules_json, row_count, content_hash, hash_algo, source_json_mtime_ns, updated_at_ns)
-            VALUES (?, ?, ?, NULL, NULL, 0, ?, ?, NULL, ?)
+            INSERT INTO groups(dimension_name, hierarchy_name, object_type, etag, filter_rules_json, sort_metadata_json, row_count, content_hash, hash_algo, source_json_mtime_ns, updated_at_ns)
+            VALUES (?, ?, ?, NULL, NULL, NULL, 0, ?, ?, NULL, ?)
             ON CONFLICT(dimension_name, hierarchy_name, object_type) DO NOTHING
             """,
             (dimension_name, hierarchy_name, object_type, self.EMPTY_CONTENT_HASH, self.HASH_ALGO, now),
@@ -656,6 +714,31 @@ class ModelStore:
             return []
         return [str(item) for item in parsed]
 
+    def set_group_sort_metadata(self, group_id: int, sort_metadata: dict[str, Any]) -> None:
+        payload = _json_dumps(dict(sort_metadata), sort_keys=True)
+        self._conn.run_sync(
+            "UPDATE groups SET sort_metadata_json=?, updated_at_ns=? WHERE group_id=?",
+            (payload, time.time_ns(), group_id),
+        )
+
+    def group_sort_metadata(self, group_id: int) -> dict[str, str]:
+        row = self._conn.fetch_one(
+            "SELECT sort_metadata_json FROM groups WHERE group_id=?",
+            (group_id,),
+        )
+        if row is None:
+            return {}
+        raw = self._cell(row, "sort_metadata_json", 0)
+        if raw in (None, ""):
+            return {}
+        try:
+            parsed = _json_loads(str(raw))
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return {str(key): str(value) for key, value in parsed.items()}
+
     def get_group_reuse_metadata(
         self,
         *,
@@ -709,6 +792,7 @@ class ModelStore:
         group_id: int,
         payloads: Iterable[dict[str, Any]],
         *,
+        start_index: Optional[int] = None,
         batch_size: int = DEFAULT_BULK_INSERT_BATCH_SIZE,
         progress_label: Optional[str] = None,
         progress_every: int = DEFAULT_ITER_PROGRESS_EVERY,
@@ -736,7 +820,7 @@ class ModelStore:
             nonlocal pending_rows, next_log_at
             if not pending_rows:
                 return
-            batch_count = len(pending_rows)
+
             self._conn.executemany_sync(
                 insert_sql,
                 pending_rows,
@@ -752,8 +836,19 @@ class ModelStore:
                 while inserted >= next_log_at:
                     next_log_at += max(1, int(progress_every))
 
+        existing_count = self._actual_row_count(group_id)
+        default_start_index = existing_count if start_index is None else int(start_index)
         for payload in payloads:
-            pending_rows.append((group_id, *self._payload_values_for_type(object_type_normalized, payload)))
+            pending_rows.append(
+                (
+                    group_id,
+                    *self._payload_values_for_type(
+                        object_type_normalized,
+                        payload,
+                        default_index=default_start_index + inserted,
+                    ),
+                )
+            )
             inserted += 1
             if len(pending_rows) >= batch_size:
                 _flush_pending_rows()
@@ -804,7 +899,14 @@ class ModelStore:
                     f"INSERT OR REPLACE INTO {payload_table}(group_id, {', '.join(payload_columns)}) "
                     f"VALUES (?, {', '.join(['?'] * len(payload_columns))})"
                 ),
-                (group_id, *self._payload_values_for_type(object_type_normalized, payload)),
+                (
+                    group_id,
+                    *self._payload_values_for_type(
+                        object_type_normalized,
+                        payload,
+                        default_index=row_count,
+                    ),
+                ),
             )
             row_count += 1
         row_count = self._actual_row_count(group_id)
@@ -850,10 +952,14 @@ class ModelStore:
         object_type_normalized: str,
         payload_columns: tuple[str, ...],
         page_size: int,
+        order_by_internal_index: bool = False,
     ) -> Iterator[tuple[Any, ...]]:
         """Yield rows in identity sort order using LIMIT/OFFSET paging."""
         cols = ", ".join(payload_columns)
-        order = self._identity_order_clause_for_type(object_type_normalized)
+        if order_by_internal_index:
+            order = self._internal_index_order_clause_for_type(object_type_normalized)
+        else:
+            order = self._identity_order_clause_for_type(object_type_normalized)
         sql = (
             f"SELECT {cols} FROM {payload_table} "
             f"WHERE group_id=? ORDER BY {order} LIMIT ? OFFSET ?"
@@ -875,6 +981,8 @@ class ModelStore:
         group_id: int,
         *,
         ordered_by_identity: bool = False,
+        order_by_internal_index: bool = False,
+        include_internal_indexes: bool = False,
         progress_label: Optional[str] = None,
         progress_every: int = DEFAULT_ITER_PROGRESS_EVERY,
     ) -> Iterator[dict[str, Any]]:
@@ -899,6 +1007,7 @@ class ModelStore:
             object_type_normalized=object_type_normalized,
             payload_columns=payload_columns,
             page_size=DEFAULT_ITER_PAGE_SIZE,
+            order_by_internal_index=order_by_internal_index,
         ):
             emitted += 1
             if progress_label and emitted >= next_log_at:
@@ -911,7 +1020,11 @@ class ModelStore:
                 )
                 while emitted >= next_log_at:
                     next_log_at += max(1, progress_every)
-            yield self._payload_dict_from_row_for_type(object_type_normalized, row)
+            yield self._payload_dict_from_row_for_type(
+                object_type_normalized,
+                row,
+                include_internal_indexes=include_internal_indexes,
+            )
         if progress_label:
             logger.debug(
                 "Completed DB payload stream '%s' group_id=%d emitted=%d/%d",
@@ -926,6 +1039,7 @@ class ModelStore:
         group_id: int,
         *,
         ordered_by_identity: bool = False,
+        order_by_internal_index: bool = False,
         progress_label: Optional[str] = None,
         progress_every: int = DEFAULT_ITER_PROGRESS_EVERY,
     ) -> Iterator[str]:
@@ -950,6 +1064,7 @@ class ModelStore:
             object_type_normalized=object_type_normalized,
             payload_columns=payload_columns,
             page_size=DEFAULT_ITER_PAGE_SIZE,
+            order_by_internal_index=order_by_internal_index,
         ):
             emitted += 1
             if progress_label and emitted >= next_log_at:

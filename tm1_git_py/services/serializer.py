@@ -1,3 +1,4 @@
+import json
 import logging
 import multiprocessing
 import os
@@ -9,21 +10,24 @@ from pathlib import Path
 from typing import Any, List, Optional
 from urllib.parse import quote
 
-from tm1_git_py.model.chore import Chore
-from tm1_git_py.model.cube import Cube
-from tm1_git_py.model.dimension import Dimension
-from tm1_git_py.model.hierarchy import Hierarchy, _HierarchyStagedWriter
-from tm1_git_py.model.model import Model
-from tm1_git_py.model.process import Process
 from tm1_git_py.internal.process_pool import (
     dispose_process_pool,
     ignore_sigint_in_worker,
     process_pool_executor_kwargs,
 )
 from tm1_git_py.internal.worker_config import resolve_worker_counts
-from tm1_git_py.reporting.progress_reporting import MultiProcessProgressManager, NoopProgressSink, ProgressEvent, ProgressSink
-import json
-
+from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.cube import Cube
+from tm1_git_py.model.dimension import Dimension
+from tm1_git_py.model.hierarchy import (
+    Hierarchy,
+    _HierarchyStagedWriter,
+    ordered_hierarchy_items,
+)
+from tm1_git_py.model.model import Model
+from tm1_git_py.model.process import Process
+from tm1_git_py.reporting.progress_reporting import MultiProcessProgressManager, NoopProgressSink, ProgressEvent, \
+    ProgressSink
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +42,20 @@ _STORE_OBJECT_CONFIG = {
     "elements": {
         "table": "element_objects",
         "columns": ("Name", "Type"),
-        "order": "Name",
+        "fallback_order": "Name, Type",
+        "indexed_order": "ElementIndex IS NULL, ElementIndex, Name",
     },
     "edges": {
         "table": "edge_objects",
         "columns": ("ParentName", "ComponentName", "Weight"),
-        "order": "ParentName, ComponentName",
+        "fallback_order": "ComponentName, ParentName",
+        "indexed_order": "ComponentIndex IS NULL, ComponentIndex, ParentName, ComponentName",
     },
     "subsets": {
         "table": "subset_objects",
         "columns": ("Name", "Expression", "Elements"),
-        "order": "Name",
+        "fallback_order": "Name",
+        "indexed_order": "Name",
     },
 }
 
@@ -251,6 +258,10 @@ def _build_hierarchy_serialize_job(dim: Dimension, hierarchy: Hierarchy, dim_dir
         "staging_root": staging_root,
         "subset_dir": os.path.join(hierarchy_dir, hierarchy.name + '.subsets'),
         "store": _store_backed_hierarchy_spec(hierarchy),
+        "elements_sort_type": hierarchy.elements_sort_type,
+        "elements_sort_sense": hierarchy.elements_sort_sense,
+        "components_sort_type": hierarchy.components_sort_type,
+        "components_sort_sense": hierarchy.components_sort_sense,
     }
     if hierarchy_job["store"] is None:
         hierarchy_job["collections"] = _in_memory_hierarchy_collections(hierarchy)
@@ -333,6 +344,10 @@ def _serialize_hierarchy_job(job: dict[str, Any], progress_sink: ProgressSink) -
             dimension_name=job["dimension_name"],
             hierarchy_name=job["name"],
             store=store,
+            elements_sort_type=job.get("elements_sort_type"),
+            elements_sort_sense=job.get("elements_sort_sense"),
+            components_sort_type=job.get("components_sort_type"),
+            components_sort_sense=job.get("components_sort_sense"),
             progress_sink=progress_sink,
         )
     else:
@@ -347,6 +362,10 @@ def _serialize_hierarchy_job(job: dict[str, Any], progress_sink: ProgressSink) -
             dimension_name=job["dimension_name"],
             hierarchy_name=job["name"],
             collections=job["collections"],
+            elements_sort_type=job.get("elements_sort_type"),
+            elements_sort_sense=job.get("elements_sort_sense"),
+            components_sort_type=job.get("components_sort_type"),
+            components_sort_sense=job.get("components_sort_sense"),
             progress_sink=progress_sink
         )
 
@@ -410,12 +429,14 @@ def _iter_store_payload_rows(
     object_type: str,
     group_id: int,
     *,
+    order_by_internal_index: bool = False,
     fetch_size: int = 10_000,
 ):
     config = _STORE_OBJECT_CONFIG[object_type]
     columns = ", ".join(config["columns"])
+    order_key = "indexed_order" if order_by_internal_index else "fallback_order"
     cursor = conn.execute(
-        f"SELECT {columns} FROM {config['table']} WHERE group_id=? ORDER BY {config['order']}",
+        f"SELECT {columns} FROM {config['table']} WHERE group_id=? ORDER BY {config[order_key]}",
         (group_id,),
     )
     while True:
@@ -524,10 +545,18 @@ def _payload_json_from_payload(object_type: str, payload: dict[str, Any]) -> str
 class _RawSqliteStoreBackedSequence:
     """Read-only sequence adapter used by process workers for staged writing."""
 
-    def __init__(self, *, db_path: str, object_type: str, group_id: int) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str,
+        object_type: str,
+        group_id: int,
+        order_by_internal_index: bool = False,
+    ) -> None:
         self.db_path = db_path
         self.object_type = object_type
         self.group_id = int(group_id)
+        self.order_by_internal_index = bool(order_by_internal_index)
 
     def __len__(self) -> int:
         conn = _open_readonly_connection(self.db_path)
@@ -540,12 +569,19 @@ class _RawSqliteStoreBackedSequence:
         self,
         *,
         ordered_by_identity: bool = False,
+        order_by_internal_index: bool = False,
         progress_label: Optional[str] = None,
         progress_every: int = 10_000,
     ):
+        order_by_index = self.order_by_internal_index or order_by_internal_index
         conn = _open_readonly_connection(self.db_path)
         try:
-            for row in _iter_store_payload_rows(conn, self.object_type, self.group_id):
+            for row in _iter_store_payload_rows(
+                conn,
+                self.object_type,
+                self.group_id,
+                order_by_internal_index=order_by_index,
+            ):
                 yield _payload_json_from_row(self.object_type, tuple(row))
         finally:
             conn.close()
@@ -562,27 +598,40 @@ class _JsonPayloadSequence:
         self,
         *,
         ordered_by_identity: bool = False,
+        order_by_internal_index: bool = False,
         progress_label: Optional[str] = None,
         progress_every: int = 10_000,
     ):
-        _ = ordered_by_identity, progress_label, progress_every
+        _ = ordered_by_identity, order_by_internal_index, progress_label, progress_every
         yield from self._payload_json_strings
 
 
 class _StagedHierarchyView:
-    def __init__(self, name: str, *, elements: Any, edges: Any, subsets: Any) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        elements: Any,
+        edges: Any,
+        subsets: Any,
+        elements_sort_type: Optional[str] = None,
+        elements_sort_sense: Optional[str] = None,
+        components_sort_type: Optional[str] = None,
+        components_sort_sense: Optional[str] = None,
+    ) -> None:
         self.name = name
         self.elements = elements
         self.edges = edges
         self.subsets = subsets
+        self.elements_sort_type = elements_sort_type
+        self.elements_sort_sense = elements_sort_sense
+        self.components_sort_type = components_sort_type
+        self.components_sort_sense = components_sort_sense
 
 
 def _in_memory_hierarchy_collections(hierarchy: Hierarchy) -> dict[str, list[str]]:
-    elements = sorted(
-        [item.to_dict() for item in hierarchy.elements],
-        key=lambda payload: ((payload.get("Name") or ""), (payload.get("Type") or "")),
-    )
-    edges = [item.to_dict() for item in hierarchy.edges]
+    elements = [item.to_dict() for item in ordered_hierarchy_items(hierarchy, "Elements", hierarchy.elements)]
+    edges = [item.to_dict() for item in ordered_hierarchy_items(hierarchy, "Edges", hierarchy.edges)]
     subsets = [item.to_dict() for item in hierarchy.subsets]
     return {
         "elements": [_payload_json_from_payload("elements", payload) for payload in elements],
@@ -598,12 +647,29 @@ def _serialize_store_backed_hierarchy_with_staged_writer(
     hierarchy_name: str,
     store: dict[str, Any],
     progress_sink: ProgressSink,
+    elements_sort_type: Optional[str] = None,
+    elements_sort_sense: Optional[str] = None,
+    components_sort_type: Optional[str] = None,
+    components_sort_sense: Optional[str] = None,
 ) -> str:
+    sort_metadata_exists = any(
+        value is not None
+        for value in (
+            elements_sort_type,
+            elements_sort_sense,
+            components_sort_type,
+            components_sort_sense,
+        )
+    )
     hierarchy = _StagedHierarchyView(
         hierarchy_name,
-        elements=_raw_sequence(store, "elements"),
-        edges=_raw_sequence(store, "edges"),
+        elements=_raw_sequence(store, "elements", order_by_internal_index=sort_metadata_exists),
+        edges=_raw_sequence(store, "edges", order_by_internal_index=sort_metadata_exists),
         subsets=_raw_sequence(store, "subsets"),
+        elements_sort_type=elements_sort_type,
+        elements_sort_sense=elements_sort_sense,
+        components_sort_type=components_sort_type,
+        components_sort_sense=components_sort_sense,
     )
     writer = _HierarchyStagedWriter(
         model_output_dir=model_output_dir,
@@ -621,12 +687,20 @@ def _serialize_payload_hierarchy_with_staged_writer(
     hierarchy_name: str,
     collections: dict[str, list[str]],
     progress_sink: ProgressSink,
+    elements_sort_type: Optional[str] = None,
+    elements_sort_sense: Optional[str] = None,
+    components_sort_type: Optional[str] = None,
+    components_sort_sense: Optional[str] = None,
 ) -> str:
     hierarchy = _StagedHierarchyView(
         hierarchy_name,
         elements=_JsonPayloadSequence(collections["elements"]),
         edges=_JsonPayloadSequence(collections["edges"]),
         subsets=_JsonPayloadSequence(collections["subsets"]),
+        elements_sort_type=elements_sort_type,
+        elements_sort_sense=elements_sort_sense,
+        components_sort_type=components_sort_type,
+        components_sort_sense=components_sort_sense,
     )
     writer = _HierarchyStagedWriter(
         model_output_dir=model_output_dir,
@@ -637,11 +711,17 @@ def _serialize_payload_hierarchy_with_staged_writer(
     return writer.serialize_hierarchy_json(progress_sink=progress_sink)
 
 
-def _raw_sequence(store: dict[str, Any], object_type: str) -> _RawSqliteStoreBackedSequence:
+def _raw_sequence(
+    store: dict[str, Any],
+    object_type: str,
+    *,
+    order_by_internal_index: bool = False,
+) -> _RawSqliteStoreBackedSequence:
     return _RawSqliteStoreBackedSequence(
         db_path=store["db_path"],
         object_type=object_type,
         group_id=_store_group_id(store, object_type),
+        order_by_internal_index=order_by_internal_index,
     )
 
 

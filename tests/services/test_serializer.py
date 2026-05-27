@@ -88,6 +88,324 @@ class TestSerializer:
         assert hierarchy_obj.edges.source_json_mtime_ns() == expected_mtime_ns
         assert hierarchy_obj.subsets.source_json_mtime_ns() == expected_mtime_ns
 
+    def test_hierarchy_sort_metadata_explicit_default_types_are_serialized_but_senses_are_omitted(self):
+        hierarchy = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[],
+            subsets=[],
+            elements_sort_type="BYNAME",
+            elements_sort_sense="ASCENDING",
+            components_sort_type="ByName",
+            components_sort_sense="Ascending",
+        )
+
+        payload = json.loads(hierarchy.as_json())
+
+        assert hierarchy.effective_elements_sort_type == "ByName"
+        assert hierarchy.effective_elements_sort_sense == "Ascending"
+        assert hierarchy.effective_components_sort_type == "ByName"
+        assert hierarchy.effective_components_sort_sense == "Ascending"
+        assert payload["ElementsSortType"] == "ByName"
+        assert "ElementsSortSense" not in payload
+        assert payload["ComponentsSortType"] == "ByName"
+        assert "ComponentsSortSense" not in payload
+
+    def test_hierarchy_sort_metadata_missing_defaults_are_effective_but_omitted(self):
+        hierarchy = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[],
+            subsets=[],
+        )
+
+        payload = json.loads(hierarchy.as_json())
+
+        assert hierarchy.effective_elements_sort_type == "ByName"
+        assert hierarchy.effective_elements_sort_sense == "Ascending"
+        assert hierarchy.effective_components_sort_type == "ByName"
+        assert hierarchy.effective_components_sort_sense == "Ascending"
+        assert "ElementsSortType" not in payload
+        assert "ElementsSortSense" not in payload
+        assert "ComponentsSortType" not in payload
+        assert "ComponentsSortSense" not in payload
+
+    def test_hierarchy_sort_metadata_serializes_non_defaults_with_tm1git_casing(self):
+        hierarchy = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[],
+            subsets=[],
+            elements_sort_type="BYINPUT",
+            elements_sort_sense="DESCENDING",
+            components_sort_type="BYHIERARCHY",
+            components_sort_sense="DESCENDING",
+        )
+
+        payload = json.loads(hierarchy.as_json())
+
+        assert payload["ElementsSortType"] == "ByInput"
+        assert payload["ElementsSortSense"] == "Descending"
+        assert payload["ComponentsSortType"] == "ByHierarchy"
+        assert payload["ComponentsSortSense"] == "Descending"
+
+    def test_hierarchy_sort_metadata_omits_default_sense_but_keeps_explicit_type(self):
+        hierarchy = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[],
+            subsets=[],
+            elements_sort_type="BYHIERARCHY",
+            elements_sort_sense="ASCENDING",
+            components_sort_type="BYNAME",
+            components_sort_sense="ASCENDING",
+        )
+
+        payload = json.loads(hierarchy.as_json())
+
+        assert payload["ElementsSortType"] == "ByHierarchy"
+        assert "ElementsSortSense" not in payload
+        assert payload["ComponentsSortType"] == "ByName"
+        assert "ComponentsSortSense" not in payload
+
+    def test_hierarchy_serialization_uses_internal_indexes_when_sort_metadata_exists(self):
+        hierarchy = Hierarchy(
+            name="MyHier",
+            elements=[
+                Element(name="C", type="Numeric", element_index=2),
+                Element(name="A", type="Numeric", element_index=0),
+                Element(name="B", type="Numeric", element_index=1),
+            ],
+            edges=[
+                Edge(parent="P", component_name="B", weight=1, component_index=1),
+                Edge(parent="P", component_name="A", weight=1, component_index=0),
+            ],
+            subsets=[],
+            elements_sort_type="ByInput",
+            components_sort_type="ByInput",
+        )
+
+        payload = json.loads(hierarchy.as_json())
+
+        assert [element["Name"] for element in payload["Elements"]] == ["A", "B", "C"]
+        assert [edge["ComponentName"] for edge in payload["Edges"]] == ["A", "B"]
+
+    def test_hierarchy_serialization_falls_back_to_name_order_without_sort_metadata(self):
+        hierarchy = Hierarchy(
+            name="MyHier",
+            elements=[
+                Element(name="C", type="Numeric", element_index=0),
+                Element(name="A", type="Numeric", element_index=2),
+                Element(name="B", type="Numeric", element_index=1),
+            ],
+            edges=[
+                Edge(parent="P", component_name="B", weight=1, component_index=0),
+                Edge(parent="P", component_name="A", weight=1, component_index=1),
+            ],
+            subsets=[],
+        )
+
+        payload = json.loads(hierarchy.as_json())
+
+        assert [element["Name"] for element in payload["Elements"]] == ["A", "B", "C"]
+        assert [edge["ComponentName"] for edge in payload["Edges"]] == ["A", "B"]
+
+    def test_hierarchy_sort_metadata_round_trips_from_tm1git_json_keys(self):
+        hierarchy = Hierarchy.from_dict(
+            {
+                "Name": "MyHier",
+                "Elements": [{"Name": "E1", "Type": "Numeric"}],
+                "Edges": [],
+                "ElementsSortType": "BYLEVEL",
+                "ElementsSortSense": "DESCENDING",
+                "ComponentsSortType": "BYINPUT",
+                "ComponentsSortSense": "DESCENDING",
+            }
+        )
+
+        assert hierarchy.to_dict()["elements_sort_type"] == "ByLevel"
+        assert hierarchy.to_dict()["elements_sort_sense"] == "Descending"
+        assert hierarchy.to_dict()["components_sort_type"] == "ByInput"
+        assert hierarchy.to_dict()["components_sort_sense"] == "Descending"
+
+    def test_serialize_dimensions_preserves_store_backed_hierarchy_sort_metadata(self, tmp_path):
+        import uuid
+
+        model_id = f"serialize_sort_metadata_{uuid.uuid4().hex}"
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            model_id=model_id,
+            elements_sort_type="BYINPUT",
+            elements_sort_sense="DESCENDING",
+            components_sort_type="BYHIERARCHY",
+            components_sort_sense="DESCENDING",
+        )
+        hierarchy_obj.elements.extend([Element(name="E1", type="Numeric")])
+        dimension_obj = Dimension(
+            name="MyDim",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+
+        dim_dir = tmp_path / "dimensions"
+        dim_dir.mkdir()
+        serialize_dimensions(
+            [dimension_obj],
+            str(dim_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+
+        payload = json.loads(
+            (dim_dir / "MyDim.hierarchies" / "MyHier.json").read_text(encoding="utf-8")
+        )
+        assert payload["ElementsSortType"] == "ByInput"
+        assert payload["ElementsSortSense"] == "Descending"
+        assert payload["ComponentsSortType"] == "ByHierarchy"
+        assert payload["ComponentsSortSense"] == "Descending"
+
+    def test_serialize_dimensions_uses_store_backed_internal_indexes_when_sort_metadata_exists(self, tmp_path):
+        import uuid
+
+        model_id = f"serialize_sort_order_{uuid.uuid4().hex}"
+        hierarchy_obj = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            model_id=model_id,
+            elements_sort_type="ByInput",
+            components_sort_type="ByInput",
+        )
+        hierarchy_obj.elements.extend_payloads(
+            [
+                {"Name": "C", "Type": "Numeric"},
+                {"Name": "D", "Type": "Numeric"},
+            ],
+            start_index=2,
+        )
+        hierarchy_obj.elements.extend_payloads(
+            [
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "Numeric"},
+            ],
+            start_index=0,
+        )
+        hierarchy_obj.edges.extend_payloads(
+            [
+                {"ParentName": "P", "ComponentName": "B", "Weight": 1},
+                {"ParentName": "P", "ComponentName": "A", "Weight": 1},
+            ],
+            start_index=0,
+        )
+        dimension_obj = Dimension(
+            name="MyDim",
+            hierarchies=[hierarchy_obj],
+            defaultHierarchy=hierarchy_obj,
+        )
+
+        dim_dir = tmp_path / "dimensions"
+        dim_dir.mkdir()
+        serialize_dimensions(
+            [dimension_obj],
+            str(dim_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+
+        payload = json.loads(
+            (dim_dir / "MyDim.hierarchies" / "MyHier.json").read_text(encoding="utf-8")
+        )
+        assert [element["Name"] for element in payload["Elements"]] == ["A", "B", "C", "D"]
+        assert [edge["ComponentName"] for edge in payload["Edges"]] == ["B", "A"]
+
+    def test_store_backed_and_in_memory_hierarchy_serialization_use_same_index_order(self, tmp_path):
+        import uuid
+
+        in_memory_hierarchy = Hierarchy(
+            name="MyHier",
+            elements=[
+                Element(name="C", type="Numeric", element_index=2),
+                Element(name="A", type="Numeric", element_index=0),
+                Element(name="B", type="Numeric", element_index=1),
+            ],
+            edges=[
+                Edge(parent="P", component_name="B", weight=1, component_index=1),
+                Edge(parent="P", component_name="A", weight=1, component_index=0),
+            ],
+            subsets=[],
+            elements_sort_type="ByInput",
+            components_sort_type="ByInput",
+        )
+        in_memory_dimension = Dimension(
+            name="MyDim",
+            hierarchies=[in_memory_hierarchy],
+            defaultHierarchy=in_memory_hierarchy,
+        )
+
+        model_id = f"serialize_store_memory_equiv_{uuid.uuid4().hex}"
+        store_backed_hierarchy = Hierarchy(
+            name="MyHier",
+            dimension_name="MyDim",
+            model_id=model_id,
+            elements_sort_type="ByInput",
+            components_sort_type="ByInput",
+        )
+        store_backed_hierarchy.elements.extend_payloads(
+            [
+                {"Name": "C", "Type": "Numeric"},
+            ],
+            start_index=2,
+        )
+        store_backed_hierarchy.elements.extend_payloads(
+            [
+                {"Name": "A", "Type": "Numeric"},
+                {"Name": "B", "Type": "Numeric"},
+            ],
+            start_index=0,
+        )
+        store_backed_hierarchy.edges.extend_payloads(
+            [
+                {"ParentName": "P", "ComponentName": "B", "Weight": 1},
+            ],
+            start_index=1,
+        )
+        store_backed_hierarchy.edges.extend_payloads(
+            [
+                {"ParentName": "P", "ComponentName": "A", "Weight": 1},
+            ],
+            start_index=0,
+        )
+        store_backed_dimension = Dimension(
+            name="MyDim",
+            hierarchies=[store_backed_hierarchy],
+            defaultHierarchy=store_backed_hierarchy,
+        )
+
+        in_memory_dir = tmp_path / "in_memory" / "dimensions"
+        store_backed_dir = tmp_path / "store_backed" / "dimensions"
+        in_memory_dir.mkdir(parents=True)
+        store_backed_dir.mkdir(parents=True)
+        serialize_dimensions(
+            [in_memory_dimension],
+            str(in_memory_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+        serialize_dimensions(
+            [store_backed_dimension],
+            str(store_backed_dir),
+            process_pool=None,
+            progress_sink=NoopProgressSink(),
+        )
+
+        in_memory_payload = json.loads(
+            (in_memory_dir / "MyDim.hierarchies" / "MyHier.json").read_text(encoding="utf-8")
+        )
+        store_backed_payload = json.loads(
+            (store_backed_dir / "MyDim.hierarchies" / "MyHier.json").read_text(encoding="utf-8")
+        )
+        assert store_backed_payload == in_memory_payload
+
     def test_serialize_store_backed_subsets_writes_dynamic_or_static_payload_shape(self, tmp_path):
         import uuid
 
@@ -137,7 +455,7 @@ class TestSerializer:
         }
         assert "Expression" not in static_payload
 
-        
+
     def test_serialize_dimensions_creates_hierarchy_and_subset_files(self, tmp_path):
         model = build_mock_model()
         serialize_model(model, str(tmp_path), max_workers=1)

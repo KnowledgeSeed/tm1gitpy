@@ -13,7 +13,7 @@ from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.element import Element
-from tm1_git_py.model.hierarchy import Hierarchy
+from tm1_git_py.model.hierarchy import Hierarchy, hierarchy_sort_metadata_json
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.model import Model
@@ -40,6 +40,13 @@ from tm1_git_py.reporting.progress_reporting import (
 
 logger = logging.getLogger(__name__)
 DESERIALIZE_PROGRESS_EVERY = 100_000
+
+_HIERARCHY_SORT_JSON_FIELDS = {
+    "ElementsSortType",
+    "ElementsSortSense",
+    "ComponentsSortType",
+    "ComponentsSortSense",
+}
 
 
 def _json_load_text(raw: str) -> Any:
@@ -190,6 +197,26 @@ def _hierarchy_has_top_level_key(hierarchy_json_path: str, key: str) -> bool:
     return False
 
 
+def _read_hierarchy_sort_metadata(hierarchy_json_path: str) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    pending_key: Optional[str] = None
+    scalar_events = {"string", "number", "boolean", "null"}
+    with open(hierarchy_json_path, "rb") as src:
+        for prefix, event, value in ijson.parse(src):
+            if prefix == "" and event == "map_key":
+                pending_key = str(value)
+                continue
+            if pending_key in _HIERARCHY_SORT_JSON_FIELDS:
+                if event in scalar_events:
+                    metadata[pending_key] = value
+                    pending_key = None
+                elif event in {"start_array", "start_map"}:
+                    pending_key = None
+            elif event != "map_key":
+                pending_key = None
+    return metadata
+
+
 def _iter_hierarchy_array_payloads(
     hierarchy_json_path: str,
     key: str,
@@ -297,6 +324,7 @@ def _append_payloads_in_batches(
     store: ModelStore,
     group_id: int,
     payloads: Iterable[dict],
+    start_index: Optional[int] = None,
     batch_size: int = 100_000,
     progress_label: Optional[str] = None,
     progress_every: int = DESERIALIZE_PROGRESS_EVERY,
@@ -304,6 +332,7 @@ def _append_payloads_in_batches(
     return store.append_payloads(
         group_id=group_id,
         payloads=payloads,
+        start_index=start_index,
         batch_size=batch_size,
         progress_label=progress_label,
         progress_every=progress_every,
@@ -423,6 +452,7 @@ def _ensure_hierarchy_store_groups(
                 progress=progress,
                 progress_range=elements_progress_range,
             ),
+            start_index=0,
         )
         if source_mtime_ns is not None:
             elements.set_source_json_mtime_ns(source_mtime_ns)
@@ -439,6 +469,7 @@ def _ensure_hierarchy_store_groups(
                 progress=progress,
                 progress_range=edges_progress_range,
             ),
+            start_index=0,
         )
         if source_mtime_ns is not None:
             edges.set_source_json_mtime_ns(source_mtime_ns)
@@ -734,6 +765,7 @@ def _deserialize_single_hierarchy(
     thread_pool_executor: ThreadPoolExecutor,
     content_hash_calculator: ContentHashCalculator,
 ) -> Hierarchy:
+    sort_metadata = _read_hierarchy_sort_metadata(hierarchy_json_path)
     elements, edges, subsets = _ensure_hierarchy_store_groups(
         hierarchy_json_path=hierarchy_json_path,
         model_id=model_id,
@@ -744,12 +776,21 @@ def _deserialize_single_hierarchy(
         thread_pool_executor=thread_pool_executor,
         content_hash_calculator=content_hash_calculator,
     )
-    return Hierarchy(
+    hierarchy = Hierarchy(
         name=hierarchy_name,
         elements=elements,
         edges=edges,
         subsets=subsets,
+        elements_sort_type=sort_metadata.get("ElementsSortType"),
+        elements_sort_sense=sort_metadata.get("ElementsSortSense"),
+        components_sort_type=sort_metadata.get("ComponentsSortType"),
+        components_sort_sense=sort_metadata.get("ComponentsSortSense"),
     )
+    normalized_sort_metadata = hierarchy_sort_metadata_json(hierarchy)
+    for sequence in (elements, edges, subsets):
+        if hasattr(sequence, "set_sort_metadata"):
+            sequence.set_sort_metadata(normalized_sort_metadata)
+    return hierarchy
 
 
 def deserialize_dimensions(
