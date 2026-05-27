@@ -17,6 +17,7 @@ from tm1_git_py.internal.process_pool import (
 )
 from tm1_git_py.internal.worker_config import resolve_worker_counts
 from tm1_git_py.model.chore import Chore
+from tm1_git_py.model.tm1git_json import dumps_tm1git
 from tm1_git_py.model.cube import Cube
 from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.hierarchy import (
@@ -488,8 +489,8 @@ def _payload_json_from_row(object_type: str, row: tuple[Any, ...]) -> str:
     if object_type == "edges":
         return (
             "{\n"
-            f"\t\t\t\"ComponentName\":{_json_value(row[1])},\n"
             f"\t\t\t\"ParentName\":{_json_value(row[0])},\n"
+            f"\t\t\t\"ComponentName\":{_json_value(row[1])},\n"
             f"\t\t\t\"Weight\":{_json_value(row[2])}\n"
             "\t\t}"
         )
@@ -733,9 +734,8 @@ def _write_store_backed_subsets(subsets_dir: str, store: dict[str, Any]) -> None
             return
         os.makedirs(subsets_dir, exist_ok=True)
         for name, expression, raw_elements in _iter_store_payload_rows(conn, "subsets", subsets_group_id):
-            subset_json = json.dumps(
+            subset_json = dumps_tm1git(
                 _subset_file_payload(name, expression, raw_elements),
-                indent='\t',
             )
             _write_text_staged(os.path.join(subsets_dir, str(name) + '.json'), subset_json)
     finally:
