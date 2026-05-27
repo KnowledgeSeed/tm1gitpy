@@ -280,10 +280,13 @@ def export_check_no_errors(
     *,
     model_id: Optional[str] = None,
 ) -> Model:
+    from tm1_git_py.services.filter import FilterRules
+
+    rules = FilterRules(filter_rules) if filter_rules is not None else None
     model, errors = export(
         self.tm1_service,
         model_id=model_id or "default",
-        filter_rules_list=filter_rules,
+        filter_rules=rules,
         max_workers=DEFAULT_MAX_WORKERS,
     )
     assert isinstance(model, Model)

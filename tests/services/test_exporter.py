@@ -719,15 +719,13 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
         mock_chores = mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
 
-        model, errors = export(tm1_service, model_id="unit-export", filter_rules_list=None)
+        model, errors = export(tm1_service, model_id="unit-export", filter_rules=None)
 
         assert isinstance(model, Model)
         assert errors == {"dim": {}, "cube": {}, "process": {}, "chore": {}}
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
-        expected_pf = FilterRules(
-            with_default_leaves_ignore(None) + with_technical_objects_ignore(None)
-        )
+        expected_pf = apply_default_filter_rules(None)
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
 
     def test_export_non_technical_filter_rules_keep_skip_control_disabled(self, mocker):
@@ -738,12 +736,9 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules=FilterRules(filter_rules))
 
-        expected_pf = FilterRules(
-            with_default_leaves_ignore(filter_rules)
-            + with_technical_objects_ignore(filter_rules)
-        )
+        expected_pf = apply_default_filter_rules(FilterRules(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -762,12 +757,9 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules=FilterRules(filter_rules))
 
-        expected_pf = FilterRules(
-            with_default_leaves_ignore(filter_rules)
-            + with_technical_objects_ignore(filter_rules)
-        )
+        expected_pf = apply_default_filter_rules(FilterRules(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -786,12 +778,9 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules=FilterRules(filter_rules))
 
-        expected_pf = FilterRules(
-            with_default_leaves_ignore(filter_rules)
-            + with_technical_objects_ignore(filter_rules)
-        )
+        expected_pf = apply_default_filter_rules(FilterRules(filter_rules))
         mock_dimensions.assert_called_once()
         args, kwargs = mock_dimensions.call_args
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
@@ -811,12 +800,9 @@ class TestExporter:
         mock_processes = mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules=FilterRules(filter_rules))
 
-        expected_pf = FilterRules(
-            with_default_leaves_ignore(filter_rules)
-            + with_technical_objects_ignore(filter_rules)
-        )
+        expected_pf = apply_default_filter_rules(FilterRules(filter_rules))
         expected_rules = expected_pf._normalized_rules
         _, dim_kw = mock_dimensions.call_args
         _, cube_kw = mock_cubes.call_args
@@ -836,13 +822,10 @@ class TestExporter:
         mocker.patch("tm1_git_py.services.exporter.procs_to_model", return_value=({}, {}))
         mocker.patch("tm1_git_py.services.exporter.chores_to_model", return_value=({}, {}))
 
-        export(tm1_service, model_id="unit-export", filter_rules_list=filter_rules)
+        export(tm1_service, model_id="unit-export", filter_rules=FilterRules(filter_rules))
 
         _, kwargs = mock_dimensions.call_args
-        expected_pf = FilterRules(
-            with_default_leaves_ignore(filter_rules)
-            + with_technical_objects_ignore(filter_rules)
-        )
+        expected_pf = apply_default_filter_rules(FilterRules(filter_rules))
         assert kwargs["filter_rules"]._normalized_rules == expected_pf._normalized_rules
 
     def test_should_exclude_path_supports_tm1project_filter_format(self):
