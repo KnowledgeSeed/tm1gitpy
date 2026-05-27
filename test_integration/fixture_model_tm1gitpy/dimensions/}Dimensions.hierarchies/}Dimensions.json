@@ -2,7 +2,6 @@
 	"@type":"Hierarchy",
 	"Name":"}Dimensions",
 	"ElementsSortType":"ByName",
-	"ElementsSortSense":"Ascending",
 	"Elements":
 	[
 		{
@@ -38,6 +37,42 @@
 			"Type":"String"
 		},
 		{
+			"Name":"TestDimSorting",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimSorting:Leaves",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimSorting:TestDimSorting_elements_byhierdesc_components_byinputasc",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimSorting:TestDimSorting_elements_byinput_components_byinput",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimSorting:TestDimSorting_elements_byinput_components_bynameasc",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimSorting:TestDimSorting_elements_byinput_components_bynamedesc",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimSorting:TestDimSorting_elements_bylevelasc_components_bynameasc",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimSorting:TestDimSorting_elements_bynameasc_components_bynameasc",
+			"Type":"String"
+		},
+		{
+			"Name":"TestDimSorting:TestDimSorting_elements_bynamedesc_components_bynamedesc",
+			"Type":"String"
+		},
+		{
 			"Name":"}ApplicationEntries",
 			"Type":"String"
 		},
@@ -54,11 +89,11 @@
 			"Type":"String"
 		},
 		{
-			"Name":"}ClientSettings",
+			"Name":"}Clients",
 			"Type":"String"
 		},
 		{
-			"Name":"}Clients",
+			"Name":"}ClientSettings",
 			"Type":"String"
 		},
 		{
@@ -70,11 +105,11 @@
 			"Type":"String"
 		},
 		{
-			"Name":"}Cube Functions",
+			"Name":"}CubeDrillString",
 			"Type":"String"
 		},
 		{
-			"Name":"}CubeDrillString",
+			"Name":"}Cube Functions",
 			"Type":"String"
 		},
 		{
@@ -82,11 +117,11 @@
 			"Type":"String"
 		},
 		{
-			"Name":"}CubeSecurityProperties",
+			"Name":"}Cubes",
 			"Type":"String"
 		},
 		{
-			"Name":"}Cubes",
+			"Name":"}CubeSecurityProperties",
 			"Type":"String"
 		},
 		{
@@ -155,6 +190,10 @@
 		},
 		{
 			"Name":"}Hierarchies_TestDimMultiHier",
+			"Type":"String"
+		},
+		{
+			"Name":"}Hierarchies_TestDimSorting",
 			"Type":"String"
 		},
 		{
