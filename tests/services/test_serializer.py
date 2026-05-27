@@ -88,7 +88,7 @@ class TestSerializer:
         assert hierarchy_obj.edges.source_json_mtime_ns() == expected_mtime_ns
         assert hierarchy_obj.subsets.source_json_mtime_ns() == expected_mtime_ns
 
-    def test_hierarchy_sort_metadata_explicit_defaults_are_serialized(self):
+    def test_hierarchy_sort_metadata_explicit_default_types_are_serialized_but_senses_are_omitted(self):
         hierarchy = Hierarchy(
             name="MyHier",
             elements=[Element(name="E1", type="Numeric")],
@@ -107,9 +107,9 @@ class TestSerializer:
         assert hierarchy.effective_components_sort_type == "ByName"
         assert hierarchy.effective_components_sort_sense == "Ascending"
         assert payload["ElementsSortType"] == "ByName"
-        assert payload["ElementsSortSense"] == "Ascending"
+        assert "ElementsSortSense" not in payload
         assert payload["ComponentsSortType"] == "ByName"
-        assert payload["ComponentsSortSense"] == "Ascending"
+        assert "ComponentsSortSense" not in payload
 
     def test_hierarchy_sort_metadata_missing_defaults_are_effective_but_omitted(self):
         hierarchy = Hierarchy(
@@ -148,6 +148,25 @@ class TestSerializer:
         assert payload["ElementsSortSense"] == "Descending"
         assert payload["ComponentsSortType"] == "ByHierarchy"
         assert payload["ComponentsSortSense"] == "Descending"
+
+    def test_hierarchy_sort_metadata_omits_default_sense_but_keeps_explicit_type(self):
+        hierarchy = Hierarchy(
+            name="MyHier",
+            elements=[Element(name="E1", type="Numeric")],
+            edges=[],
+            subsets=[],
+            elements_sort_type="BYHIERARCHY",
+            elements_sort_sense="ASCENDING",
+            components_sort_type="BYNAME",
+            components_sort_sense="ASCENDING",
+        )
+
+        payload = json.loads(hierarchy.as_json())
+
+        assert payload["ElementsSortType"] == "ByHierarchy"
+        assert "ElementsSortSense" not in payload
+        assert payload["ComponentsSortType"] == "ByName"
+        assert "ComponentsSortSense" not in payload
 
     def test_hierarchy_serialization_uses_internal_indexes_when_sort_metadata_exists(self):
         hierarchy = Hierarchy(

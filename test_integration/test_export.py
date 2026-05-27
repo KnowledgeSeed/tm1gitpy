@@ -93,7 +93,7 @@ class TestExport:
 
     def test_export_preserves_alternate_hierarchy_sort_metadata_when_present(self):
         dimension_name = "TestDimMultiHier"
-        hierarchy_names = ["TestDimMultiHier", "Hier1", "Hier2"]
+        hierarchy_names = ["TestDimMultiHier", "Hier1", "Hier2", "HierByLevel", "HierByHierarchy"]
         raw_metadata = get_hierarchy_sort_metadata(
             self.tm1_service,
             dimension_name,
@@ -133,6 +133,56 @@ class TestExport:
                 ]
                 for key, value in hierarchy_sort_metadata_json(hierarchy).items():
                     assert payload[key] == value
+
+    def test_export_preserves_test_dim_sorting_hierarchy_metadata_and_order(self):
+        """
+        TestDimSorting hierarchy sort scenarios:
+
+        | Hierarchy | Elements type | Elements sense | Components type | Components sense |
+        | --- | --- | --- | --- | --- |
+        | TestDimSorting_elements_byinput_components_byinput | ByInput | Ascending | ByInput | Ascending |
+        | TestDimSorting_elements_byinput_components_bynameasc | ByInput | Ascending | ByName | Ascending |
+        | TestDimSorting_elements_byinput_components_bynamedesc | ByInput | Ascending | ByName | Descending |
+        | TestDimSorting_elements_bynameasc_components_bynameasc | ByName | Ascending | ByName | Ascending |
+        | TestDimSorting_elements_bynamedesc_components_bynamedesc | ByName | Descending | ByName | Descending |
+        """
+        dimension_name = "TestDimSorting"
+        expected_hierarchy_dir = (
+            Path(__file__).resolve().parents[1]
+            / "examples"
+            / "fixture_model_tm1git"
+            / "dimensions"
+            / f"{dimension_name}.hierarchies"
+        )
+
+        model = export_check_no_errors(
+            self,
+            filter_rules=[f"!Dimensions('{dimension_name}')"],
+            model_id="integration-export-test-dim-sorting",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            serialize_model(model, temp_dir, max_workers=DEFAULT_MAX_WORKERS)
+            actual_hierarchy_dir = (
+                Path(temp_dir)
+                / "dimensions"
+                / f"{dimension_name}.hierarchies"
+            )
+
+            expected_paths = [
+                path
+                for path in sorted(expected_hierarchy_dir.glob("*.json"))
+                if path.stem != dimension_name
+            ]
+            assert expected_paths
+
+            for expected_path in expected_paths:
+                actual_path = actual_hierarchy_dir / expected_path.name
+                assert actual_path.exists(), f"Missing exported hierarchy: {actual_path}"
+
+                expected_payload = json.loads(expected_path.read_text(encoding="utf-8"))
+                actual_payload = json.loads(actual_path.read_text(encoding="utf-8"))
+                assert actual_payload == expected_payload
 
     def test_export_filters_control_objects_with_skip_flags(self):
         model, errors = export(
