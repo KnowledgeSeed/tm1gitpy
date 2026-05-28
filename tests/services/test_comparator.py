@@ -25,6 +25,36 @@ class TestComparator:
         if shallow_fn:
             assert shallow_fn(obj1, obj2)
 
+    def test_process_equality_uses_ti_section_equality(self):
+        exported_ti = TI(
+            prolog_procedure="AsciiOutput('file.txt', 'prolog');\n",
+            metadata_procedure="\n# Metadata",
+            data_procedure="# Data\n\n",
+            epilog_procedure="\n# Epilog\n",
+        )
+        deserialized_ti = TI.from_string(exported_ti.ti_as_string())
+        exported_process = Process(
+            name="P",
+            hasSecurityAccess=True,
+            code_link="P.ti",
+            datasource=None,
+            parameters=[],
+            variables=[],
+            ti=exported_ti,
+        )
+        deserialized_process = Process(
+            name="P",
+            hasSecurityAccess=True,
+            code_link="P.ti",
+            datasource=None,
+            parameters=[],
+            variables=[],
+            ti=deserialized_ti,
+        )
+
+        assert exported_ti == deserialized_ti
+        assert exported_process == deserialized_process
+
     def test_comparator_detects_edge_weight_only_change_in_memory(self):
         """Edge-only weight delta must appear as an Edge MODIFY (list-backed hierarchies)."""
         hier_old = Hierarchy(

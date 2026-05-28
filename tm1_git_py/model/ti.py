@@ -24,16 +24,16 @@ class TI:
         if not isinstance(other, TI):
             return NotImplemented
 
-        if TI.normalize_text(self.prolog_procedure) != TI.normalize_text(other.prolog_procedure):
+        if TI.normalize_text_for_equality(self.prolog_procedure) != TI.normalize_text_for_equality(other.prolog_procedure):
             return False
 
-        if TI.normalize_text(self.metadata_procedure) != TI.normalize_text(other.metadata_procedure):
+        if TI.normalize_text_for_equality(self.metadata_procedure) != TI.normalize_text_for_equality(other.metadata_procedure):
             return False
 
-        if TI.normalize_text(self.data_procedure) != TI.normalize_text(other.data_procedure):
+        if TI.normalize_text_for_equality(self.data_procedure) != TI.normalize_text_for_equality(other.data_procedure):
             return False
 
-        if TI.normalize_text(self.epilog_procedure) != TI.normalize_text(other.epilog_procedure):
+        if TI.normalize_text_for_equality(self.epilog_procedure) != TI.normalize_text_for_equality(other.epilog_procedure):
             return False
 
         return True
@@ -52,6 +52,10 @@ class TI:
     @classmethod
     def normalize_text(cls, text: str) -> str:
         return text.replace('\r\n', '\n').replace('\r', '\n')
+
+    @classmethod
+    def normalize_text_for_equality(cls, text: str) -> str:
+        return cls.normalize_text(text.strip()).strip()
 
     @classmethod
     def from_string(cls, ti):
@@ -87,4 +91,4 @@ class TI:
             TI.normalize_text(self.epilog_procedure),
             "#endregion"
         ]
-        return line_sep.join(sections)# + line_sep
+        return line_sep.join(sections)
