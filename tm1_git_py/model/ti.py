@@ -51,7 +51,7 @@ class TI:
 
     @classmethod
     def normalize_text(cls, text: str) -> str:
-        return text.replace('\r\n', '\n').replace('\r', '\n').strip()
+        return text.replace('\r\n', '\n').replace('\r', '\n')
 
     @classmethod
     def from_string(cls, ti):
@@ -87,4 +87,4 @@ class TI:
             TI.normalize_text(self.epilog_procedure),
             "#endregion"
         ]
-        return line_sep.join(sections) + line_sep
+        return line_sep.join(sections)# + line_sep
