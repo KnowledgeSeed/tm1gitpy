@@ -739,10 +739,12 @@ def deserialize_processes(
                 name=process_json['Name'],
                 hasSecurityAccess=process_json['HasSecurityAccess'],
                 code_link=process_json['Code@Code.link'],
-                datasource=None,  # datasource=process_json.get('DataSource'), ?
+                datasource=process_json.get('DataSource'),
                 parameters=process_json['Parameters'],
                 variables=process_json['Variables'],
                 ti=process_ti,
+                variables_ui_data=process_json.get('VariablesUIData'),
+                ui_data=process_json.get('UIData'),
             )
             processes[process_json['Name']] = _process
             if count_callback is not None:

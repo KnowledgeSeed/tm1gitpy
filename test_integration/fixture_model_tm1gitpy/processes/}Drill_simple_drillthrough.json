@@ -5,7 +5,10 @@
 	"Code@Code.link":"}Drill_simple_drillthrough.ti",
 	"DataSource":
 	{
-		"Type":"None"
+		"Type":"TM1CubeView",
+		"dataSourceNameForClient":"TestCube3WithView",
+		"dataSourceNameForServer":"TestCube3WithView",
+		"view":"TestCube3WithView_view2"
 	},
 	"Parameters":
 	[

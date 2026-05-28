@@ -377,6 +377,52 @@ class TestExporter:
         assert "MyProcess" in processes
         assert errors == {}
 
+    def test_procs_to_model_reads_datasource_ui_data_and_variables_ui_data_from_process_body(self, mocker):
+        from tm1_git_py.services.exporter import procs_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch(
+            "tm1_git_py.services.exporter.get_process_names",
+            return_value=["ProcWithBody"],
+        )
+
+        tm1_conn.processes.get.return_value = types.SimpleNamespace(
+            name="ProcWithBody",
+            has_security_access=False,
+            parameters=[],
+            variables=[],
+            prolog_procedure="",
+            metadata_procedure="",
+            data_procedure="",
+            epilog_procedure="",
+            body=json.dumps(
+                {
+                    "UIData": "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f",
+                    "DataSource": {
+                        "Type": "ASCII",
+                        "asciiDelimiterChar": ";",
+                        "dataSourceNameForServer": "sample.csv",
+                    },
+                    "VariablesUIData": ["VarType=32\fColType=827\f"],
+                }
+            ),
+        )
+
+        processes, errors = procs_to_model(
+            tm1_conn,
+            filter_rules=FilterRules([]),
+        )
+
+        assert errors == {}
+        process_obj = processes["ProcWithBody"]
+        assert process_obj.datasource == {
+            "Type": "ASCII",
+            "asciiDelimiterChar": ";",
+            "dataSourceNameForServer": "sample.csv",
+        }
+        assert process_obj.ui_data == "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f"
+        assert process_obj.variables_ui_data == ["VarType=32\fColType=827\f"]
+
     def test_cube_service_get_all_names_page_builds_query(self, mocker):
         tm1_conn = mocker.Mock()
         response = mocker.Mock()

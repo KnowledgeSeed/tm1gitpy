@@ -270,6 +270,59 @@ class TestProcessChoreChangesetApply:
         test_model = export_check_no_errors(self, self._f_with_meta)
         check_no_diff(fixture_dir, test_model)
 
+    def test_modify_process_datasource_no_meta_objects(self):
+        """Changeset should restore a modified process datasource back to fixture definition."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        process_name = "myprocess3"
+        fixture_process = next(
+            p for p in fixture_model.processes if p.name == process_name
+        )
+
+        live_process = self.tm1_service.processes.get(process_name)
+        live_process.datasource_type = "None"
+        self.tm1_service.processes.update(live_process)
+        test_model = export_check_no_errors(self, self._f_no_meta)
+
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
+        assert any(p.name == process_name for p in modified_processes)
+
+        self.apply(changeset)
+
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        restored_process = next(p for p in test_model.processes if p.name == process_name)
+        assert restored_process.datasource == fixture_process.datasource
+        check_no_diff(fixture_dir, test_model)
+
+    def test_modify_process_variables_ui_data_no_meta_objects(self):
+        """Changeset should restore modified process VariablesUIData back to fixture definition."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        process_name = "myprocess2"
+        fixture_process = next(
+            p for p in fixture_model.processes if p.name == process_name
+        )
+        assert fixture_process.variables_ui_data
+
+        live_process = self.tm1_service.processes.get(process_name)
+        live_process._variables_ui_data = fixture_process.variables_ui_data[:-1]
+        self.tm1_service.processes.update(live_process)
+        test_model = export_check_no_errors(self, self._f_no_meta)
+
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        modified_processes = self._changes_by(changeset, ChangeType.MODIFY, "Process")
+        assert any(p.name == process_name for p in modified_processes)
+
+        self.apply(changeset)
+
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        restored_process = next(p for p in test_model.processes if p.name == process_name)
+        assert restored_process.variables_ui_data == fixture_process.variables_ui_data
+        check_no_diff(fixture_dir, test_model)
+
     def test_modify_process_add_only_no_meta_objects(self):
         """In add_only mode, process modify changes should still be applied."""
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
@@ -301,6 +354,13 @@ class TestProcessChoreChangesetApply:
             p for p in fixture_model.processes if p.name == process_name
         )
 
+        live_process = self.tm1_service.processes.get(process_name)
+        live_process.datasource_type = "None"
+        self.tm1_service.processes.update(live_process)
+
+        datasource_payload = dict(fixture_process.datasource)
+        datasource_payload["type"] = datasource_payload.pop("Type")
+
         changeset = Changeset("modify_process_datasource_dict")
         changeset.changes = [
             Change(
@@ -311,17 +371,19 @@ class TestProcessChoreChangesetApply:
                     name=fixture_process.name,
                     hasSecurityAccess=fixture_process.hasSecurityAccess,
                     code_link=fixture_process.code_link,
-                    datasource={"type": "None"},
+                    datasource=datasource_payload,
                     parameters=fixture_process.parameters,
                     variables=fixture_process.variables,
                     ti=fixture_process.ti or TI("", "", "", ""),
+                    variables_ui_data=fixture_process.variables_ui_data,
+                    ui_data=fixture_process.ui_data,
                 ),
             )
         ]
 
         self.apply(changeset)
         live_process = self.tm1_service.processes.get(process_name)
-        assert str(getattr(live_process, "datasource_type", "")).lower() == "none"
+        assert live_process.datasource_type == fixture_process.datasource["Type"]
         test_model = export_check_no_errors(self, self._f_with_meta)
         check_no_diff(fixture_dir, test_model)
 

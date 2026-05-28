@@ -506,6 +506,80 @@ class TestSerializer:
         assert ti_file.exists(), f"Process TI file missing: {ti_file}"
         assert ti_file.read_text(encoding='utf-8') == process.ti.ti_as_string()
 
+    def test_serialize_processes_preserves_full_ascii_datasource_ui_data_and_variables_ui_data(self, tmp_path):
+        process = Process(
+            name="Proc_ASCII",
+            hasSecurityAccess=False,
+            code_link="Proc_ASCII.ti",
+            datasource={
+                "Type": "ASCII",
+                "asciiDecimalSeparator": ",",
+                "asciiDelimiterChar": ";",
+                "asciiDelimiterType": "Character",
+                "asciiHeaderRecords": 1,
+                "asciiQuoteCharacter": "\"",
+                "asciiThousandSeparator": ".",
+                "dataSourceNameForClient": "file.csv",
+                "dataSourceNameForServer": "file.csv",
+            },
+            parameters=[],
+            variables=[],
+            ti=TI("", "", "", ""),
+            ui_data="CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f",
+            variables_ui_data=["VarType=32\fColType=827\f"],
+        )
+        model = Model(cubes=[], dimensions=[], processes=[process], chores=[])
+
+        serialize_model(model, str(tmp_path), max_workers=1)
+
+        json_file = tmp_path / "processes" / "Proc_ASCII.json"
+        payload = json.loads(json_file.read_text(encoding="utf-8"))
+        assert payload["DataSource"] == {
+            "Type": "ASCII",
+            "asciiDecimalSeparator": ",",
+            "asciiDelimiterChar": ";",
+            "asciiDelimiterType": "Character",
+            "asciiHeaderRecords": 1,
+            "asciiQuoteCharacter": "\"",
+            "asciiThousandSeparator": ".",
+            "dataSourceNameForClient": "file.csv",
+            "dataSourceNameForServer": "file.csv",
+        }
+        assert payload["UIData"] == "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f"
+        assert payload["VariablesUIData"] == ["VarType=32\fColType=827\f"]
+        assert list(payload.keys()) == [
+            "@type",
+            "Name",
+            "HasSecurityAccess",
+            "Code@Code.link",
+            "UIData",
+            "VariablesUIData",
+            "DataSource",
+            "Parameters",
+            "Variables",
+        ]
+
+    def test_serialize_processes_omits_ui_data_and_variables_ui_data_when_empty(self, tmp_path):
+        process = Process(
+            name="Proc_No_UI",
+            hasSecurityAccess=False,
+            code_link="Proc_No_UI.ti",
+            datasource="None",
+            parameters=[],
+            variables=[],
+            ti=TI("", "", "", ""),
+            ui_data=" ",
+            variables_ui_data=[],
+        )
+        model = Model(cubes=[], dimensions=[], processes=[process], chores=[])
+
+        serialize_model(model, str(tmp_path), max_workers=1)
+
+        json_file = tmp_path / "processes" / "Proc_No_UI.json"
+        payload = json.loads(json_file.read_text(encoding="utf-8"))
+        assert "UIData" not in payload
+        assert "VariablesUIData" not in payload
+
 
     def test_serialize_chores_creates_json(self, tmp_path):
         model = build_mock_model(include_chore=True)
