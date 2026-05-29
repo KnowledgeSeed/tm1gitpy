@@ -1492,6 +1492,50 @@ class TestDeserializer:
         for process in processes.values():
             assert isinstance(process, Process)
 
+    def test_deserialize_process_preserves_datasource_ui_data_and_variables_ui_data(self, tmp_path):
+        processes_dir = tmp_path / "processes"
+        processes_dir.mkdir()
+
+        process_name = "Proc_With_Metadata"
+        (processes_dir / f"{process_name}.json").write_text(
+            json.dumps(
+                {
+                    "@type": "Process",
+                    "Name": process_name,
+                    "HasSecurityAccess": False,
+                    "Code@Code.link": f"{process_name}.ti",
+                    "UIData": "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f",
+                    "DataSource": {
+                        "Type": "ASCII",
+                        "asciiDelimiterChar": ";",
+                        "dataSourceNameForServer": "sample.csv",
+                    },
+                    "VariablesUIData": [
+                        "VarType=32\fColType=827\f",
+                    ],
+                    "Parameters": [],
+                    "Variables": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (processes_dir / f"{process_name}.ti").write_text(
+            "#region Prolog\n#endregion\n#region Metadata\n#endregion\n#region Data\n#endregion\n#region Epilog\n#endregion\n",
+            encoding="utf-8",
+        )
+
+        processes, errors = deserialize_processes(process_dir=processes_dir)
+
+        assert errors == {}
+        proc = processes[process_name]
+        assert proc.datasource == {
+            "Type": "ASCII",
+            "asciiDelimiterChar": ";",
+            "dataSourceNameForServer": "sample.csv",
+        }
+        assert proc.ui_data == "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f"
+        assert proc.variables_ui_data == ["VarType=32\fColType=827\f"]
+
 
     @pytest.mark.parametrize("data", dim_data)
     def test_deserialize_dimensions_error_propagation(self, tmp_path, data):

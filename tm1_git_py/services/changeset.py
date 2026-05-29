@@ -844,7 +844,7 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
 
     if isinstance(body, Process):
         ti = getattr(body, "ti", None)
-        return {
+        payload = {
             "Name": body.name,
             "HasSecurityAccess": body.hasSecurityAccess,
             "DataSource": body.datasource if isinstance(body.datasource, dict) else {"type": body.datasource or "None"},
@@ -855,6 +855,11 @@ def _serialize_change_body(change: Change) -> dict[str, Any]:
             "Metadata": getattr(ti, "metadata_procedure", ""),
             "Epilog": getattr(ti, "epilog_procedure", ""),
         }
+        if getattr(body, "ui_data", None) is not None:
+            payload["UIData"] = body.ui_data
+        if getattr(body, "variables_ui_data", None) is not None:
+            payload["VariablesUIData"] = body.variables_ui_data
+        return payload
 
     if isinstance(body, Chore):
         return {

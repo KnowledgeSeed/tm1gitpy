@@ -192,7 +192,7 @@ class TestComparator:
 
         assert len(added) == 6
         assert len(modified) == 5
-        assert len(removed) == 6
+        assert len(removed) == 5
 
 
     def test_comparator_dimensions_change_propagation(self):
@@ -426,7 +426,7 @@ class TestComparator:
             model1,
             model2,
             mode="full",
-            filter_rules=["!Dimensions('*')/Hierarchies('Leaves')"],
+            filter_rules=FilterRules(["!Dimensions('*')/Hierarchies('Leaves')"]),
         )
         leaf_element_changes = [
             change
@@ -455,7 +455,7 @@ class TestComparator:
             model1,
             model2,
             mode="full",
-            filter_rules=["Cubes/Views"],
+            filter_rules=FilterRules(["Cubes/Views"]),
         )
         assert not any(change.object_type == ObjectType.MDX_VIEW for change in filtered.changes)
 
@@ -699,7 +699,7 @@ class TestComparator:
             model_old,
             model_new,
             mode="full",
-            filter_rules=["Dimensions('DimA')/Hierarchies('H1')/Elements('B')"],
+            filter_rules=FilterRules(["Dimensions('DimA')/Hierarchies('H1')/Elements('B')"]),
         )
 
         element_changes = [c for c in changeset.changes if c.object_type == ObjectType.ELEMENT]

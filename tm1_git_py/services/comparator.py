@@ -4,7 +4,7 @@ import sys
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Mapping, Optional, Literal, Union
+from typing import Any, Callable, Iterable, Mapping, Optional, Literal
 from tqdm import tqdm
 
 from tm1_git_py.services.changeset import Changeset, Change, ChangeType, ObjectType
@@ -17,7 +17,7 @@ from tm1_git_py.model.dimension import Dimension
 from tm1_git_py.model.model import Model
 from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.model.process import Process
-from tm1_git_py.services.filter import FilterRules, with_default_leaves_ignore
+from tm1_git_py.services.filter import FilterRules, apply_default_filter_rules
 from tm1_git_py.reporting.progress_reporting import (
     NoopProgressSink,
     ProgressEvent,
@@ -316,36 +316,6 @@ def _object_identity(obj: Any, context: Optional[dict[str, str]] = None) -> str:
     raise AttributeError(f"Object '{obj}' has neither uri nor name.")
 
 
-def _normalize_filter(
-        filter_rules: Optional[Union[list[str], dict]] = None
-) -> list[str]:
-    def normalize_rule_prefix(s):
-        if not s:
-            return s
-        if s[0] == "+":
-            return s[1:]
-        if s[0] == "-":
-            return s[1:]
-        return s
-
-    filter_rules_lines = []
-    if isinstance(filter_rules, list):
-        filter_rules_lines += [normalize_rule_prefix(f) for f in filter_rules]
-        return filter_rules_lines
-
-    if isinstance(filter_rules, dict):
-        if filter_rules.get("added"):
-            filter_rules_lines += [normalize_rule_prefix(f) for f in filter_rules.get("added")]
-        if filter_rules.get("modified"):
-            filter_rules_lines += [normalize_rule_prefix(f) for f in filter_rules.get("modified")]
-        if filter_rules.get("removed"):
-            filter_rules_lines += [normalize_rule_prefix(f) for f in filter_rules.get("removed")]
-        return filter_rules_lines
-
-    else:
-        raise ValueError("Invalid filter format for Comparator.")
-
-
 class Comparator:
     DISK_BACKED_PROGRESS_EVERY: int = 100_000
     COMPARE_CHANGE_BATCH_SIZE: int = 100_000
@@ -371,25 +341,6 @@ class Comparator:
         self._collection_progress_total = 0
         self._collection_progress_current = 0
         self._collection_progress_label = ""
-
-    @staticmethod
-    def _normalize_compare_filter_rules(
-        filter_rules: Optional[Union[list[str], list[dict], dict]] = None
-    ) -> list[str]:
-        if filter_rules is None:
-            return []
-        if isinstance(filter_rules, dict):
-            return _normalize_filter(filter_rules)
-        if isinstance(filter_rules, list):
-            if all(isinstance(rule, str) for rule in filter_rules):
-                return _normalize_filter(filter_rules)
-            normalized: list[str] = []
-            for rule_group in filter_rules:
-                if not isinstance(rule_group, dict):
-                    raise ValueError("Invalid filter format for Comparator.")
-                normalized.extend(_normalize_filter(rule_group))
-            return normalized
-        raise ValueError("Invalid filter format for Comparator.")
 
     def _is_uri_in_scope(self, object_uri: str) -> bool:
         if not object_uri:
@@ -500,7 +451,7 @@ class Comparator:
             model2: Model,
             progress_sink: Optional[ProgressSink] = None,
             mode: Literal['full', 'add_only'] = 'full',
-            filter_rules: Optional[Union[list[str], list[dict]]] = None,
+            filter_rules: Optional[FilterRules] = None,
     ) -> Changeset:
         """
         Compare two models and build a Changeset of Change entries.
@@ -526,11 +477,11 @@ class Comparator:
                 len(model2.chores),
             )
 
-            normalized_rule_set = with_default_leaves_ignore(
-                self._normalize_compare_filter_rules(filter_rules)
+            self._active_filter_rules = apply_default_filter_rules(filter_rules)
+            logger.debug(
+                "Using comparator filter rules: %s",
+                self._active_filter_rules._normalized_rules,
             )
-            logger.debug("Using comparator filter rules: %s", normalized_rule_set)
-            self._active_filter_rules = FilterRules(normalized_rule_set)
 
             phase_rows = [
                 ("Cube", model1.cubes, model2.cubes, Cube),

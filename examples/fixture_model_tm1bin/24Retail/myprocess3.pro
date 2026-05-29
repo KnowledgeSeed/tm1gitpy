@@ -1,10 +1,10 @@
 ﻿601,100
 602,"myprocess3"
-562,"NULL"
-586,
-585,
+562,"SUBSET"
+586,"TestDimMultiHier"
+585,"TestDimMultiHier"
 564,
-565,"kCi^b>5KxrRaWvNOp[xChK?QSCTlk8NmxuKvSr`ACg@g\JiyhMQL5niYr]y\8M]UhwNw4sBWWBulb?lFooNk@[=hkUfQhHk:DOWbCT[7ZBWup=pscKiv7=yj:axRXG^>DY1f`Yb4e@x5xotjI\w0tzXxArph4K\7dL6YAH<7SEUYqtNYej;2hgk8IdT>HnZ>b9QS^iai"
+565,"edRVIa?3P9\vC@u^0wpI=Owsp8q>iZvr7]1r<TTZaZgF0BvFLO:88M4=NAw_J85YSMG?JgbpMfRWPR;y28UmIdHGQN?LVQp[g6VZC_tQ=EI3X=KQv66Q=d4ILypUdwA[o[[xpIljm4]cKK4c^95BFFVTTfmVE]Qid8iOhG?7JuHSf4;aqfQbnW5HZnhs7Pd0h5sHkFVX"
 559,1
 928,0
 593,
@@ -21,7 +21,7 @@
 589,","
 568,""""
 570,
-571,
+571,TestDimMultiHierStaticSubset
 569,0
 592,0
 599,1000

@@ -1,5 +1,9 @@
 # tm1_git_py
 
+[![Tests (Py 3.11/3.12/3.13)](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1_git_py/ci.yml?branch=main&label=tests%20(py3.11%2F3.12%2F3.13))](https://github.com/KnowledgeSeed/tm1_git_py/actions/workflows/ci.yml)
+[![Integration Tests](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1_git_py/ci.yml?branch=main&label=integration%20tests)](https://github.com/KnowledgeSeed/tm1_git_py/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/KnowledgeSeed/tm1_git_py?label=latest%20release)](https://github.com/KnowledgeSeed/tm1_git_py/releases/latest)
+
 **tm1_git_py** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
 
 - It understands `tm1project.json` and the same filtering rules used by TM1 Git workflows.
@@ -13,6 +17,29 @@
 - Apply filter rules during **export** (narrowed objects and SQLite-backed export cache), during **compare** (fine-grained changeset without mutating on-disk exports), or on a **changeset** (toggle `apply` flags only)
 - Compare models (either file-based schema or TM1 servers) and collect differences to changesets.
 - Apply changsets to target server
+
+## TM1 Git vs tm1gitpy: Technical Comparison
+
+A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized by capability areas.
+
+| Feature Category | Feature | TM1git | tm1gitpy |
+| :--- | :--- | :--- | :--- |
+| **Core Architecture** | **Embeddable** | ✅ (via REST API) | ✅ (as a Python package) |
+| | **CLI Support** | ❌ (only REST API over CLI or Postman) | ✅ |
+| **Schema & Objects** | **Model Schema Export** | ✅ | ✅ |
+| | **Object Deletes** | ❌ | ✅ |
+| | **Settings (Server Config)** | ✅ | 🟠 Upcoming release |
+| | **Files** | ✅ | ❌ (only via Python hooks) |
+| **Filtering Capabilities** | **Basic Filtering** | ✅ (`tm1project.json`) | ✅ (`tm1project.json` or separate rules) |
+| | **Advanced Filtering** | ❌ (no wildcard support for technical object unignores, no trailing wildcards) | ✅ (wildcard support for technical object unignores; leading/trailing wildcards on any level) |
+| | **Element-level Filtering** | ❌ | ✅ |
+| | **Rule Markups** | ❌ | 🟠 Upcoming release |
+| **Changeset Management** | **Changeset as a file** | ❌ (requires Git PR to review changes) | ✅ |
+| | **Changeset Post-filtering** | ❌ | ✅ |
+| | **Transactional Changeset apply** | ✅ | 🟠 Upcoming release |
+| | **Progress Tracking** | ❌ | ✅ |
+| **DevOps & Extensibility** | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
+| | **No-Git Preview Mode** | ❌ | ✅ |
 
 ## Installation
 
@@ -147,10 +174,19 @@ Chores('Daily*')/Tasks('LoadData')
 
 Use `!` prefix on any supported pattern to force-include matching objects.
 
+#### Rule Pattern Shortcuts
+
+Collection segments without `('<pattern>')` are treated as `('*')`.
+
+- `Cubes/Views` means `Cubes('*')/Views('*')`
+- `Dimensions/Hierarchies/Elements` means `Dimensions('*')/Hierarchies('*')/Elements('*')`
+- `Processes` means `Processes('*')`
+
 #### Filter Rule Input Formats (CLI)
 
 - **`export`**: `-f` / `--filter` — file path, `file://` URI, or comma-separated rules (same loaders as below).
-- **`compare`** and **`changset-filter`**: `--filter-rules` — same three input forms.
+- **`compare`**: `-f` / `--filter-rules` — same three input forms.
+- **`changset-filter`** and **`changeset-filter`** (alias): `--filter-rules` — same three input forms.
 
 For those flags:
 
@@ -165,20 +201,43 @@ For those flags:
 python tm1_git_py/main.py <command> [options]
 
 Commands:
-  export    Export TM1 model from server (optional `-f` / `--filter` during export)
-  changset-filter Toggle changeset apply flags by filter rules
-  compare   Compare two model versions and write a changeset file
-  apply     Apply a changeset file to a TM1 server
+  export           Export model from TM1 to a folder
+  compare          Compare two model folders and write a changeset
+  apply            Apply a changeset file to a TM1 server
+  changset-filter  Toggle apply flags in a changeset using filter rules
+                   (alias: changeset-filter)
 
-Options:
-  -s, --server SERVER           TM1 server name from tm1servers.yaml
-  -mo, --model-output-folder    Output model folder for export (default: export)
-  -o                            Export: --overwrite. Compare: --output (changeset file path).
-  -f, --filter FILE            Filter rules for export (file path, file:// URI, or comma-separated rules)
-  --filter-rules RULES         Filter rules for compare and changset-filter (same input forms as export)
-  --changeset-path PATH         Changeset path for changset-filter
-  --max-workers N              Total CPU + IO worker count for export/compare
-  --debug                      Enable DEBUG logging and show per-worker/thread progress bars
+Shared options (all commands):
+  --log-file PATH  Optional log file path (or directory for timestamped logs)
+  --console-logs   Enable console log output in addition to progress UI
+  --debug          Enable detailed worker/thread progress bars
+
+export:
+  -s, --server SERVER
+  -mo, --model-output-folder PATH   (default: export)
+  -o, --overwrite
+  -f, --filter RULES_OR_FILE
+  --max-workers N
+
+compare:
+  --source PATH
+  --target PATH
+  -o, --output PATH                 (default by format: changeset.yaml/json)
+  --mode {full,add_only}            (default: full)
+  -f, --filter-rules RULES_OR_FILE
+  --format {yaml,json}              (default: yaml)
+  --max-workers N
+
+apply:
+  -s, --server SERVER
+  -c, --changeset PATH
+  --status-dir PATH
+  --execution-id ID
+  --no-fail-fast
+
+changset-filter / changeset-filter:
+  --changeset-path PATH
+  --filter-rules RULES_OR_FILE
 ```
 
 Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment. Pass `--debug` to set the log level to `DEBUG` for that run.
@@ -235,39 +294,6 @@ Integration tests (TM1 container/local TM1 required):
 
 ```bash
 PYTHONPATH=. pytest test_integration/
-```
-
-### Project Structure
-
-```
-tm1_git_py/
-├── tm1_git_py/          # Main package
-│   ├── main.py          # CLI entry point
-│   ├── config.py        # Server configuration
-│   ├── exporter.py      # TM1 model export
-│   ├── hierarchy_export.py  # Hierarchy export logic
-│   ├── serializer.py    # Model serialization
-│   ├── deserializer.py  # Model deserialization
-│   ├── filter.py        # Object filtering
-│   ├── comparator.py    # Compare TM1 models
-│   ├── changeset.py     # Build changeset
-│   ├── apply.py         # Apply changeset
-│   ├── logging_config.py   # Logging setup
-│   ├── changeset_status.py # Changeset status tracking
-│   ├── validation.py    # Validation utilities
-│   ├── tm1project_to_filter.py  # TM1 project to filter conversion
-│   ├── tm1py_ext/       # TM1py extensions and paginated services
-│   │   ├── paginated_element_service.py
-│   │   ├── paginated_subset_service.py
-│   │   └── paginated_edge_service.py
-│   └── model/           # Model data structures
-│       ├── element_attribute.py
-│       ├── task_summary.py
-│       └── ...
-├── examples/            # Usage examples
-├── docs/               # Documentation
-├── tests/              # Test suite
-└── test_integration/   # Integration tests
 ```
 
 ## License
