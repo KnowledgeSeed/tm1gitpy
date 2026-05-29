@@ -35,6 +35,7 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 | | **Element-level Filtering** | ❌ | ✅ |
 | **Changeset Management** | **Changeset as a File** | ❌ (requires Git PR to review changes) | ✅ |
 | | **Changeset Post-filtering** | ❌ | ✅ |
+| | **Transactional changeset apply** | ✅ | 🟠 Upcoming release |
 | **DevOps & Extensibility**| **Rule Markups** | ❌ | 🟠 Upcoming release |
 | | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
 | | **No-Git Preview Mode** | ❌ | ✅ |
