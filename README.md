@@ -1,5 +1,9 @@
 # tm1_git_py
 
+[![Tests (Py 3.11/3.12/3.13)](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1_git_py/ci.yml?branch=main&label=tests%20(py3.11%2F3.12%2F3.13))](https://github.com/KnowledgeSeed/tm1_git_py/actions/workflows/ci.yml)
+[![Integration Tests](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1_git_py/ci.yml?branch=main&label=integration%20tests)](https://github.com/KnowledgeSeed/tm1_git_py/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/KnowledgeSeed/tm1_git_py?label=latest%20release)](https://github.com/KnowledgeSeed/tm1_git_py/releases/latest)
+
 **tm1_git_py** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
 
 - It understands `tm1project.json` and the same filtering rules used by TM1 Git workflows.
@@ -18,7 +22,7 @@
 
 A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized by capability areas.
 
-| Feature Category | Feature | TM1git | TM1gitpy |
+| Feature Category | Feature | TM1git | tm1gitpy |
 | :--- | :--- | :--- | :--- |
 | **Core Architecture** | **Embeddable** | ✅ (via REST API) | ✅ (as a Python package) |
 | | **CLI Support** | ❌ (only REST API over CLI or Postman) | ✅ |
