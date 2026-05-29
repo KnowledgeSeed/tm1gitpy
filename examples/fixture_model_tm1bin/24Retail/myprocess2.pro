@@ -1,10 +1,10 @@
 ﻿601,100
 602,"myprocess2"
-562,"NULL"
-586,
-585,
+562,"VIEW"
+586,"TestCube3WithView"
+585,"TestCube3WithView"
 564,
-565,"qs012M<<7^TWkB@\MamNdyNw1lOPS>^WNWIz:g<P]34^ct2V<m[8xqccO5h@v28v6jvyuK_m3X0x[Ih`ZDm>i4fRTyU_XlMRpYqqlf=XOk]`@Vio]qAjc?D`NWn1cYcATjSvFpqCxkJ8b:\cJ9MN`ROGI<bWzPG`Zc?x5:rsxP=hp22ZFQIcuG>A@Hf]^Ji4c\@2xxhZ"
+565,"ngYd>K3W^t1erFaDr1Q<gROu=>jor9YYWc<hBiM<zEd^z6jJCt]Ztap:J1kR75xL_UkOc7;eez9PkTqU7IQLTEaS0gKPFf97Mjs2pWarvIm`wMaESOqCl\1s`ga:MmM:J@Av7a5;27WGtD\zb1:I2_NgBVe[^]IEGBtb90]_VNx`5LWQsp1TC:ae`sGuJXU;Q3cK6V\x"
 559,1
 928,0
 593,
@@ -20,7 +20,7 @@
 588,"."
 589,","
 568,""""
-570,
+570,testcube3withview_view1
 571,
 569,0
 592,0
@@ -29,12 +29,30 @@
 561,0
 590,0
 637,0
-577,0
-578,0
-579,0
-580,0
-581,0
-582,0
+577,3
+v1
+v2
+v3
+578,3
+2
+2
+1
+579,3
+1
+2
+3
+580,3
+0
+0
+0
+581,3
+0
+0
+0
+582,3
+VarType=32ColType=827
+VarType=32ColType=827
+VarType=33ColType=827
 603,0
 572,3
 #****Begin: Generated Statements***
