@@ -681,6 +681,14 @@ def with_default_leaves_ignore(filter_rules: Optional[List[str]]) -> List[str]:
     return deduped_rules
 
 
+def apply_default_filter_rules(filter_rules: Optional["FilterRules"] = None) -> "FilterRules":
+    """Apply default leaves and technical-object exclusions on top of caller rules."""
+    base_rules = list(filter_rules._normalized_rules) if filter_rules is not None else []
+    effective_rules = with_default_leaves_ignore(base_rules)
+    effective_rules.extend(with_technical_objects_ignore(base_rules))
+    return FilterRules(effective_rules)
+
+
 def _normalize_match_text(text: str) -> str:
     return (text or "").replace("\\", "/").lstrip("/").lower()
 

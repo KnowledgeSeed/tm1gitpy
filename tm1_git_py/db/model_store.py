@@ -570,8 +570,8 @@ class ModelStore:
                 weight = payload.get("weight")
             return (
                 "{"
-                f"\"ComponentName\":{self._value_json(component)},"
                 f"\"ParentName\":{self._value_json(parent)},"
+                f"\"ComponentName\":{self._value_json(component)},"
                 f"\"Weight\":{self._value_json(weight)}"
                 "}"
             )
@@ -605,8 +605,8 @@ class ModelStore:
         if normalized in ("edge", "edges"):
             return (
                 "{\n"
-                f"\t\t\t\"ComponentName\":{self._value_json(self._cell(row, 'ComponentName', 1))},\n"
                 f"\t\t\t\"ParentName\":{self._value_json(self._cell(row, 'ParentName', 0))},\n"
+                f"\t\t\t\"ComponentName\":{self._value_json(self._cell(row, 'ComponentName', 1))},\n"
                 f"\t\t\t\"Weight\":{self._value_json(self._cell(row, 'Weight', 2))}\n"
                 "\t\t}"
             )

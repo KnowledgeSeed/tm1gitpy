@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -6,6 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import TM1py
 from TM1py import TM1Service, Subset
 from requests import Response
+
+from tm1_git_py.model.tm1git_json import dumps_tm1git
 
 
 # {
@@ -43,7 +44,7 @@ class Subset:
         return not self.is_dynamic
 
     def as_json(self):
-        return json.dumps(self._json_payload(), indent='\t')
+        return dumps_tm1git(self._json_payload())
 
     def _json_payload(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
