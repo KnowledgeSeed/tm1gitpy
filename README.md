@@ -44,6 +44,7 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 
 ## Benchmarks
 
+
 ### Benchmark Section 1: Small and Moderate Models
 
 ![Small Model (5 MB) Benchmark](docs/benchmarks/small-model-benchmark.png)
@@ -51,6 +52,8 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 ![Moderate Model (176.5 MB) Benchmark](docs/benchmarks/moderate-model-benchmark.png)
 
 ### Benchmark Section 2: Large and Extra Large Models
+
+In these tests, GitHub push did not work due to file size limits (100Mb) so only the first part of the export is compared.
 
 ![Large Model (560 MB) Benchmark](docs/benchmarks/large-model-benchmark.png)
 
