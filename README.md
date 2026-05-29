@@ -37,8 +37,8 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 | | **Changeset Post-filtering** | ❌ | ✅ |
 | | **Transactional changeset apply** | ✅ | 🟠 Upcoming release |
 | | **Progress tracking** | ❌ | ✅ |
-| **DevOps & Extensibility**| **Rule Markups** | ❌ | 🟠 Upcoming release |
-| | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
+| | **Rule Markups** | ❌ | 🟠 Upcoming release |
+| **DevOps & Extensibility** | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
 | | **No-Git Preview Mode** | ❌ | ✅ |
 
 ## Installation
