@@ -33,11 +33,11 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 | **Filtering Capabilities** | **Basic Filtering** | ✅ (`tm1project.json`) | ✅ (`tm1project.json` or separate rules) |
 | | **Advanced Filtering** | ❌ (no wildcard support for technical object unignores, no trailing wildcards) | ✅ (wildcard support for technical object unignores; leading/trailing wildcards on any level) |
 | | **Element-level Filtering** | ❌ | ✅ |
+| | **Rule Markups** | ❌ | 🟠 Upcoming release |
 | **Changeset Management** | **Changeset as a File** | ❌ (requires Git PR to review changes) | ✅ |
 | | **Changeset Post-filtering** | ❌ | ✅ |
 | | **Transactional changeset apply** | ✅ | 🟠 Upcoming release |
 | | **Progress tracking** | ❌ | ✅ |
-| | **Rule Markups** | ❌ | 🟠 Upcoming release |
 | **DevOps & Extensibility** | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
 | | **No-Git Preview Mode** | ❌ | ✅ |
 
