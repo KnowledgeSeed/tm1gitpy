@@ -41,6 +41,22 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 | **DevOps & Extensibility** | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
 | | **No-Git Preview Mode** | ❌ | ✅ |
 
+
+## Benchmarks
+
+### Benchmark Section 1: Small and Moderate Models
+
+![Small Model (5 MB) Benchmark](docs/benchmarks/small-model-benchmark.png)
+
+![Moderate Model (176.5 MB) Benchmark](docs/benchmarks/moderate-model-benchmark.png)
+
+### Benchmark Section 2: Large and Extra Large Models
+
+![Large Model (560 MB) Benchmark](docs/benchmarks/large-model-benchmark.png)
+
+![Extra Large Model (3.43 GB) Benchmark](docs/benchmarks/extra-large-model-benchmark.png)
+
+
 ## Installation
 
 ### From Source
