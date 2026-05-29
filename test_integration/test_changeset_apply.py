@@ -20,7 +20,7 @@ from tm1_git_py.model.rule import Rule
 from tm1_git_py.model.ti import TI
 from tm1_git_py.services.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.services.comparator import Comparator
-from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
+from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS, FilterRules
 
 
 @pytest.mark.usefixtures("tm1_service")
@@ -1214,7 +1214,8 @@ class TestChangesetApply:
         self, source, target, mode: str = "full", filter_rules: list[str] = None
     ):
         comparator = Comparator()
-        return comparator.compare(source, target, mode=mode, filter_rules=filter_rules)
+        rules = FilterRules(filter_rules) if filter_rules is not None else None
+        return comparator.compare(source, target, mode=mode, filter_rules=rules)
 
     def apply(self, changeset: Changeset):
         status_dir = "test_integration"

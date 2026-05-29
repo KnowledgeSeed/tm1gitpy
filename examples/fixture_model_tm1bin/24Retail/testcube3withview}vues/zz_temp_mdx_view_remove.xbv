@@ -1,0 +1,7 @@
+﻿389,100
+390,"zz_temp_mdx_view_remove"
+370,0
+391,76
+SELECT {[TestDim1].[TestDim1].[TestDim1Elem1]} ON 0 FROM [TestCube3WithView]
+32,6
+null\n

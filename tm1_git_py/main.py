@@ -22,6 +22,7 @@ from tm1_git_py.internal.process_pool import (
     shutdown_process_pool_now,
 )
 from tm1_git_py.model import Model
+from tm1_git_py.model.tm1_project_json import Tm1ProjectJson
 from tm1_git_py.reporting.progress_reporting import (
     CallbackProgressSink,
     CompositeProgressSink,
@@ -35,7 +36,7 @@ from tm1_git_py.services.changeset import import_changeset
 from tm1_git_py.services.comparator import Comparator, TqdmComparatorProgressSink
 from tm1_git_py.services.deserializer import deserialize_model
 from tm1_git_py.services.exporter import export
-from tm1_git_py.services.filter import import_filter
+from tm1_git_py.services.filter import FilterRules, import_filter
 from tm1_git_py.services.serializer import serialize_model
 
 logger = logging.getLogger(__name__)
@@ -139,37 +140,89 @@ def _prepare_model_folder(model_folder: str, overwrite: bool = False):
         shutil.rmtree(model_folder)
 
 
+def _filter_path_from_arg(filter_arg: str) -> Path:
+    raw = str(filter_arg).strip()
+    if raw.startswith("file://"):
+        return Path(raw[len("file://"):].strip()).expanduser().resolve()
+    return Path(raw).expanduser().resolve()
+
+
+def _load_filter_rules_from_path(filter_path: Path) -> list[str]:
+    if not filter_path.exists():
+        logger.error("Filter file '%s' not found.", filter_path)
+        sys.exit(1)
+    try:
+        if Tm1ProjectJson.is_tm1project_path(filter_path):
+            project = Tm1ProjectJson.from_path(filter_path)
+            rules = project.ignore_rules()
+            logger.info(
+                "Loaded %d ignore rule(s) from tm1project: %s",
+                len(rules),
+                filter_path,
+            )
+            return rules
+        filter_rules = import_filter(str(filter_path))
+        logger.info("Loaded %d filter rule(s) from: %s", len(filter_rules), filter_path)
+        return filter_rules
+    except Exception:
+        logger.exception("Error loading filter from: %s", filter_path)
+        sys.exit(1)
+
+
 def _load_filter_rules(filter_file: str | None) -> list[str]:
     if not filter_file:
         return []
     raw = str(filter_file).strip()
 
-    def _load_from_file(path_str: str) -> list[str]:
-        filter_path = Path(path_str).expanduser().resolve()
-        if not filter_path.exists():
-            logger.error("Filter file '%s' not found.", path_str)
-            sys.exit(1)
-        try:
-            filter_rules = import_filter(str(filter_path))
-            logger.info("Loaded %d filter rule(s) from: %s", len(filter_rules), filter_path)
-            return filter_rules
-        except Exception:
-            logger.exception("Error loading filter from: %s", filter_path)
-            sys.exit(1)
-
-    # Explicit file URI form: file://examples/filter.txt
     if raw.startswith("file://"):
-        file_uri_path = raw[len("file://"):].strip()
-        return _load_from_file(file_uri_path)
+        return _load_filter_rules_from_path(_filter_path_from_arg(raw))
 
-    # Inline comma-separated rules form.
     if "," in raw:
         rules = [part.strip() for part in raw.split(",") if part.strip()]
         logger.info("Loaded %d inline filter rule(s)", len(rules))
         return rules
 
-    # Default existing behavior: treat as file path.
-    return _load_from_file(raw)
+    return _load_filter_rules_from_path(Path(raw).expanduser().resolve())
+
+
+def _resolve_filter_rules(
+    filter_arg: str | None,
+) -> Optional[FilterRules]:
+    """Resolve export/compare filter argument to FilterRules (tm1project includes defaults)."""
+    if not filter_arg:
+        return None
+    raw = str(filter_arg).strip()
+
+    def _from_path(filter_path: Path) -> Optional[FilterRules]:
+        if not filter_path.exists():
+            logger.error("Filter file '%s' not found.", filter_path)
+            sys.exit(1)
+        try:
+            if Tm1ProjectJson.is_tm1project_path(filter_path):
+                project = Tm1ProjectJson.from_path(filter_path)
+                rules = project.to_filter_rules()
+                logger.info(
+                    "Loaded %d ignore rule(s) from tm1project: %s",
+                    len(project.ignore),
+                    filter_path,
+                )
+                return rules
+            lines = import_filter(str(filter_path))
+            logger.info("Loaded %d filter rule(s) from: %s", len(lines), filter_path)
+            return FilterRules(lines) if lines else None
+        except Exception:
+            logger.exception("Error loading filter from: %s", filter_path)
+            sys.exit(1)
+
+    if raw.startswith("file://"):
+        return _from_path(_filter_path_from_arg(raw))
+
+    if "," in raw:
+        rules = [part.strip() for part in raw.split(",") if part.strip()]
+        logger.info("Loaded %d inline filter rule(s)", len(rules))
+        return FilterRules(rules) if rules else None
+
+    return _from_path(Path(raw).expanduser().resolve())
 
 
 def _add_common_cli_options(p: argparse.ArgumentParser) -> None:
@@ -200,7 +253,7 @@ def _cmd_export(args: argparse.Namespace) -> None:
 
     _prepare_model_folder(model_output_folder, args.overwrite)
 
-    filter_rules = _load_filter_rules(args.filter)
+    filter_rules = _resolve_filter_rules(args.filter)
 
     logger.info("Exporting model to folder: %s", model_output_folder)
     model_id = model_output_path.name.strip()
@@ -216,7 +269,13 @@ def _cmd_export(args: argparse.Namespace) -> None:
     main_sink: ProgressSink = (
         sink_list[0] if len(sink_list) == 1 else CompositeProgressSink(sink_list)
     )
-    exported_model, export_errors = export(tm1_service, model_id=model_id, filter_rules_list=filter_rules, progress_sink=main_sink, max_workers=requested_max_workers)
+    exported_model, export_errors = export(
+        tm1_service,
+        model_id=model_id,
+        filter_rules=filter_rules,
+        progress_sink=main_sink,
+        max_workers=requested_max_workers,
+    )
     tqdm_sink.reset_bars()
 
     if export_errors and any(export_errors.values()):
@@ -289,7 +348,7 @@ def _cmd_compare(args: argparse.Namespace) -> None:
             if err_target:
                 logger.warning("Target deserialization reported %d error(s)", len(err_target))
 
-            extra_filter = _load_filter_rules(args.filter_rules) if args.filter_rules else None
+            extra_filter = _resolve_filter_rules(args.filter_rules)
 
             comparator = Comparator()
 
@@ -411,7 +470,12 @@ def main():
         help="Folder to write the serialized model",
     )
     p_export.add_argument("-o", "--overwrite", action="store_true", help="Clear output folder if it already exists")
-    p_export.add_argument("-f", "--filter", type=str, help="Path to filter rules file for export")
+    p_export.add_argument(
+        "-f",
+        "--filter",
+        type=str,
+        help="Filter rules: file:// path to filter.txt or tm1project.json, or comma-separated rules",
+    )
     p_export.add_argument(
         "--max-workers",
         type=int,
@@ -454,7 +518,7 @@ def main():
         "-f",
         "--filter-rules",
         type=str,
-        help="Optional filter rules as file path, file:// URI, or comma-separated rules",
+        help="Filter rules: file:// path to filter.txt or tm1project.json, or comma-separated rules",
     )
     p_compare.add_argument(
         "--format",

@@ -35,9 +35,8 @@ from tm1_git_py.reporting.progress_reporting import (
 from tm1_git_py.services.filter import (
     EntityType,
     FilterRules,
+    apply_default_filter_rules,
     normalize_for_path,
-    with_default_leaves_ignore,
-    with_technical_objects_ignore,
 )
 from tm1_git_py.services.sort_metadata import get_hierarchy_sort_metadata
 from tm1_git_py.tm1_api import (
@@ -165,7 +164,7 @@ class HierarchyFuture:
 def export(
     tm1_conn: TM1Service,
     model_id: str,
-    filter_rules_list: Optional[list[str]] = None,
+    filter_rules: Optional[FilterRules] = None,
     *,
     progress_sink: Optional[ProgressSink] = None,
     max_workers: Optional[int] = None,
@@ -183,9 +182,7 @@ def export(
         active_progress_sink = progress_sink
 
     worker_counts = resolve_worker_counts(max_workers)
-    effective_rules = with_default_leaves_ignore(filter_rules_list)
-    effective_rules.extend(with_technical_objects_ignore(filter_rules_list))
-    filter_rules = FilterRules(effective_rules)
+    filter_rules = apply_default_filter_rules(filter_rules)
 
     progress_sink.on_event(ProgressEvent.total_line(message="Exporting"))
     

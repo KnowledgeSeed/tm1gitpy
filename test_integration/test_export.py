@@ -14,6 +14,7 @@ from test_integration.test_base import (
 )
 from tm1_git_py.model.hierarchy import hierarchy_sort_metadata_json
 from tm1_git_py.services.exporter import export
+from tm1_git_py.services.filter import FilterRules
 from tm1_git_py.services.sort_metadata import get_hierarchy_sort_metadata
 from tm1_git_py.services.serializer import serialize_model
 
@@ -143,7 +144,7 @@ class TestExport:
         model, errors = export(
             self.tm1_service,
             model_id="integration-export",
-            filter_rules_list=["Cubes('}*')", "Dimensions('}*')", "Processes('}*')"],
+            filter_rules=FilterRules(["Cubes('}*')", "Dimensions('}*')", "Processes('}*')"]),
             max_workers=DEFAULT_MAX_WORKERS,
         )
         for category, category_errors in errors.items():
@@ -157,12 +158,12 @@ class TestExport:
         model, errors = export(
             self.tm1_service,
             model_id="integration-export",
-            filter_rules_list=[
+            filter_rules=FilterRules([
                 "Dimensions('TestDim1*')",
                 "Cubes('TestCube1*')",
                 "Cubes('TestCube2*')",
                 "Cubes('TestCube3*')",
-            ],
+            ]),
             max_workers=DEFAULT_MAX_WORKERS,
         )
         for category, category_errors in errors.items():
@@ -187,7 +188,7 @@ class TestExport:
         model, errors = export(
             self.tm1_service,
             model_id="integration-export",
-            filter_rules_list=filter_rules,
+            filter_rules=FilterRules(filter_rules),
             max_workers=DEFAULT_MAX_WORKERS,
         )
         for category, category_errors in errors.items():
@@ -205,7 +206,7 @@ class TestExport:
         model, errors = export(
             self.tm1_service,
             model_id="integration-export-force-technical-cube",
-            filter_rules_list=[f"!Cubes('{forced_cube_name}')"],
+            filter_rules=FilterRules([f"!Cubes('{forced_cube_name}')"]),
             max_workers=DEFAULT_MAX_WORKERS,
         )
         for category, category_errors in errors.items():

@@ -12,7 +12,7 @@ from test_integration.test_base import (
 )
 from tm1_git_py.services.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.services.comparator import Comparator
-from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS
+from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS, FilterRules
 from tm1_git_py.model import process as process_model, Model
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.process import Process
@@ -824,7 +824,8 @@ class TestProcessChoreChangesetApply:
         self, source, target, mode: str = "full", filter_rules: list[str] = None
     ):
         comparator = Comparator()
-        return comparator.compare(source, target, mode=mode, filter_rules=filter_rules)
+        rules = FilterRules(filter_rules) if filter_rules is not None else None
+        return comparator.compare(source, target, mode=mode, filter_rules=rules)
 
     def apply(self, changeset: Changeset):
         status_dir = "tests"
