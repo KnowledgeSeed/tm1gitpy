@@ -53,7 +53,7 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 
 ### Benchmark Section 2: Large and Extra Large Models
 
-In these tests, GitHub push did not work due to file size limits (100Mb) so only the first part of the export is compared.
+In these tests, GitHub push did not work due to file size limits (100Mb) so only the first part of the export is compared. Actual GitHub transfer is not calculated to the numbers.
 
 ![Large Model (560 MB) Benchmark](docs/benchmarks/large-model-benchmark.png)
 
