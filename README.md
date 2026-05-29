@@ -30,6 +30,7 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 | | **Object Deletes** | ❌ | ✅ |
 | | **Settings (Server Config)** | ✅ | 🟠 Upcoming release |
 | | **Files** | ✅ | ❌ (only via Python hooks) |
+| | **Large schema files (>100 MB) on GitHub** | ❌ | ✅ (since `git push` is externally managed, `GitHub large files` can be used here) |
 | **Filtering Capabilities** | **Basic Filtering** | ✅ (`tm1project.json`) | ✅ (`tm1project.json` or separate rules) |
 | | **Advanced Filtering** | ❌ (no wildcard support for technical object unignores, no trailing wildcards) | ✅ (wildcard support for technical object unignores; leading/trailing wildcards on any level) |
 | | **Element-level Filtering** | ❌ | ✅ |
