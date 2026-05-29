@@ -172,10 +172,19 @@ Chores('Daily*')/Tasks('LoadData')
 
 Use `!` prefix on any supported pattern to force-include matching objects.
 
+#### Rule Pattern Shortcuts
+
+Collection segments without `('<pattern>')` are treated as `('*')`.
+
+- `Cubes/Views` means `Cubes('*')/Views('*')`
+- `Dimensions/Hierarchies/Elements` means `Dimensions('*')/Hierarchies('*')/Elements('*')`
+- `Processes` means `Processes('*')`
+
 #### Filter Rule Input Formats (CLI)
 
 - **`export`**: `-f` / `--filter` — file path, `file://` URI, or comma-separated rules (same loaders as below).
-- **`compare`** and **`changset-filter`**: `--filter-rules` — same three input forms.
+- **`compare`**: `-f` / `--filter-rules` — same three input forms.
+- **`changset-filter`** and **`changeset-filter`** (alias): `--filter-rules` — same three input forms.
 
 For those flags:
 
@@ -190,20 +199,43 @@ For those flags:
 python tm1_git_py/main.py <command> [options]
 
 Commands:
-  export    Export TM1 model from server (optional `-f` / `--filter` during export)
-  changset-filter Toggle changeset apply flags by filter rules
-  compare   Compare two model versions and write a changeset file
-  apply     Apply a changeset file to a TM1 server
+  export           Export model from TM1 to a folder
+  compare          Compare two model folders and write a changeset
+  apply            Apply a changeset file to a TM1 server
+  changset-filter  Toggle apply flags in a changeset using filter rules
+                   (alias: changeset-filter)
 
-Options:
-  -s, --server SERVER           TM1 server name from tm1servers.yaml
-  -mo, --model-output-folder    Output model folder for export (default: export)
-  -o                            Export: --overwrite. Compare: --output (changeset file path).
-  -f, --filter FILE            Filter rules for export (file path, file:// URI, or comma-separated rules)
-  --filter-rules RULES         Filter rules for compare and changset-filter (same input forms as export)
-  --changeset-path PATH         Changeset path for changset-filter
-  --max-workers N              Total CPU + IO worker count for export/compare
-  --debug                      Enable DEBUG logging and show per-worker/thread progress bars
+Shared options (all commands):
+  --log-file PATH  Optional log file path (or directory for timestamped logs)
+  --console-logs   Enable console log output in addition to progress UI
+  --debug          Enable detailed worker/thread progress bars
+
+export:
+  -s, --server SERVER
+  -mo, --model-output-folder PATH   (default: export)
+  -o, --overwrite
+  -f, --filter RULES_OR_FILE
+  --max-workers N
+
+compare:
+  --source PATH
+  --target PATH
+  -o, --output PATH                 (default by format: changeset.yaml/json)
+  --mode {full,add_only}            (default: full)
+  -f, --filter-rules RULES_OR_FILE
+  --format {yaml,json}              (default: yaml)
+  --max-workers N
+
+apply:
+  -s, --server SERVER
+  -c, --changeset PATH
+  --status-dir PATH
+  --execution-id ID
+  --no-fail-fast
+
+changset-filter / changeset-filter:
+  --changeset-path PATH
+  --filter-rules RULES_OR_FILE
 ```
 
 Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment. Pass `--debug` to set the log level to `DEBUG` for that run.
@@ -260,39 +292,6 @@ Integration tests (TM1 container/local TM1 required):
 
 ```bash
 PYTHONPATH=. pytest test_integration/
-```
-
-### Project Structure
-
-```
-tm1_git_py/
-├── tm1_git_py/          # Main package
-│   ├── main.py          # CLI entry point
-│   ├── config.py        # Server configuration
-│   ├── exporter.py      # TM1 model export
-│   ├── hierarchy_export.py  # Hierarchy export logic
-│   ├── serializer.py    # Model serialization
-│   ├── deserializer.py  # Model deserialization
-│   ├── filter.py        # Object filtering
-│   ├── comparator.py    # Compare TM1 models
-│   ├── changeset.py     # Build changeset
-│   ├── apply.py         # Apply changeset
-│   ├── logging_config.py   # Logging setup
-│   ├── changeset_status.py # Changeset status tracking
-│   ├── validation.py    # Validation utilities
-│   ├── tm1project_to_filter.py  # TM1 project to filter conversion
-│   ├── tm1py_ext/       # TM1py extensions and paginated services
-│   │   ├── paginated_element_service.py
-│   │   ├── paginated_subset_service.py
-│   │   └── paginated_edge_service.py
-│   └── model/           # Model data structures
-│       ├── element_attribute.py
-│       ├── task_summary.py
-│       └── ...
-├── examples/            # Usage examples
-├── docs/               # Documentation
-├── tests/              # Test suite
-└── test_integration/   # Integration tests
 ```
 
 ## License
