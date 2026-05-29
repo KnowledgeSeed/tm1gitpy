@@ -14,6 +14,27 @@
 - Compare models (either file-based schema or TM1 servers) and collect differences to changesets.
 - Apply changsets to target server
 
+## TM1 Git vs tm1gitpy: Technical Comparison
+
+A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized by capability areas.
+
+| Feature Category | Feature | TM1git | TM1gitpy |
+| :--- | :--- | :--- | :--- |
+| **Core Architecture** | **Embeddable** | ✅ (via REST API) | ✅ (as a Python package) |
+| | **CLI Support** | ❌ (only REST API over CLI or Postman) | ✅ |
+| **Schema & Objects** | **Model Schema Export** | ✅ | ✅ |
+| | **Object Deletes** | ❌ | ✅ |
+| | **Settings (Server Config)** | ✅ | 🟠 Upcoming release |
+| | **Files** | ✅ | ❌ (only via Python hooks) |
+| **Filtering Capabilities** | **Basic Filtering** | ✅ (`tm1project.json`) | ✅ (`tm1project.json` or separate rules) |
+| | **Advanced Filtering** | ❌ (no wildcard support for technical object unignores, no trailing wildcards) | ✅ (wildcard support for technical object unignores; leading/trailing wildcards on any level) |
+| | **Element-level Filtering** | ❌ | ✅ |
+| **Changeset Management** | **Changeset as a File** | ❌ (requires Git PR to review changes) | ✅ |
+| | **Changeset Post-filtering** | ❌ | ✅ |
+| **DevOps & Extensibility**| **Rule Markups** | ❌ | 🟠 Upcoming release |
+| | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
+| | **No-Git Preview Mode** | ❌ | ✅ |
+
 ## Installation
 
 ### From Source
