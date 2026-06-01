@@ -297,10 +297,17 @@ def update_process(tm1_service: TM1Service, process: Process) -> Response:
     if process.ui_data is not None:
         process_object.ui_data = process.ui_data
     if process.ti:
-        process_object.prolog_procedure = process.ti.prolog_procedure
-        process_object.metadata_procedure = process.ti.metadata_procedure
-        process_object.data_procedure = process.ti.data_procedure
-        process_object.epilog_procedure = process.ti.epilog_procedure
+        current_ti = TI(
+            prolog_procedure=process_object.prolog_procedure or "",
+            metadata_procedure=process_object.metadata_procedure or "",
+            data_procedure=process_object.data_procedure or "",
+            epilog_procedure=process_object.epilog_procedure or ""
+        )
+        if process.ti != current_ti:
+            process_object.prolog_procedure = process.ti.prolog_procedure
+            process_object.metadata_procedure = process.ti.metadata_procedure
+            process_object.data_procedure = process.ti.data_procedure
+            process_object.epilog_procedure = process.ti.epilog_procedure
 
     _update_process_parameters(process_new=process, process_object=process_object)
     _update_process_variables(process_new=process, process_object=process_object)

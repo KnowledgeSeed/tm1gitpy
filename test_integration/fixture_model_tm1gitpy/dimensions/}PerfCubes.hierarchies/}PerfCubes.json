@@ -99,113 +99,113 @@
 	"Edges":
 	[
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"TestCube1",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"TestCube2WithRule",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"TestCube3WithView",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}Capabilities",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}ClientCAMAssociatedGroups",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}ClientGroups",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}ClientProperties",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}ClientSettings",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}CubeDrill_TestCube2WithRule",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}CubeSecurityProperties",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}DimensionProperties",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}ElementAttributes_}Clients",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}ElementAttributes_}Cultures",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}ElementAttributes_}Groups",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}HierarchyProperties",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}StatsByChore",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}StatsByClient",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}StatsByCube",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}StatsByCubeByClient",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}StatsByProcess",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
+			"ParentName":"Cubes Total",
 			"ComponentName":"}StatsByRule",
-			"ParentName":"Cubes Total",
 			"Weight":1
 		},
 		{
-			"ComponentName":"}StatsForServer",
 			"ParentName":"Cubes Total",
+			"ComponentName":"}StatsForServer",
 			"Weight":1
 		}
 	],
