@@ -178,7 +178,7 @@ Use the same rule language in three places:
 - **Export** (`-f` / `--filter`): rules are applied while pulling from TM1 and affect the export folder and internal SQLite-backed cache for that export. To change what is on disk after an export, re-run export with updated rules (there is no separate “filter folder only” command).
 
 ```bash
-tm1gitpy export --server dev --model-output-folder model_dir --filter file://examples/filter.txt --overwrite
+tm1gitpy export --server dev --model-output-folder model_dir --filter file://examples/tm1project.json --overwrite
 ```
 
 - **Compare** (`--filter-rules`): rules narrow what appears in the emitted changeset; they do not rewrite serialized model folders.
@@ -186,7 +186,7 @@ tm1gitpy export --server dev --model-output-folder model_dir --filter file://exa
 - **Changeset filter** (`changset-filter` / `changeset-filter`, `--filter-rules`): toggles `apply` flags on matching changes in place; changeset length is unchanged.
 
 ```bash
-tm1gitpy changset-filter --changeset-path changeset.yml --filter-rules file://examples/filter.txt
+tm1gitpy changset-filter --changeset-path changeset.yml --filter-rules file://examples/tm1project.json
 ```
 
 Filter file format (one pattern per line, `#` for comments):
@@ -266,6 +266,7 @@ For those flags:
 
 - File path: `examples/filter.txt`
 - File URI: `file://examples/filter.txt`
+- Legacy format: `file://examples/tm1project.json`
 - Inline comma-separated rules:
   `Dimensions('}*'),!Dimensions('BW*')`
 
