@@ -21,10 +21,7 @@ jobs:
           - os: windows-latest
             artifact_name: tm1gitpy-windows-x86_64.exe
             built_name: tm1gitpy.exe
-          - os: macos-13
-            artifact_name: tm1gitpy-macos-x86_64
-            built_name: tm1gitpy
-          - os: macos-14
+          - os: macos-15
             artifact_name: tm1gitpy-macos-arm64
             built_name: tm1gitpy
 

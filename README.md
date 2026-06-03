@@ -98,8 +98,7 @@ Download the platform asset from [GitHub Releases](https://github.com/KnowledgeS
 | Platform | Asset |
 | --- | --- |
 | Linux x86_64 | `tm1gitpy-linux-x86_64` |
-| macOS Apple Silicon | `tm1gitpy-macos-arm64` |
-| macOS Intel | `tm1gitpy-macos-x86_64` |
+| macOS (Apple Silicon) | `tm1gitpy-macos-arm64` |
 | Windows x86_64 | `tm1gitpy-windows-x86_64.exe` |
 
 Verify checksums using `SHA256SUMS.txt` from the same release, then run:
