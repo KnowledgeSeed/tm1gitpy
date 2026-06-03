@@ -1,10 +1,10 @@
-# tm1_git_py
+# tm1gitpy
 
-[![Tests (Py 3.11/3.12/3.13)](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1_git_py/ci.yml?branch=main&label=tests%20(py3.11%2F3.12%2F3.13))](https://github.com/KnowledgeSeed/tm1_git_py/actions/workflows/ci.yml)
-[![Integration Tests](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1_git_py/ci.yml?branch=main&label=integration%20tests)](https://github.com/KnowledgeSeed/tm1_git_py/actions/workflows/ci.yml)
-[![Latest Release](https://img.shields.io/github/v/release/KnowledgeSeed/tm1_git_py?label=latest%20release)](https://github.com/KnowledgeSeed/tm1_git_py/releases/latest)
+[![Tests (Py 3.11/3.12/3.13)](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1gitpy/ci.yml?branch=main&label=tests%20(py3.11%2F3.12%2F3.13))](https://github.com/KnowledgeSeed/tm1gitpy/actions/workflows/ci.yml)
+[![Integration Tests](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1gitpy/ci.yml?branch=main&label=integration%20tests)](https://github.com/KnowledgeSeed/tm1gitpy/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/KnowledgeSeed/tm1gitpy?label=latest%20release)](https://github.com/KnowledgeSeed/tm1gitpy/releases/latest)
 
-**tm1_git_py** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
+**tm1gitpy** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
 
 - It understands `tm1project.json` and the same filtering rules used by TM1 Git workflows.
 - It is **not** embedded in TM1, which keeps deployment flexible—ideal for CI/CD, agents, and pipelines that run outside the TM1 server. It talks to TM1 over the REST API **via TM1py**.
@@ -12,7 +12,7 @@
 
 ## Features
 
-`tm1_git_py` allows you to:
+`tm1gitpy` allows you to:
 - Export TM1 models (cubes, dimensions, processes, chores) to a structured folder format compatible with TM1 Git
 - Apply filter rules during **export** (narrowed objects and SQLite-backed export cache), during **compare** (fine-grained changeset without mutating on-disk exports), or on a **changeset** (toggle `apply` flags only)
 - Compare models (either file-based schema or TM1 servers) and collect differences to changesets.
@@ -93,7 +93,7 @@ pipx install --index-url https://test.pypi.org/simple/ --extra-index-url https:/
 
 ### Standalone binary (no Python required)
 
-Download the platform asset from [GitHub Releases](https://github.com/KnowledgeSeed/tm1_git_py/releases/latest):
+Download the platform asset from [GitHub Releases](https://github.com/KnowledgeSeed/tm1gitpy/releases/latest):
 
 | Platform | Asset |
 | --- | --- |
@@ -115,8 +115,8 @@ Upgrade: download the newer release asset and replace the binary.
 To **use** the package (runtime dependencies only):
 
 ```bash
-git clone <repository-url>
-cd tm1_git_py
+git clone https://github.com/KnowledgeSeed/tm1gitpy.git
+cd tm1gitpy
 pip install -e .
 tm1gitpy --version
 ```
@@ -162,7 +162,13 @@ servers:
 Export a full TM1 model from a server:
 
 ```bash
-python tm1_git_py/main.py export --server dev --model-output-folder model_dir --overwrite
+tm1gitpy export --server dev --model-output-folder model_dir --overwrite
+```
+
+From a source checkout without installing the CLI entry point:
+
+```bash
+python -m tm1_git_py export --server dev --model-output-folder model_dir --overwrite
 ```
 
 ### Filtering
@@ -172,7 +178,7 @@ Use the same rule language in three places:
 - **Export** (`-f` / `--filter`): rules are applied while pulling from TM1 and affect the export folder and internal SQLite-backed cache for that export. To change what is on disk after an export, re-run export with updated rules (there is no separate “filter folder only” command).
 
 ```bash
-python tm1_git_py/main.py export --server dev --model-output-folder model_dir --filter file://examples/filter.txt --overwrite
+tm1gitpy export --server dev --model-output-folder model_dir --filter file://examples/filter.txt --overwrite
 ```
 
 - **Compare** (`--filter-rules`): rules narrow what appears in the emitted changeset; they do not rewrite serialized model folders.
@@ -180,7 +186,7 @@ python tm1_git_py/main.py export --server dev --model-output-folder model_dir --
 - **Changeset filter** (`changset-filter` / `changeset-filter`, `--filter-rules`): toggles `apply` flags on matching changes in place; changeset length is unchanged.
 
 ```bash
-python tm1_git_py/main.py changset-filter --changeset-path changeset.yml --filter-rules file://examples/filter.txt
+tm1gitpy changset-filter --changeset-path changeset.yml --filter-rules file://examples/filter.txt
 ```
 
 Filter file format (one pattern per line, `#` for comments):
@@ -266,7 +272,7 @@ For those flags:
 ### Command-Line Arguments
 
 ```
-python tm1_git_py/main.py <command> [options]
+tm1gitpy <command> [options]
 
 Commands:
   export           Export model from TM1 to a folder
@@ -338,9 +344,14 @@ See the [examples](examples/) directory for usage examples:
 - [config_usage.py](examples/config_usage.py) - Server configuration examples
 - [filter.txt](examples/filter.txt) - Filter pattern examples
 
-For model comparison and changeset workflows, use the Python API (`tm1_git_py.comparator`, `tm1_git_py.changeset`, `tm1_git_py.apply`).
+For model comparison and changeset workflows, use the Python package API:
 
-For paginated element/subset fetching (e.g., large hierarchies), use `tm1_git_py.get_elements`, `tm1_git_py.get_subsets`, and related functions.
+```python
+from tm1_git_py import Comparator, Changeset, export, deserialize_model, serialize_model
+from tm1_git_py.services.apply import apply
+```
+
+For paginated element/subset fetching (e.g., large hierarchies), use `tm1_git_py.get_elements`, `tm1_git_py.get_subsets`, and related functions from the same package.
 
 ## Building Binary
 

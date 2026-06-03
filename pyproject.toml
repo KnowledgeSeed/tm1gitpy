@@ -37,10 +37,10 @@ dependencies = [
 tm1gitpy = "tm1_git_py.main:main"
 
 [project.urls]
-Homepage = "https://github.com/KnowledgeSeed/tm1_git_py"
-Repository = "https://github.com/KnowledgeSeed/tm1_git_py"
-Issues = "https://github.com/KnowledgeSeed/tm1_git_py/issues"
-Changelog = "https://github.com/KnowledgeSeed/tm1_git_py/releases"
+Homepage = "https://github.com/KnowledgeSeed/tm1gitpy"
+Repository = "https://github.com/KnowledgeSeed/tm1gitpy"
+Issues = "https://github.com/KnowledgeSeed/tm1gitpy/issues"
+Changelog = "https://github.com/KnowledgeSeed/tm1gitpy/releases"
 
 [project.optional-dependencies]
 dev = [
