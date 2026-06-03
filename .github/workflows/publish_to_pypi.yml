@@ -22,7 +22,10 @@ jobs:
           pip install build twine
 
       - name: Update version with release tag
-        run: python -c "from tm1_git_py.__init__ import update_version; update_version('${{ github.event.release.tag_name }}')"
+        run: |
+          ver="${{ github.event.release.tag_name }}"
+          ver="${ver#v}"
+          python -c "from tm1_git_py import update_version; update_version('${ver}')"
 
       - name: Build
         run: python -m build

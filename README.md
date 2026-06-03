@@ -63,6 +63,54 @@ In these tests, GitHub push did not work due to file size limits (100Mb) so only
 
 ## Installation
 
+### Install from PyPI (recommended)
+
+Isolated CLI install with [pipx](https://pipx.pypa.io/):
+
+```bash
+pipx install tm1gitpy
+tm1gitpy --version
+```
+
+Upgrade:
+
+```bash
+pipx upgrade tm1gitpy
+```
+
+Or install into the active environment:
+
+```bash
+pip install tm1gitpy
+tm1gitpy --version
+```
+
+Pre-release builds (TestPyPI):
+
+```bash
+pipx install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ tm1gitpy
+```
+
+### Standalone binary (no Python required)
+
+Download the platform asset from [GitHub Releases](https://github.com/KnowledgeSeed/tm1_git_py/releases/latest):
+
+| Platform | Asset |
+| --- | --- |
+| Linux x86_64 | `tm1gitpy-linux-x86_64` |
+| macOS Apple Silicon | `tm1gitpy-macos-arm64` |
+| macOS Intel | `tm1gitpy-macos-x86_64` |
+| Windows x86_64 | `tm1gitpy-windows-x86_64.exe` |
+
+Verify checksums using `SHA256SUMS.txt` from the same release, then run:
+
+```bash
+chmod +x tm1gitpy-linux-x86_64   # Linux/macOS only
+./tm1gitpy-linux-x86_64 --version
+```
+
+Upgrade: download the newer release asset and replace the binary.
+
 ### From Source
 
 To **use** the package (runtime dependencies only):
@@ -71,6 +119,7 @@ To **use** the package (runtime dependencies only):
 git clone <repository-url>
 cd tm1_git_py
 pip install -e .
+tm1gitpy --version
 ```
 
 Or install from a requirements file: `pip install -r requirements.txt` then `pip install -e .`
@@ -296,11 +345,22 @@ For paginated element/subset fetching (e.g., large hierarchies), use `tm1_git_py
 
 ## Building Binary
 
-Build a standalone executable using Nuitka:
+Build a local standalone executable with PyInstaller (authoritative spec: `tm1gitpy.spec`):
 
 ```bash
-python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-execution --mode=onefile --output-filename=tm1gitpy
+make build-binary
 ```
+
+The binary is produced at `dist/tm1gitpy` (or `dist/tm1gitpy.exe` on Windows).
+
+Other useful targets:
+
+```bash
+make clean-binary
+make rebuild-binary
+```
+
+Official cross-platform binaries are built automatically on GitHub Release publish (workflow: `.github/workflows/release-binaries.yml`).
 
 ## Development
 

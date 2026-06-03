@@ -38,6 +38,7 @@ from tm1_git_py.services.deserializer import deserialize_model
 from tm1_git_py.services.exporter import export
 from tm1_git_py.services.filter import FilterRules, import_filter
 from tm1_git_py.services.serializer import serialize_model
+from tm1_git_py import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -456,8 +457,17 @@ def _cmd_changeset_filter(args: argparse.Namespace) -> None:
 
 
 def main():
+    # Must run before argparse in frozen binaries so multiprocessing helper
+    # processes (e.g. resource_tracker) do not get parsed as CLI commands.
+    multiprocessing.freeze_support()
     tracemalloc.start()
     parser = argparse.ArgumentParser(description="TM1 Git Py - TM1 model export, compare, apply, and changeset filtering")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"tm1gitpy {__version__}",
+        help="Show version and exit",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_export = sub.add_parser("export", help="Export model from TM1 to a folder")
