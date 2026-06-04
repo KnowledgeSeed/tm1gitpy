@@ -4,6 +4,7 @@ pytest-mock
 testcontainers>=4.0.0
 orjson
 nuitka
+pyinstaller
 ijson
 cffi
 tqdm
