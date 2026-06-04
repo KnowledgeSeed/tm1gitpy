@@ -12,7 +12,7 @@
 	],
 	"Views@Code.links":
 	[
-		"TestCube3WithView.views/TestCube3WithView_view2.json",
+		"TestCube3WithView.views/testcube3withview_view2.json",
 		"TestCube3WithView.views/testcube3withview_view1.json"
 	]
 }
