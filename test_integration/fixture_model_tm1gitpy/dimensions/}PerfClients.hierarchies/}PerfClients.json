@@ -15,8 +15,8 @@
 	"Edges":
 	[
 		{
-			"ComponentName":"Admin",
 			"ParentName":"Clients Total",
+			"ComponentName":"Admin",
 			"Weight":1
 		}
 	],
