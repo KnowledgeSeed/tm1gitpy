@@ -27,9 +27,9 @@
             },
             "args": [
                 "export",
-                "--server=dev",
+                "--server=seederbpsp",
                 "--model-output-folder=export",
-                "--filter=file://examples/filter.txt",
+                "--filter=file://examples/tm1project.json",
                 "--overwrite"
             ]
         },
@@ -46,7 +46,7 @@
             "export",
              "--server=seederbpsp",
              "--model-output-folder=export2",
-             "--filter=file://examples/filter.txt",
+             "--filter=file://examples/tm1project.json",
              "--overwrite",
              "--max-workers=8",
              "--debug",

@@ -1,10 +1,10 @@
-# tm1_git_py
+# tm1gitpy
 
-[![Tests (Py 3.11/3.12/3.13)](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1_git_py/ci.yml?branch=main&label=tests%20(py3.11%2F3.12%2F3.13))](https://github.com/KnowledgeSeed/tm1_git_py/actions/workflows/ci.yml)
-[![Integration Tests](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1_git_py/ci.yml?branch=main&label=integration%20tests)](https://github.com/KnowledgeSeed/tm1_git_py/actions/workflows/ci.yml)
-[![Latest Release](https://img.shields.io/github/v/release/KnowledgeSeed/tm1_git_py?label=latest%20release)](https://github.com/KnowledgeSeed/tm1_git_py/releases/latest)
+[![Tests (Py 3.11/3.12/3.13)](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1gitpy/ci.yml?branch=main&label=tests%20(py3.11%2F3.12%2F3.13))](https://github.com/KnowledgeSeed/tm1gitpy/actions/workflows/ci.yml)
+[![Integration Tests](https://img.shields.io/github/actions/workflow/status/KnowledgeSeed/tm1gitpy/ci.yml?branch=main&label=integration%20tests)](https://github.com/KnowledgeSeed/tm1gitpy/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/KnowledgeSeed/tm1gitpy?label=latest%20release)](https://github.com/KnowledgeSeed/tm1gitpy/releases/latest)
 
-**tm1_git_py** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
+**tm1gitpy** is a Python-based drop-in replacement for TM1 Git. It keeps TM1 Git’s on-disk file layout so you can move between tools with minimal friction.
 
 - It understands `tm1project.json` and the same filtering rules used by TM1 Git workflows.
 - It is **not** embedded in TM1, which keeps deployment flexible—ideal for CI/CD, agents, and pipelines that run outside the TM1 server. It talks to TM1 over the REST API **via TM1py**.
@@ -12,7 +12,7 @@
 
 ## Features
 
-`tm1_git_py` allows you to:
+`tm1gitpy` allows you to:
 - Export TM1 models (cubes, dimensions, processes, chores) to a structured folder format compatible with TM1 Git
 - Apply filter rules during **export** (narrowed objects and SQLite-backed export cache), during **compare** (fine-grained changeset without mutating on-disk exports), or on a **changeset** (toggle `apply` flags only)
 - Compare models (either file-based schema or TM1 servers) and collect differences to changesets.
@@ -30,6 +30,7 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 | | **Object Deletes** | ❌ | ✅ |
 | | **Settings (Server Config)** | ✅ | 🟠 Upcoming release |
 | | **Files** | ✅ | ❌ (only via Python hooks) |
+| | **Large schema files (>100 MB) on GitHub** | ❌ | ✅ (since `git push` is externally managed, `GitHub large files` can be used here) |
 | **Filtering Capabilities** | **Basic Filtering** | ✅ (`tm1project.json`) | ✅ (`tm1project.json` or separate rules) |
 | | **Advanced Filtering** | ❌ (no wildcard support for technical object unignores, no trailing wildcards) | ✅ (wildcard support for technical object unignores; leading/trailing wildcards on any level) |
 | | **Element-level Filtering** | ❌ | ✅ |
@@ -41,16 +42,83 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 | **DevOps & Extensibility** | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
 | | **No-Git Preview Mode** | ❌ | ✅ |
 
+
+## Benchmarks
+
+
+### Benchmark Section 1: Small and Moderate Models
+
+![Small Model (5 MB) Benchmark](docs/benchmarks/small-model-benchmark.png)
+
+![Moderate Model (176.5 MB) Benchmark](docs/benchmarks/moderate-model-benchmark.png)
+
+### Benchmark Section 2: Large and Extra Large Models
+
+In these tests, GitHub push did not work due to file size limits (100Mb) so only the first part of the export is compared. Actual GitHub transfer is not calculated to the numbers.
+
+![Large Model (560 MB) Benchmark](docs/benchmarks/large-model-benchmark.png)
+
+![Extra Large Model (3.43 GB) Benchmark](docs/benchmarks/extra-large-model-benchmark.png)
+
+
 ## Installation
+
+### Install from PyPI (recommended)
+
+Isolated CLI install with [pipx](https://pipx.pypa.io/):
+
+```bash
+pipx install tm1gitpy
+tm1gitpy --version
+```
+
+Upgrade:
+
+```bash
+pipx upgrade tm1gitpy
+```
+
+Or install into the active environment:
+
+```bash
+pip install tm1gitpy
+tm1gitpy --version
+```
+
+Pre-release builds (TestPyPI):
+
+```bash
+pipx install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ tm1gitpy
+```
+
+### Standalone binary (no Python required)
+
+Download the platform asset from [GitHub Releases](https://github.com/KnowledgeSeed/tm1gitpy/releases/latest):
+
+| Platform | Asset |
+| --- | --- |
+| Linux x86_64 | `tm1gitpy-linux-x86_64` |
+| macOS (Apple Silicon) | `tm1gitpy-macos-arm64` |
+| Windows x86_64 | `tm1gitpy-windows-x86_64.exe` |
+
+Verify checksums using `SHA256SUMS.txt` from the same release, then run:
+
+```bash
+chmod +x tm1gitpy-linux-x86_64   # Linux/macOS only
+./tm1gitpy-linux-x86_64 --version
+```
+
+Upgrade: download the newer release asset and replace the binary.
 
 ### From Source
 
 To **use** the package (runtime dependencies only):
 
 ```bash
-git clone <repository-url>
-cd tm1_git_py
+git clone https://github.com/KnowledgeSeed/tm1gitpy.git
+cd tm1gitpy
 pip install -e .
+tm1gitpy --version
 ```
 
 Or install from a requirements file: `pip install -r requirements.txt` then `pip install -e .`
@@ -94,7 +162,13 @@ servers:
 Export a full TM1 model from a server:
 
 ```bash
-python tm1_git_py/main.py export --server dev --model-output-folder model_dir --overwrite
+tm1gitpy export --server dev --model-output-folder model_dir --overwrite
+```
+
+From a source checkout without installing the CLI entry point:
+
+```bash
+python -m tm1_git_py export --server dev --model-output-folder model_dir --overwrite
 ```
 
 ### Filtering
@@ -104,7 +178,7 @@ Use the same rule language in three places:
 - **Export** (`-f` / `--filter`): rules are applied while pulling from TM1 and affect the export folder and internal SQLite-backed cache for that export. To change what is on disk after an export, re-run export with updated rules (there is no separate “filter folder only” command).
 
 ```bash
-python tm1_git_py/main.py export --server dev --model-output-folder model_dir --filter file://examples/filter.txt --overwrite
+tm1gitpy export --server dev --model-output-folder model_dir --filter file://examples/tm1project.json --overwrite
 ```
 
 - **Compare** (`--filter-rules`): rules narrow what appears in the emitted changeset; they do not rewrite serialized model folders.
@@ -112,7 +186,7 @@ python tm1_git_py/main.py export --server dev --model-output-folder model_dir --
 - **Changeset filter** (`changset-filter` / `changeset-filter`, `--filter-rules`): toggles `apply` flags on matching changes in place; changeset length is unchanged.
 
 ```bash
-python tm1_git_py/main.py changset-filter --changeset-path changeset.yml --filter-rules file://examples/filter.txt
+tm1gitpy changset-filter --changeset-path changeset.yml --filter-rules file://examples/tm1project.json
 ```
 
 Filter file format (one pattern per line, `#` for comments):
@@ -192,13 +266,14 @@ For those flags:
 
 - File path: `examples/filter.txt`
 - File URI: `file://examples/filter.txt`
+- Legacy format: `file://examples/tm1project.json`
 - Inline comma-separated rules:
   `Dimensions('}*'),!Dimensions('BW*')`
 
 ### Command-Line Arguments
 
 ```
-python tm1_git_py/main.py <command> [options]
+tm1gitpy <command> [options]
 
 Commands:
   export           Export model from TM1 to a folder
@@ -270,17 +345,33 @@ See the [examples](examples/) directory for usage examples:
 - [config_usage.py](examples/config_usage.py) - Server configuration examples
 - [filter.txt](examples/filter.txt) - Filter pattern examples
 
-For model comparison and changeset workflows, use the Python API (`tm1_git_py.comparator`, `tm1_git_py.changeset`, `tm1_git_py.apply`).
+For model comparison and changeset workflows, use the Python package API:
 
-For paginated element/subset fetching (e.g., large hierarchies), use `tm1_git_py.get_elements`, `tm1_git_py.get_subsets`, and related functions.
+```python
+from tm1_git_py import Comparator, Changeset, export, deserialize_model, serialize_model
+from tm1_git_py.services.apply import apply
+```
+
+For paginated element/subset fetching (e.g., large hierarchies), use `tm1_git_py.get_elements`, `tm1_git_py.get_subsets`, and related functions from the same package.
 
 ## Building Binary
 
-Build a standalone executable using Nuitka:
+Build a local standalone executable with PyInstaller (authoritative spec: `tm1gitpy.spec`):
 
 ```bash
-python -m nuitka tm1_git_py/main.py --follow-imports --no-deployment-flag=self-execution --mode=onefile --output-filename=tm1gitpy
+make build-binary
 ```
+
+The binary is produced at `dist/tm1gitpy` (or `dist/tm1gitpy.exe` on Windows).
+
+Other useful targets:
+
+```bash
+make clean-binary
+make rebuild-binary
+```
+
+Official cross-platform binaries are built automatically on GitHub Release publish (workflow: `.github/workflows/release-binaries.yml`).
 
 ## Development
 
