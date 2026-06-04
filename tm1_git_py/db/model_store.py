@@ -232,6 +232,7 @@ class ModelStore:
             "etag",
             "filter_rules_json",
             "sort_metadata_json",
+            "cardinality",
             "row_count",
             "content_hash",
             "hash_algo",
@@ -280,6 +281,7 @@ class ModelStore:
                 etag TEXT NULL,
                 filter_rules_json JSONB NULL,
                 sort_metadata_json JSONB NULL,
+                cardinality INTEGER NULL,
                 row_count INTEGER NOT NULL DEFAULT 0,
                 content_hash TEXT NOT NULL,
                 hash_algo TEXT NOT NULL,
@@ -640,8 +642,8 @@ class ModelStore:
         now = time.time_ns()
         self._conn.run_sync(
             """
-            INSERT INTO groups(dimension_name, hierarchy_name, object_type, etag, filter_rules_json, sort_metadata_json, row_count, content_hash, hash_algo, source_json_mtime_ns, updated_at_ns)
-            VALUES (?, ?, ?, NULL, NULL, NULL, 0, ?, ?, NULL, ?)
+            INSERT INTO groups(dimension_name, hierarchy_name, object_type, etag, filter_rules_json, sort_metadata_json, cardinality, row_count, content_hash, hash_algo, source_json_mtime_ns, updated_at_ns)
+            VALUES (?, ?, ?, NULL, NULL, NULL, NULL, 0, ?, ?, NULL, ?)
             ON CONFLICT(dimension_name, hierarchy_name, object_type) DO NOTHING
             """,
             (dimension_name, hierarchy_name, object_type, self.EMPTY_CONTENT_HASH, self.HASH_ALGO, now),
@@ -739,6 +741,46 @@ class ModelStore:
             return {}
         return {str(key): str(value) for key, value in parsed.items()}
 
+    def set_group_cardinality(self, group_id: int, cardinality: Optional[int]) -> None:
+        """Store hierarchy-level edge cardinality metadata for an edge group."""
+        normalized = self._object_type_normalized_for_group(group_id)
+        if normalized not in ("edge", "edges"):
+            raise ValueError(f"Cardinality metadata is only supported for edge groups, got '{normalized}'")
+        self._conn.run_sync(
+            "UPDATE groups SET cardinality=?, updated_at_ns=? WHERE group_id=?",
+            (None if cardinality is None else int(cardinality), time.time_ns(), group_id),
+        )
+
+    def group_cardinality(self, group_id: int) -> Optional[int]:
+        row = self._conn.fetch_one(
+            "SELECT cardinality FROM groups WHERE group_id=?",
+            (group_id,),
+        )
+        if row is None:
+            return None
+        value = self._cell(row, "cardinality", 0)
+        return int(value) if value is not None else None
+
+    def calculate_edge_cardinality(self, group_id: int) -> int:
+        """Calculate cardinality from all cached rows in an edge group."""
+        normalized = self._object_type_normalized_for_group(group_id)
+        if normalized not in ("edge", "edges"):
+            raise ValueError(f"Edge cardinality is only supported for edge groups, got '{normalized}'")
+        row = self._conn.fetch_one(
+            """
+            SELECT COUNT(*)
+            FROM (
+                SELECT ComponentName
+                FROM edge_objects
+                WHERE group_id=?
+                GROUP BY ComponentName
+                HAVING COUNT(*) > 1
+            )
+            """,
+            (group_id,),
+        )
+        return int(self._cell(row, "COUNT(*)", 0)) if row is not None else 0
+
     def get_group_reuse_metadata(
         self,
         *,
@@ -746,11 +788,11 @@ class ModelStore:
         dimension_name: str,
         hierarchy_name: str,
         object_type: str,
-    ) -> tuple[Optional[str], list[str], Optional[tuple[int, str]]]:
+    ) -> tuple[Optional[str], list[str], Optional[tuple[int, str]], Optional[int]]:
         _ = model_id
         row = self._conn.fetch_one(
             """
-            SELECT group_id, etag, filter_rules_json, content_hash
+            SELECT group_id, etag, filter_rules_json, content_hash, cardinality
             FROM groups
             WHERE dimension_name=? AND hierarchy_name=? AND object_type=?
             LIMIT 1
@@ -758,7 +800,7 @@ class ModelStore:
             (dimension_name, hierarchy_name, object_type),
         )
         if row is None:
-            return None, [], None
+            return None, [], None, None
         group_id = int(self._cell(row, "group_id", 0))
         etag = self._cell(row, "etag", 1)
         raw_rules = self._cell(row, "filter_rules_json", 2)
@@ -777,10 +819,19 @@ class ModelStore:
             self._actual_row_count(group_id),
             str(content_hash),
         )
+        raw_cardinality = self._cell(row, "cardinality", 4)
+        normalized = self._object_type_normalized(object_type)
+        cardinality = (
+            int(raw_cardinality)
+            if normalized in ("edge", "edges") and raw_cardinality is not None
+            else None
+        )
+
         return (
             str(etag) if etag is not None else None,
             rules,
             content_signature,
+            cardinality,
         )
 
     @staticmethod

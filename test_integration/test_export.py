@@ -51,7 +51,7 @@ class TestExport:
     def test_export_preserves_default_hierarchy_sort_metadata_and_order(self):
         dimension_name = "}Views_TestCube3WithView"
         hierarchy_name = "}Views_testcube3withview"
-        expected_elements = ["testcube3withview_view1", "testcube3withview_view2"]
+        expected_elements = ["testcube3withview_view1", "TestCube3WithView_view2"]
 
         raw_metadata = get_hierarchy_sort_metadata(
             self.tm1_service,

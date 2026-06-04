@@ -35,6 +35,7 @@ from tm1_git_py.tm1_api.subset_service import (
     PaginatedSubsetsResult,
     get_subsets,
     get_subsets_count,
+    get_subsets_identity_etag,
 )
 from tm1_git_py.tm1_api.view_service import (
     get_all as get_views,
@@ -62,6 +63,7 @@ __all__ = [
     "get_process_names",
     "get_subsets",
     "get_subsets_count",
+    "get_subsets_identity_etag",
     "get_views",
     "paginate_by_pages",
 ]

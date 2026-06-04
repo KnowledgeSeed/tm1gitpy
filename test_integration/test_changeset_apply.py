@@ -10,14 +10,10 @@ from test_integration.test_base import (
     tm1_service,
     check_no_diff,
 )
-from tm1_git_py.model.edge import Edge
 from tm1_git_py.model.element import Element
-from tm1_git_py.model.hierarchy import Hierarchy as GitHierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.nativeview import NativeView
-from tm1_git_py.model.process import Process
 from tm1_git_py.model.rule import Rule
-from tm1_git_py.model.ti import TI
 from tm1_git_py.services.changeset import ChangeType, Changeset, Change, ObjectType
 from tm1_git_py.services.comparator import Comparator
 from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS, FilterRules
@@ -630,12 +626,15 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self)
         changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
         added = self.tm1_service.elements.get(
             dimension_name="TestDim1",
             hierarchy_name="TestDim1",
             element_name=element_name,
         )
         assert added is not None
+        check_no_diff(expected_dir=fixture_dir, model=test_model)
 
     def test_apply_remove_edge(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
@@ -648,10 +647,13 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self)
         changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
         hierarchy = self.tm1_service.hierarchies.get(
             "TestDimMultiHier", "TestDimMultiHier"
         )
         assert ("DimElemC", "DimElem1") not in hierarchy.edges
+        check_no_diff(expected_dir=fixture_dir, model=test_model)
 
     def test_apply_modify_edge(self):
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
@@ -668,10 +670,13 @@ class TestChangesetApply:
         test_model = export_check_no_errors(self)
         changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
         hierarchy = self.tm1_service.hierarchies.get(
             "TestDimMultiHier", "TestDimMultiHier"
         )
         assert hierarchy.edges.get(("DimElemC", "b")) == 1
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Subset tests
@@ -1004,7 +1009,6 @@ class TestChangesetApply:
         # when
         changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
-        test_model = export_check_no_errors(self)
 
         # then — rule changes are unified into one modify Rule change per cube
         modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
@@ -1033,17 +1037,36 @@ class TestChangesetApply:
 
     def test_apply_mixed_changeset_operations(self):
         temp_hierarchy_name = "TmpHierForChangeset"
-        process_name = "zz_test_changeset_apply_proc"
+        process_name = "myprocess2"
         cube_name = "TestCube3WithView"
         view_name = "testcube3withview_view1"
-        native_view_name = "zz_mixed_native_view"
+        native_view_name = "TestCube3WithView_view2"
         rule_cube_name = "TestCube2WithRule"
+        extra_element_name = "zz_mixed_element"
+
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        fixture_cube = next(
+            cube for cube in fixture_model.cubes if cube.name == cube_name
+        )
+        fixture_mdx_view = next(
+            view
+            for view in fixture_cube.views
+            if isinstance(view, MDXView) and view.name == view_name
+        )
 
         # Preconditions for deterministic behaviour.
         if process_name in self.tm1_service.processes.get_all_names(
             skip_control_processes=False
         ):
             self.tm1_service.processes.delete(process_name)
+        try:
+            self.tm1_service.elements.delete(
+                "TestDimMultiHier", "TestDimMultiHier", extra_element_name
+            )
+        except Exception:
+            pass
         try:
             self.tm1_service.elements.remove_edge(
                 "TestDimMultiHier", "TestDimMultiHier", "DimElemC", "DimElem1"
@@ -1062,144 +1085,82 @@ class TestChangesetApply:
             )
         except Exception:
             pass
+
+        self.tm1_service.elements.create(
+            hierarchy_name="TestDimMultiHier",
+            dimension_name="TestDimMultiHier",
+            element=TM1py.Element(name=extra_element_name, element_type="Numeric"),
+        )
+        self.tm1_service.elements.add_edges(
+            "TestDimMultiHier", "TestDimMultiHier", {("DimElemC", "DimElem1"): 1}
+        )
         self.tm1_service.hierarchies.create(
             Hierarchy(dimension_name="TestDim1", name=temp_hierarchy_name)
         )
-        leaves = self.tm1_service.hierarchies.get("TestDimMultiHier", "Leaves")
-        if "b" not in leaves.elements:
-            self.tm1_service.elements.create(
-                hierarchy_name="Leaves",
-                dimension_name="TestDimMultiHier",
-                element=TM1py.Element(name="b", element_type="Numeric"),
-            )
 
-        changeset = Changeset()
-        changeset.changes = [
-            Change(
-                change_type=ChangeType.REMOVE,
-                object_type=ObjectType.ELEMENT,
-                uri=Element.uri_for("TestDimMultiHier", "Leaves", "b"),
-                body=Element(
-                    name="b",
-                    type="Numeric",
-                ),
-            ),
-            Change(
-                change_type=ChangeType.ADD,
-                object_type=ObjectType.EDGE,
-                uri=Edge.uri_for(
-                    "TestDimMultiHier",
-                    "TestDimMultiHier",
-                    "DimElemC",
-                    "DimElem1",
-                ),
-                body=Edge(
-                    parent="DimElemC",
-                    component_name="DimElem1",
-                    weight=1,
-                ),
-            ),
-            Change(
-                change_type=ChangeType.REMOVE,
-                object_type=ObjectType.HIERARCHY,
-                uri=GitHierarchy.uri_for("TestDim1", temp_hierarchy_name),
-                body=GitHierarchy(
-                    name=temp_hierarchy_name,
-                    elements=[],
-                    edges=[],
-                    subsets=[],
-                ),
-            ),
-            Change(
-                change_type=ChangeType.MODIFY,
-                object_type=ObjectType.MDX_VIEW,
-                uri=MDXView.uri_for(cube_name, view_name),
-                body=MDXView(
-                    name=view_name,
-                    mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
-                ),
-            ),
-            Change(
-                change_type=ChangeType.MODIFY,
-                object_type=ObjectType.RULE,
-                uri=Rule.uri_for(rule_cube_name),
-                body=Rule(
-                    name="default",
-                    area="[default]",
-                    full_statement="SKIPCHECK;\n['TestDim1Elem1'] = 2;\n",
-                ),
-            ),
-            Change(
-                change_type=ChangeType.ADD,
-                object_type=ObjectType.NATIVE_VIEW,
-                uri=NativeView.uri_for(cube_name, native_view_name),
-                body=NativeView(
-                    name=native_view_name,
-                    columns=[
-                        {
-                            "Subset": {
-                                "Expression": "{[TestDim2].[TestDim2].Members}",
-                                "Hierarchy": {
-                                    "@id": "Dimensions('TestDim2')/Hierarchies('TestDim2')"
-                                },
-                            }
-                        }
-                    ],
-                    rows=[
-                        {
-                            "Subset": {
-                                "Expression": "{[TestDim1].[TestDim1].Members}",
-                                "Hierarchy": {
-                                    "@id": "Dimensions('TestDim1')/Hierarchies('TestDim1')"
-                                },
-                            }
-                        }
-                    ],
-                    titles=[],
-                    suppress_empty_columns=True,
-                    suppress_empty_rows=True,
-                    format_string="0.#########",
-                ),
-            ),
-            Change(
-                change_type=ChangeType.ADD,
-                object_type=ObjectType.PROCESS,
-                uri=Process.uri_for(process_name),
-                body=Process(
-                    name=process_name,
-                    hasSecurityAccess=False,
-                    code_link=f"{process_name}.ti",
-                    datasource="None",
-                    parameters=[],
-                    variables=[],
-                    ti=TI("", "", "", ""),
-                ),
-            ),
-        ]
+        mdx_view = self.tm1_service.views.get_mdx_view(
+            cube_name=cube_name, view_name=view_name
+        )
+        mdx_view.mdx = (
+            f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 "
+            f"FROM [{cube_name}]"
+        )
+        self.tm1_service.views.update(mdx_view)
+
+        cube = self.tm1_service.cubes.get(rule_cube_name)
+        cube.rules = TM1py.Rules("SKIPCHECK;")
+        self.tm1_service.cubes.update(cube)
+
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(
+            test_model, fixture_model, filter_rules=self._f_no_meta
+        )
+
+        removed_elements = self._changes_by(changeset, ChangeType.REMOVE, "Element")
+        removed_edges = self._changes_by(changeset, ChangeType.REMOVE, "Edge")
+        removed_hierarchies = self._changes_by(
+            changeset, ChangeType.REMOVE, "Hierarchy"
+        )
+        modified_mdx_views = self._changes_by(changeset, ChangeType.MODIFY, "MDXView")
+        modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
+        added_native_views = self._changes_by(changeset, ChangeType.ADD, "NativeView")
+        added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
+
+        assert any(element.name == extra_element_name for element in removed_elements)
+        assert any(
+            edge.parent == "DimElemC" and edge.component_name == "DimElem1"
+            for edge in removed_edges
+        )
+        assert any(
+            hierarchy.name == temp_hierarchy_name for hierarchy in removed_hierarchies
+        )
+        assert any(view.name == view_name for view in modified_mdx_views)
+        assert any(rule.name == "default" for rule in modified_rules)
+        assert any(view.name == native_view_name for view in added_native_views)
+        assert any(process.name == process_name for process in added_processes)
 
         self.apply(changeset)
-
-        leaves_hierarchy = self.tm1_service.hierarchies.get(
-            "TestDimMultiHier", "Leaves"
-        )
-        assert "b" not in leaves_hierarchy.elements
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
         default_hierarchy = self.tm1_service.hierarchies.get(
             "TestDimMultiHier", "TestDimMultiHier"
         )
-        assert ("DimElemC", "DimElem1") in default_hierarchy.edges
+        assert extra_element_name not in default_hierarchy.elements
+        assert ("DimElemC", "DimElem1") not in default_hierarchy.edges
 
         testdim1 = self.tm1_service.dimensions.get("TestDim1")
-        assert temp_hierarchy_name not in [hier.name for hier in testdim1.hierarchies]
+        assert temp_hierarchy_name not in [
+            hier.name for hier in testdim1.hierarchies
+        ]
 
         updated_view = self.tm1_service.views.get_mdx_view(
             cube_name=cube_name, view_name=view_name
         )
-        assert "TestDim1Elem1" in updated_view.mdx
+        assert updated_view.mdx == fixture_mdx_view.mdx
 
         updated_cube = self.tm1_service.cubes.get(rule_cube_name)
         assert updated_cube.rules is not None
-        assert " = 2;" in str(updated_cube.rules)
+        assert " = 1;" in str(updated_cube.rules)
 
         created_native_view = self.tm1_service.views.get_native_view(
             cube_name=cube_name, view_name=native_view_name
@@ -1209,6 +1170,7 @@ class TestChangesetApply:
         assert process_name in self.tm1_service.processes.get_all_names(
             skip_control_processes=False
         )
+        check_no_diff(fixture_dir, test_model)
 
     def compare(
         self, source, target, mode: str = "full", filter_rules: list[str] = None
