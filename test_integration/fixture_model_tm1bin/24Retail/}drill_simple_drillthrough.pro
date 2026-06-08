@@ -20,7 +20,7 @@
 588,"."
 589,","
 568,""""
-570,TestCube3WithView_view2
+570,testcube3withview_view2
 571,
 569,0
 592,0
@@ -59,7 +59,7 @@ TestDim2,""
 #****End: Generated Statements****
 575,3
 #****Begin: Generated Statements***
-RETURNVIEWHANDLE('TestCube3WithView','TestCube3WithView_view2');
+RETURNVIEWHANDLE('TestCube3WithView','testcube3withview_view2');
 #****End: Generated Statements****
 576,
 930,0

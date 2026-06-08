@@ -711,7 +711,7 @@ def dimensions_to_model(
                         can_reuse_subsets = (
                             e_subsets_etag == incoming_subsets_etag
                             and e_subsets_rules == subsets_tm1_filter.applicable_rules
-                            and incoming_cardinality == total_hierarchy_count
+                            #and incoming_cardinality == total_hierarchy_count
                             and _can_reuse_content_signature(e_subsets_content_hash)
                         )
                         can_reuse_edges = (
