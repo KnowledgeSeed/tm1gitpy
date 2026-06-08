@@ -10,7 +10,7 @@ on:
 jobs:
   test:
     name: Test on Python ${{ matrix.python-version }} (ubuntu)
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     container:
       image: python:${{ matrix.python-version }}-bookworm
       options: --user 1103:1103
@@ -45,7 +45,7 @@ jobs:
 
   integration-test:
     name: Integration Tests
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
@@ -70,7 +70,7 @@ jobs:
 
   lint:
     name: Lint and Code Quality
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
       options: --user 1103:1103
@@ -107,7 +107,7 @@ jobs:
 
   build:
     name: Build Package
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
       options: --user 1103:1103
@@ -196,7 +196,7 @@ jobs:
 
   coverage:
     name: Code Coverage
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
       options: --user 1103:1103
