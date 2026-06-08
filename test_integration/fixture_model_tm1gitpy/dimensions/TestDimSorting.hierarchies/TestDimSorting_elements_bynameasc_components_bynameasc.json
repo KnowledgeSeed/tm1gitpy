@@ -33,18 +33,18 @@
 	"Edges":
 	[
 		{
+			"ParentName":"a1",
 			"ComponentName":"a11",
-			"ParentName":"a1",
 			"Weight":1
 		},
 		{
+			"ParentName":"a1",
 			"ComponentName":"a12",
-			"ParentName":"a1",
 			"Weight":1
 		},
 		{
-			"ComponentName":"a13",
 			"ParentName":"a1",
+			"ComponentName":"a13",
 			"Weight":1
 		}
 	],

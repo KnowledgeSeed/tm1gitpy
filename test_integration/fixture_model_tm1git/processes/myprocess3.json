@@ -5,7 +5,10 @@
 	"Code@Code.link":"myprocess3.ti",
 	"DataSource":
 	{
-		"Type":"None"
+		"Type":"TM1DimensionSubset",
+		"dataSourceNameForClient":"TestDimMultiHier",
+		"dataSourceNameForServer":"TestDimMultiHier",
+		"subset":"TestDimMultiHierStaticSubset"
 	},
 	"Parameters":[],
 	"Variables":[]

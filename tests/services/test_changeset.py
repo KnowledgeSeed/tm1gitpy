@@ -62,6 +62,28 @@ class TestChangeset:
         assert not errors
         assert len(cs.changes) == 0
 
+    def test_process_change_round_trip_preserves_ui_metadata(self, tmp_path):
+        proc = make_process(name="ProcWithUI")
+        proc.ui_data = "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f"
+        proc.variables_ui_data = [
+            "VarType=32\fColType=827\f",
+            "VarType=33\fColType=827\f",
+        ]
+        cs = Changeset(changeset_id="process-ui-round-trip", base_dir=str(tmp_path))
+
+        cs.changes = [
+            Change(
+                change_type=ChangeType.ADD,
+                object_type=ObjectType.PROCESS,
+                uri=proc.uri(),
+                body=proc,
+            )
+        ]
+
+        round_tripped = cs.changes[0].body
+        assert round_tripped.ui_data == proc.ui_data
+        assert round_tripped.variables_ui_data == proc.variables_ui_data
+
     def test_create_object_ignores_duplicate_create_for_technical_object(self, mocker, caplog):
         process = make_process(name="}Stats")
         duplicate_error = RuntimeError(

@@ -27,13 +27,13 @@
 	"Edges":
 	[
 		{
-			"ComponentName":"a",
 			"ParentName":"DimElemC",
+			"ComponentName":"a",
 			"Weight":1
 		},
 		{
-			"ComponentName":"b",
 			"ParentName":"DimElemC",
+			"ComponentName":"b",
 			"Weight":1
 		}
 	],

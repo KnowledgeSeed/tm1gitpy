@@ -338,6 +338,13 @@ def procs_to_model(
         progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Fetching process {process_name}"))
         try:
             process = tm1_conn.processes.get(name_process=process_name)
+            process_body = {}
+            raw_body = getattr(process, "body", None)
+            if raw_body:
+                try:
+                    process_body = json.loads(raw_body)
+                except (TypeError, json.JSONDecodeError):
+                    logger.warning("Failed to parse process body for %s", process_name, exc_info=True)
 
             _ti = TI(prolog_procedure=process.prolog_procedure,
                      metadata_procedure=process.metadata_procedure,
@@ -345,8 +352,10 @@ def procs_to_model(
                      epilog_procedure=process.epilog_procedure)
             _process = Process(name=process.name, hasSecurityAccess=process.has_security_access,
                                code_link=process_name + '.ti',
-                               datasource='',
-                               parameters=process.parameters, variables=process.variables, ti=_ti)
+                               datasource=process_body.get("DataSource"),
+                               parameters=process.parameters, variables=process.variables, ti=_ti,
+                               variables_ui_data=process_body.get("VariablesUIData"),
+                               ui_data=process_body.get("UIData"))
             _processes[process.name] = _process
         finally:
             progress_sink.on_event(ProgressEvent.total_line(current_delta=1))
