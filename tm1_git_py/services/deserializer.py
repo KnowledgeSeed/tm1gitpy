@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 import signal
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
+from urllib.parse import unquote
 import ijson
 import orjson
 from tm1_git_py.model import Edge
@@ -928,7 +929,11 @@ def deserialize_dimensions(
         match = re.search(pattern, default_hierarchy_ref or "")
         if match:
             _, default_hierarchy_name = match.groups()
-            _dimension.defaultHierarchy = parsed_hierarchies.get(default_hierarchy_name)
+            resolved_default_hierarchy_name = unquote(default_hierarchy_name)
+            _dimension.defaultHierarchy = (
+                parsed_hierarchies.get(default_hierarchy_name)
+                or parsed_hierarchies.get(resolved_default_hierarchy_name)
+            )
 
         if not _dimension.defaultHierarchy:
             dimension_errors[dim_link] = 'no default hierarchy'

@@ -1,5 +1,5 @@
 ﻿389,100
-390,"TestCube3WithView_view2"
+390,"testcube3withview_view2"
 370,0
 361,1
 362,1
