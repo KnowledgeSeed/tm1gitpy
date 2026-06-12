@@ -4,6 +4,7 @@ import time
 import hashlib
 import threading
 import re
+from collections import deque
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 import orjson
@@ -762,24 +763,58 @@ class ModelStore:
         return int(value) if value is not None else None
 
     def calculate_edge_cardinality(self, group_id: int) -> int:
-        """Calculate cardinality from all cached rows in an edge group."""
+        """Count extra hierarchy assignments implied by edge fan-out."""
         normalized = self._object_type_normalized_for_group(group_id)
         if normalized not in ("edge", "edges"):
             raise ValueError(f"Edge cardinality is only supported for edge groups, got '{normalized}'")
-        row = self._conn.fetch_one(
+
+        rows = self._conn.fetch_all(
             """
-            SELECT COUNT(*)
-            FROM (
-                SELECT ComponentName
-                FROM edge_objects
-                WHERE group_id=?
-                GROUP BY ComponentName
-                HAVING COUNT(*) > 1
-            )
+            SELECT ParentName, ComponentName
+            FROM edge_objects
+            WHERE group_id=?
             """,
             (group_id,),
         )
-        return int(self._cell(row, "COUNT(*)", 0)) if row is not None else 0
+        if not rows:
+            return 0
+
+        children_by_parent: dict[str, set[str]] = {}
+        parents_by_child: dict[str, set[str]] = {}
+        nodes: set[str] = set()
+        for row in rows:
+            parent = str(self._cell(row, "ParentName", 0))
+            component = str(self._cell(row, "ComponentName", 1))
+            nodes.add(parent)
+            nodes.add(component)
+            children_by_parent.setdefault(parent, set()).add(component)
+            parents_by_child.setdefault(component, set()).add(parent)
+
+        indegree = {node: len(parents_by_child.get(node, ())) for node in nodes}
+        path_count = {node: 0 for node in nodes}
+        roots = [node for node, degree in indegree.items() if degree == 0]
+        queue = deque(roots)
+        for root in roots:
+            path_count[root] = 1
+
+        visited = 0
+        while queue:
+            parent = queue.popleft()
+            visited += 1
+            parent_paths = path_count[parent]
+            for child in children_by_parent.get(parent, ()):
+                path_count[child] += parent_paths
+                indegree[child] -= 1
+                if indegree[child] == 0:
+                    queue.append(child)
+
+        if visited != len(nodes):
+            logger.warning(
+                "Cycle or disconnected edge graph detected for group_id=%d; cardinality may be undercounted",
+                group_id,
+            )
+
+        return sum(count - 1 for count in path_count.values() if count > 1)
 
     def get_group_reuse_metadata(
         self,
