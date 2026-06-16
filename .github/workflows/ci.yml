@@ -10,10 +10,9 @@ on:
 jobs:
   test:
     name: Test on Python ${{ matrix.python-version }} (ubuntu)
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     container:
       image: python:${{ matrix.python-version }}-bookworm
-      options: --user 1103:1103
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
@@ -45,9 +44,29 @@ jobs:
 
   integration-test:
     name: Integration Tests
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     
     steps:
+    - name: Set up WireGuard
+      uses: egor-tensin/setup-wireguard@v1
+      with:
+        endpoint: 80.77.112.226:55000
+        endpoint_public_key: ${{ secrets.PFSENSE_PUBLIC_KEY }}
+        ips: 192.168.124.22/24
+        allowed_ips: 192.168.124.0/24, 192.168.123.0/24
+        private_key: ${{ secrets.ENDPOINT_GITHUB_PRIVATE_KEY }}
+
+    - name: Update resolv.conf
+      run: |
+        echo "nameserver 192.168.123.2" | sudo tee /etc/resolv.conf > /dev/null
+        echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf > /dev/null
+        echo "search knowledgeseed.local" | sudo tee -a /etc/resolv.conf > /dev/null
+
+    - name: Set up Docker with insecure registry
+      run: |
+        echo '{"insecure-registries": ["kseed-docker1.knowledgeseed.local:3000"]}' | sudo tee /etc/docker/daemon.json
+        sudo systemctl restart docker
+
     - name: Checkout code
       uses: actions/checkout@v4
     
@@ -70,10 +89,9 @@ jobs:
 
   lint:
     name: Lint and Code Quality
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
-      options: --user 1103:1103
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
@@ -107,10 +125,9 @@ jobs:
 
   build:
     name: Build Package
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
-      options: --user 1103:1103
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
@@ -196,10 +213,9 @@ jobs:
 
   coverage:
     name: Code Coverage
-    runs-on: [self-hosted, linux, kseed-docker1]
+    runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
-      options: --user 1103:1103
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
