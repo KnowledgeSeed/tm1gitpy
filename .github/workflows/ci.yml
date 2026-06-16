@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
-      options: --user 1103:1103
+      #options: --user 1103:1103
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
-      options: --user 1103:1103
+      #options: --user 1103:1103
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
@@ -219,7 +219,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: python:3.11-bookworm
-      options: --user 1103:1103
+      #options: --user 1103:1103
     env:
       HOME: ${{ github.workspace }}/.home
       PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
