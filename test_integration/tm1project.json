@@ -1,0 +1,31 @@
+{
+    "Version": "1.0",
+    "Files": [],
+    "Tasks": {
+        "Proc_1": {
+            "Process": "Processes('myprocess')"
+        },
+        "Proc_2": {
+            "Process": "Processes('myprocess2')"
+        },
+        "Proc_3": {
+            "Process": "Processes('myprocess3')"
+        }
+    },
+    "Ignore": [
+        "!Cubes('}*')",
+        "!Processes('}*')",
+        "!Dimensions('}*')"
+    ],
+    "Deployment": {
+        "localhost": {
+            "PrePull": [
+                "Tasks('Proc_1')",
+                "Tasks('Proc_2')"
+            ],
+            "PostPull": [
+                "Tasks('Proc_3')"
+            ]
+        }
+    }
+}
