@@ -211,7 +211,7 @@ from tm1_git_py.model.task import Task, create_chore_task
 
 class Chore:
     def __init__(self, name: str, start_time: str, dst_sensitive: bool, active: bool,
-                 execution_mode: str, frequency: str, tasks: List[Task], source_path: str):
+                 execution_mode: str, frequency: str, tasks: List[Task]):
         self.type = 'Chore'
         self.name = name
         self.start_time = start_time
@@ -220,7 +220,6 @@ class Chore:
         self.execution_mode = execution_mode
         self.frequency = frequency
         self.tasks = tasks
-        self.source_path = source_path
 
     def as_json(self) -> str:
         return json.dumps({
@@ -266,14 +265,10 @@ class Chore:
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Chore":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path or f"chores/{name}.json"
-
         start_time = data.get("start_time") or data.get("StartTime")
         dst_sensitive = data.get("dst_sensitive")
         if dst_sensitive is None:
@@ -294,13 +289,14 @@ class Chore:
             execution_mode=execution_mode,
             frequency=frequency,
             tasks=tasks,
-            source_path=resolved_path
         )
 
     @staticmethod
-    def as_link(name :str):
-        # /chores/chore.json
-        return '/chore/' + name
+    def uri_for(chore_name: str) -> str:
+        return f"Chores('{chore_name}')"
+
+    def uri(self) -> str:
+        return self.uri_for(self.name)
 
 
 # ------------------------------------------------------------------------------------------------------------

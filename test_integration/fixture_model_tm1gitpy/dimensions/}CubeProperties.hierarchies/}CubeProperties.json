@@ -1,124 +1,124 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}CubeProperties",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}CubeProperties",
+	"Elements":
+	[
 		{
-			"name": "REPSTATUS",
-			"type": "String"
+			"Name":"ALLOW_PERSISTENT_HOLDS",
+			"Type":"String"
 		},
 		{
-			"name": "SYNCVIEWS",
-			"type": "String"
+			"Name":"CALCULATIONTHRESHOLD",
+			"Type":"String"
 		},
 		{
-			"name": "SYNCRULE",
-			"type": "String"
+			"Name":"CATALOG",
+			"Type":"String"
 		},
 		{
-			"name": "DEMANDLOAD",
-			"type": "String"
+			"Name":"DATARESERVATIONMODE",
+			"Type":"String"
 		},
 		{
-			"name": "TIME_DIMENSION",
-			"type": "String"
+			"Name":"DATASOURCE",
+			"Type":"String"
 		},
 		{
-			"name": "MEASURES_DIMENSION",
-			"type": "String"
+			"Name":"DEMANDLOAD",
+			"Type":"String"
 		},
 		{
-			"name": "LOCK",
-			"type": "String"
+			"Name":"LOCATION",
+			"Type":"String"
 		},
 		{
-			"name": "VMT",
-			"type": "String"
+			"Name":"LOCK",
+			"Type":"String"
 		},
 		{
-			"name": "VMM",
-			"type": "String"
+			"Name":"LOGGING",
+			"Type":"String"
 		},
 		{
-			"name": "REPSRCNAME",
-			"type": "String"
+			"Name":"MAINTAIN_DETAILED_FEEDER_MEMORY_STATS",
+			"Type":"String"
 		},
 		{
-			"name": "REPLICATION",
-			"type": "String"
+			"Name":"MEASURES_DIMENSION",
+			"Type":"String"
 		},
 		{
-			"name": "LOGGING",
-			"type": "String"
+			"Name":"PASSWORD",
+			"Type":"String"
 		},
 		{
-			"name": "VIRTUALCUBE",
-			"type": "String"
+			"Name":"PROVIDER",
+			"Type":"String"
 		},
 		{
-			"name": "PROVIDER",
-			"type": "String"
+			"Name":"PROVIDERSTRING",
+			"Type":"String"
 		},
 		{
-			"name": "LOCATION",
-			"type": "String"
+			"Name":"REPLICATION",
+			"Type":"String"
 		},
 		{
-			"name": "DATASOURCE",
-			"type": "String"
+			"Name":"REPSRCNAME",
+			"Type":"String"
 		},
 		{
-			"name": "CATALOG",
-			"type": "String"
+			"Name":"REPSTATUS",
+			"Type":"String"
 		},
 		{
-			"name": "USERID",
-			"type": "String"
+			"Name":"RULE_STATS",
+			"Type":"String"
 		},
 		{
-			"name": "PASSWORD",
-			"type": "String"
+			"Name":"SAPCLIENTID",
+			"Type":"String"
 		},
 		{
-			"name": "SAPCLIENTID",
-			"type": "String"
+			"Name":"SAPCLIENTLANG",
+			"Type":"String"
 		},
 		{
-			"name": "SAPCLIENTLANG",
-			"type": "String"
+			"Name":"SAPVARIABLESCLAUSE",
+			"Type":"String"
 		},
 		{
-			"name": "PROVIDERSTRING",
-			"type": "String"
+			"Name":"SLICERMEMBERS",
+			"Type":"String"
 		},
 		{
-			"name": "SAPVARIABLESCLAUSE",
-			"type": "String"
+			"Name":"SYNCRULE",
+			"Type":"String"
 		},
 		{
-			"name": "SLICERMEMBERS",
-			"type": "String"
+			"Name":"SYNCVIEWS",
+			"Type":"String"
 		},
 		{
-			"name": "DATARESERVATIONMODE",
-			"type": "String"
+			"Name":"TIME_DIMENSION",
+			"Type":"String"
 		},
 		{
-			"name": "CALCULATIONTHRESHOLD",
-			"type": "String"
+			"Name":"USERID",
+			"Type":"String"
 		},
 		{
-			"name": "ALLOW_PERSISTENT_HOLDS",
-			"type": "String"
+			"Name":"VIRTUALCUBE",
+			"Type":"String"
 		},
 		{
-			"name": "RULE_STATS",
-			"type": "String"
+			"Name":"VMM",
+			"Type":"String"
 		},
 		{
-			"name": "MAINTAIN_DETAILED_FEEDER_MEMORY_STATS",
-			"type": "String"
+			"Name":"VMT",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

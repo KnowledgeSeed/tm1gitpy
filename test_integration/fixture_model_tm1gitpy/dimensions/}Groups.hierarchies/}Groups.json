@@ -1,24 +1,24 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Groups",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Groups",
+	"Elements":
+	[
 		{
-			"name": "ADMIN",
-			"type": "String"
+			"Name":"ADMIN",
+			"Type":"String"
 		},
 		{
-			"name": "SecurityAdmin",
-			"type": "String"
+			"Name":"DataAdmin",
+			"Type":"String"
 		},
 		{
-			"name": "DataAdmin",
-			"type": "String"
+			"Name":"OperationsAdmin",
+			"Type":"String"
 		},
 		{
-			"name": "OperationsAdmin",
-			"type": "String"
+			"Name":"SecurityAdmin",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

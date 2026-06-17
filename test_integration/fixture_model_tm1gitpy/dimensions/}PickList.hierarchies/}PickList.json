@@ -1,12 +1,12 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}PickList",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}PickList",
+	"Elements":
+	[
 		{
-			"name": "Value",
-			"type": "String"
+			"Name":"Value",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

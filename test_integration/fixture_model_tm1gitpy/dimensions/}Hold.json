@@ -1,8 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}Hold",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}Hold",
+	"Hierarchies@Code.links":
+	[
 		"}Hold.hierarchies/}Hold.json"
 	],
-	"DefaultHierarchy": "Dimensions('}Hold')/Hierarchies('}Hold')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Hold')/Hierarchies('}Hold')"
+	}
 }

@@ -1,44 +1,44 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}ClientProperties",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}ClientProperties",
+	"Elements":
+	[
 		{
-			"name": "ReadOnlyUser",
-			"type": "Numeric"
+			"Name":"GroupAssociations",
+			"Type":"String"
 		},
 		{
-			"name": "MaximumPorts",
-			"type": "Numeric"
+			"Name":"IsDisabled",
+			"Type":"Numeric"
 		},
 		{
-			"name": "PasswordLastTimeUpdated",
-			"type": "String"
+			"Name":"MaximumPorts",
+			"Type":"Numeric"
 		},
 		{
-			"name": "PasswordExpirationDays",
-			"type": "String"
+			"Name":"PASSWORD",
+			"Type":"String"
 		},
 		{
-			"name": "PASSWORD",
-			"type": "String"
+			"Name":"PasswordExpirationDays",
+			"Type":"String"
 		},
 		{
-			"name": "STATUS",
-			"type": "String"
+			"Name":"PasswordLastTimeUpdated",
+			"Type":"String"
 		},
 		{
-			"name": "UniqueID",
-			"type": "String"
+			"Name":"ReadOnlyUser",
+			"Type":"Numeric"
 		},
 		{
-			"name": "GroupAssociations",
-			"type": "String"
+			"Name":"STATUS",
+			"Type":"String"
 		},
 		{
-			"name": "IsDisabled",
-			"type": "Numeric"
+			"Name":"UniqueID",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

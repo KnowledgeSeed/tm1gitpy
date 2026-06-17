@@ -1,12 +1,12 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Hold",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Hold",
+	"Elements":
+	[
 		{
-			"name": "HoldStatus",
-			"type": "String"
+			"Name":"HoldStatus",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

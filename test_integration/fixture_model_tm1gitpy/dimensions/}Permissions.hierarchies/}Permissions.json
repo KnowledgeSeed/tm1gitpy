@@ -1,28 +1,28 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Permissions",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Permissions",
+	"Elements":
+	[
 		{
-			"name": "READ",
-			"type": "String"
+			"Name":"EXECUTE",
+			"Type":"String"
 		},
 		{
-			"name": "WRITE",
-			"type": "String"
+			"Name":"READ",
+			"Type":"String"
 		},
 		{
-			"name": "EXECUTE",
-			"type": "String"
+			"Name":"SET POLICY",
+			"Type":"String"
 		},
 		{
-			"name": "SET POLICY",
-			"type": "String"
+			"Name":"TRAVERSE",
+			"Type":"String"
 		},
 		{
-			"name": "TRAVERSE",
-			"type": "String"
+			"Name":"WRITE",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

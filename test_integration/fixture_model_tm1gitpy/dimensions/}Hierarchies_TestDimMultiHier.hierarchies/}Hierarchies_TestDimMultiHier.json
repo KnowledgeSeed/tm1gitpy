@@ -1,24 +1,24 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Hierarchies_TestDimMultiHier",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Hierarchies_TestDimMultiHier",
+	"Elements":
+	[
 		{
-			"name": "TestDimMultiHier",
-			"type": "String"
+			"Name":"TestDimMultiHier",
+			"Type":"String"
 		},
 		{
-			"name": "TestDimMultiHier:Leaves",
-			"type": "String"
+			"Name":"TestDimMultiHier:Hier1",
+			"Type":"String"
 		},
 		{
-			"name": "TestDimMultiHier:Hier2",
-			"type": "String"
+			"Name":"TestDimMultiHier:Hier2",
+			"Type":"String"
 		},
 		{
-			"name": "TestDimMultiHier:Hier1",
-			"type": "String"
+			"Name":"TestDimMultiHier:Leaves",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

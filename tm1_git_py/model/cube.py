@@ -1,11 +1,12 @@
 import json
 import logging
+import re
 from typing import List, Any, Dict, Optional
 
 import TM1py
 from TM1py import TM1Service, Cube
 from TM1py.Utils import format_url
-from TM1_bedrock_py.bedrock import data_copy_intercube
+# from TM1_bedrock_py.bedrock import data_copy_intercube
 from requests import Response
 
 from tm1_git_py.model import element
@@ -41,28 +42,69 @@ from tm1_git_py.model.rule import Rule
 # 		"Channel Csoportos Flat Assignment.views/CsoportosFlatSubsetTechnical.json"
 # 	]
 # }
+def _dimension_name_from_payload(payload: Any) -> str:
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, Dimension):
+        return payload.name
+    if isinstance(payload, dict):
+        name = payload.get("name") or payload.get("Name")
+        if name:
+            return str(name)
+        dimension_id = payload.get("@id")
+        if isinstance(dimension_id, str):
+            match = re.search(r"Dimensions\('([^']*)'\)", dimension_id)
+            if match:
+                return match.group(1)
+    raise ValueError(f"Unable to resolve cube dimension name from payload: {payload!r}")
+
+
 class Cube:
-    def __init__(self, name, dimensions: List[Dimension], rules: List[Rule], views: List[MDXView], source_path: str):
+    def __init__(
+            self,
+            name,
+            dimensions: List[str],
+            rules: List[Rule],
+            views: List[MDXView],
+            drillthrough_rules: Optional[List[Rule]] = None,
+    ):
         self.type = 'Cube'
         self.name = name
         self.dimensions = dimensions
         self.rules = rules
         self.views = views
-        self.source_path = source_path
+        self.drillthrough_rules = drillthrough_rules or []
 
     def as_json(self):
-        return json.dumps({
+        payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
-            "Dimensions": [{"@id": format_url("Dimensions('{}')", d.name)} for d in self.dimensions],
-            "Rules@Code.link": format_url("{}.rules", self.name) if self.rules else [],
-            "Views@Code.links": [format_url("{}.views/{}.json", self.name, v.name) for v in self.views],
-        }, indent='\t')
+            "Dimensions": [
+                {"@id": format_url("Dimensions('{}')", dimension_name)}
+                for dimension_name in self.dimensions
+            ],
+        }
+        if self.rules:
+            payload["Rules@Code.link"] = format_url("{}.rules", self.name)
+        if self.drillthrough_rules:
+            payload["DrillthroughRules@Code.link"] = format_url("{}.drillthrough.rules", self.name)
+        payload["Views@Code.links"] = [
+            format_url("{}.views/{}.json", self.name, v.name) for v in self.views
+        ]
+        s = json.dumps(payload, indent="\t", separators=(",", ":"))
+        return s.replace(":[\n", ":\n\t[\n")
 
     def get_rule_text(self) -> str:
-        if not self.rules: return ""
+        return self._rule_text(self.rules)
+
+    def get_drillthrough_rule_text(self) -> str:
+        return self._rule_text(self.drillthrough_rules)
+
+    @staticmethod
+    def _rule_text(rules: List[Rule]) -> str:
+        if not rules: return ""
         content_parts = []
-        for rule in self.rules:
+        for rule in rules:
             if rule.comment:
                 content_parts.append(rule.comment)
             content_parts.append(rule.full_statement)
@@ -74,19 +116,22 @@ class Cube:
 
         if self.name != other.name:
             return False
-        if sorted([d.name for d in self.dimensions]) != sorted([d.name for d in other.dimensions]):
+        if sorted(self.dimensions) != sorted(other.dimensions):
             return False
         if set(self.views) != set(other.views):
             return False
         if set(self.rules) != set(other.rules):
+            return False
+        if set(self.drillthrough_rules) != set(other.drillthrough_rules):
             return False
         return True
 
     def __hash__(self) -> int:
         return hash((
             self.name,
-            tuple(sorted([d.name for d in self.dimensions])),
+            tuple(sorted(self.dimensions)),
             frozenset(self.rules),
+            frozenset(self.drillthrough_rules),
             frozenset(self.views)
         ))
 
@@ -96,30 +141,36 @@ class Cube:
     def to_dict(self):
         return {
             'name': self.name,
-            'dimensions': [d.to_dict() for d in self.dimensions],
+            'dimensions': list(self.dimensions),
             'rules': [r.to_dict() for r in self.rules],
+            'drillthrough_rules': [r.to_dict() for r in self.drillthrough_rules],
             'views': [v.to_dict() for v in self.views]
         }
 
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Cube":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path or f"cubes/{name}"
-
         dimension_payloads = data.get("dimensions") or data.get("Dimensions") or []
-        dimensions = [Dimension.from_dict(payload) for payload in dimension_payloads]
+        dimensions = [_dimension_name_from_payload(payload) for payload in dimension_payloads]
 
         rule_payloads = data.get("rules") or data.get("Rules") or []
-        rule_base_path = resolved_path[:-5] if resolved_path.endswith(".json") else resolved_path
         rules = [
-            Rule.from_dict(payload, source_path=f"{rule_base_path}.rules", cube_name=name)
+            Rule.from_dict(payload)
             for payload in rule_payloads
+        ]
+        drillthrough_rule_payloads = (
+            data.get("drillthrough_rules")
+            or data.get("drillthroughRules")
+            or data.get("DrillthroughRules")
+            or []
+        )
+        drillthrough_rules = [
+            Rule.from_dict(payload)
+            for payload in drillthrough_rule_payloads
         ]
 
         view_payloads = data.get("views") or data.get("Views") or []
@@ -127,15 +178,20 @@ class Cube:
             MDXView.from_dict(payload, cube_name=name)
             for payload in view_payloads
         ]
-
-        return cls(name=name, dimensions=dimensions, rules=rules, views=views, source_path=resolved_path)
+        return cls(
+            name=name,
+            dimensions=dimensions,
+            rules=rules,
+            views=views,
+            drillthrough_rules=drillthrough_rules,
+        )
 
     @staticmethod
-    def as_link(name):
-        # /cubes/Cube_A.json
-        # /cubes/Cube_A.rules
-        return '/cubes/' + name
+    def uri_for(cube_name: str) -> str:
+        return f"Cubes('{cube_name}')"
 
+    def uri(self) -> str:
+        return self.uri_for(self.name)
 
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
@@ -144,7 +200,7 @@ class Cube:
 logger = logging.getLogger(__name__)
 
 def create_cube(tm1_service: TM1Service, cube: Cube) -> Response:
-    dimensions = [dim.name for dim in cube.dimensions]
+    dimensions = list(cube.dimensions)
     rule_text = cube.get_rule_text()
     cube_object = TM1py.Cube(cube.name, dimensions, rule_text)
 
@@ -191,6 +247,7 @@ def update_cube(tm1_service: TM1Service, cube: Cube) -> Response:
     new_rule_text = cube.get_rule_text()
     if not cube_object.rules or cube_object.rules.body != new_rule_text:
         cube_object.rules = TM1py.Rules(new_rule_text)
+        tm1_service.cubes.update_or_create_rules(cube_name=cube.name, rules=new_rule_text.strip())
         logger.info(f"Updated Rules for Cube: {cube.name}.")
 
     return tm1_service.cubes.update(cube_object)
@@ -256,115 +313,6 @@ def _get_first_leaf_element_name(tm1_service: TM1Service, dimension_name: str) -
     )
     return first_leaf
 
-
-def _add_dimensions_to_cube(
-        tm1_service: TM1Service,
-        cube_old: Cube,
-        cube_new: Cube,
-        dims_old: List[str],
-        dims_new: List[str],
-        logging_level: str = "INFO"
-) -> None:
-    """
-    Recreate a cube with additional dimensions using tm1-bedrock-py's
-    data_copy_intercube.
-    When copying from the old cube into the temporary cube,
-    the new dimensions are populated with either the FIRST LEAF element
-    of the given dimension or a 'Legacy Data' element if no leaf is present .
-    """
-
-    cube_name = cube_old.name
-    if cube_new.name != cube_old.name:
-        raise ValueError(
-            f"Cube name mismatch: cube_old.name={cube_old.name}, cube_new.name={cube_new.name}. "
-            f"This helper expects a structural change of the same cube."
-        )
-
-    added_dims = list(set(dims_new) - set(dims_old))
-
-    logger.info(
-        f"Adding Dimensions '{added_dims}' to Cube '{cube_name}' via data_copy_intercube."
-    )
-
-    target_dim_mapping_default_elements = {}
-
-    # 1) Determine the default element for the new dimension: FIRST LEAF
-    for dim in added_dims:
-        if not tm1_service.dimensions.exists(dimension_name=dim):
-            create_dimension(tm1_service=tm1_service, dimension=dim)
-
-        target_dim_mapping_default_elements[dim] = _get_first_leaf_element_name(
-            tm1_service=tm1_service,
-            dimension_name=dim
-        )
-
-    # 2) Create a temp cube with the new dimensionality and copy data old -> temp, forcing the new dim to first leaf.
-    temp_cube_name = f"{cube_name}__tmp_add_dims"
-
-    if tm1_service.cubes.exists(temp_cube_name):
-        logger.warning(f"Temporary Cube '{temp_cube_name}' already exists. Deleting it.")
-        tm1_service.cubes.delete(temp_cube_name)
-
-    temp_cube_object = TM1py.Cube(
-        name=temp_cube_name,
-        dimensions=dims_new,
-        rules=""
-    )
-    logger.info(
-        f"Creating temporary Cube '{temp_cube_name}' with Dimensions: {dims_new}."
-    )
-    tm1_service.cubes.create(temp_cube_object)
-
-    source_mdx_old = _build_full_cube_mdx(
-        cube_name=cube_name,
-        dimension_names=dims_old
-    )
-
-    logger.info(
-        f"Copying data from old Cube '{cube_name}' to temporary Cube '{temp_cube_name}' "
-        f"using data_copy_intercube (new dim -> first leaf '{target_dim_mapping_default_elements}')."
-    )
-    data_copy_intercube(
-        tm1_service=tm1_service,
-        data_mdx=source_mdx_old,
-        target_cube_name=temp_cube_name,
-        target_dim_mapping=target_dim_mapping_default_elements,
-        clear_target=True,
-        logging_level=logging_level
-    )
-
-    # 3) Delete the original cube and recreate it with the new dimensionality
-    logger.warning(f"Deleting original Cube '{cube_name}' before recreation.")
-    delete_cube(tm1_service=tm1_service, cube=cube_old)
-
-    logger.info(
-        f"Recreating Cube '{cube_name}' with new Dimensions: {dims_new} and rules "
-        f"from your model definition."
-    )
-    create_cube(tm1_service=tm1_service, cube=cube_new)
-
-    # 4) Copy data from temp cube into the final re-created cube
-    source_mdx_temp = _build_full_cube_mdx(
-        cube_name=temp_cube_name,
-        dimension_names=dims_new
-    )
-
-    logger.info(
-        f"Copying data from temporary Cube '{temp_cube_name}' back to final Cube '{cube_name}'."
-    )
-    data_copy_intercube(
-        tm1_service=tm1_service,
-        data_mdx=source_mdx_temp,
-        target_cube_name=cube_name,
-        clear_target=True,
-        logging_level=logging_level
-    )
-
-    # 5) Clean up temporary cube
-    logger.info(f"Deleting temporary Cube '{temp_cube_name}'.")
-    tm1_service.cubes.delete(temp_cube_name)
-
-
 def _build_cube_mdx_with_dim_sets(
         cube_name: str,
         dimension_names: List[str],
@@ -399,207 +347,6 @@ def _build_cube_mdx_with_dim_sets(
         FROM [{cube_name}]
     """
     return mdx.strip()
-
-
-def _delete_dimensions_from_cube(
-        tm1_service: TM1Service,
-        cube_old: Cube,
-        cube_new: Cube,
-        dims_old: List[str],
-        dims_new: List[str],
-        strategies: Optional[Dict[str, Dict[str, Any]]] = None,
-        default_strategy: str = "sum_all",
-        logging_level: str = "INFO"
-) -> None:
-    """
-    Redimensionalise a cube by removing one or more dimensions (n -> n-k)
-    using tm1_bedrock_py.data_copy_intercube.
-
-    - By default (default_strategy='sum_all'):
-        all deleted dimensions are aggregated away: all their elements are
-        included, and duplicates in the target cube are summed.
-
-    - `strategies` allows you to override behaviour per deleted dimension.
-      Example:
-
-        strategies = {
-            "Version": {
-                "strategy": "keep_element",
-                "element": "Actual"
-            },
-            "Scenario": {
-                "strategy": "keep_by_attr",
-                "attr_name": "KeepOnDrop",
-                "attr_value": "Y"
-            }
-        }
-
-      Supported per-dimension strategies:
-        - 'sum_all'       : keep all elements (aggregate across this dim)
-        - 'keep_element'  : keep only a single element (e.g. 'Actual')
-        - 'keep_by_attr'  : keep only elements where attribute == value
-
-    Assumptions:
-        - cube_old.name == cube_new.name
-        - dims_new is a strict subset of dims_old (one or more dims removed).
-        - Remaining dimensions keep their names.
-    """
-    strategies = strategies or {}
-    cube_name = cube_old.name
-
-    if cube_new.name != cube_old.name:
-        raise ValueError(
-            f"Cube name mismatch: cube_old.name={cube_old.name}, cube_new.name={cube_new.name}. "
-            f"This helper expects a structural change of the same cube."
-        )
-
-    deleted_dims = list(set(dims_old) - set(dims_new))
-    if not deleted_dims:
-        logger.info(
-            "No dimensions deleted between cube_old and cube_new. "
-            "delete_dimensions_from_cube_with_bedrock has nothing to do."
-        )
-        return
-
-    logger.info(
-        f"Removing Dimensions {deleted_dims!r} from Cube '{cube_name}' via data_copy_intercube. "
-        f"default_strategy='{default_strategy}'."
-    )
-
-    # Build MDX & source_dim_mapping based on per-dimension strategies
-    per_dim_set_mdx = {}
-    source_dim_mapping = {}
-
-    for deleted_dim in deleted_dims:
-        cfg = strategies.get(deleted_dim, {})
-        strategy = cfg.get("strategy", default_strategy)
-
-        if strategy == "sum_all":
-            # keep all elements of this dimension → no special MDX
-            logger.info(
-                f"Deleted Dimension '{deleted_dim}': strategy 'sum_all' "
-                f"(all elements aggregated into target)."
-            )
-
-        elif strategy == "keep_element":
-            element_to_keep = cfg.get("element")
-            if not element_to_keep:
-                raise ValueError(
-                    f"Deleted Dimension '{deleted_dim}': strategy 'keep_element' "
-                    f"requires an 'element' key in strategies['{deleted_dim}']."
-                )
-
-            # Use source_dim_mapping so tm1_bedrock_py:
-            # - filters to this element
-            # - then drops the column
-            source_dim_mapping[deleted_dim] = element_to_keep
-
-            logger.info(
-                f"Deleted Dimension '{deleted_dim}': strategy 'keep_element', "
-                f"keeping only '{element_to_keep}'."
-            )
-
-        elif strategy == "keep_by_attr":
-            attr_name = cfg.get("attr_name")
-            attr_value = cfg.get("attr_value")
-
-            if not attr_name or attr_value is None:
-                raise ValueError(
-                    f"Deleted Dimension '{deleted_dim}': strategy 'keep_by_attr' requires "
-                    f"'attr_name' and 'attr_value' in strategies['{deleted_dim}']."
-                )
-
-            per_dim_set_mdx[deleted_dim] = (
-                f"FILTER("
-                f" TM1SUBSETALL([{deleted_dim}]), "
-                f" [{deleted_dim}].CURRENTMEMBER.PROPERTIES(\"{attr_name}\") = "
-                f"\"{attr_value}\""
-                f")"
-            )
-
-            logger.info(
-                f"Deleted Dimension '{deleted_dim}': strategy 'keep_by_attr', "
-                f"keeping elements where attribute '{attr_name}' = '{attr_value}'."
-            )
-
-        else:
-            raise ValueError(
-                f"Deleted Dimension '{deleted_dim}': unknown strategy '{strategy}'. "
-                f"Supported: 'sum_all', 'keep_element', 'keep_by_attr'."
-            )
-
-    # If we never added anything to source_dim_mapping, pass None instead
-    if not source_dim_mapping:
-        source_dim_mapping = None
-
-    source_mdx_old = _build_cube_mdx_with_dim_sets(
-        cube_name=cube_name,
-        dimension_names=dims_old,
-        per_dim_set_mdx=per_dim_set_mdx
-    )
-
-    # 1) Create a temporary cube with the reduced dimensionality and copy old -> temp
-    temp_cube_name = f"{cube_name}__tmp_del_multi"
-
-    if tm1_service.cubes.exists(temp_cube_name):
-        logger.warning(f"Temporary Cube '{temp_cube_name}' already exists. Deleting it.")
-        tm1_service.cubes.delete(temp_cube_name)
-
-    temp_cube_object = TM1py.Cube(
-        name=temp_cube_name,
-        dimensions=dims_new,
-        rules=""
-    )
-    logger.info(
-        f"Creating temporary Cube '{temp_cube_name}' with Dimensions: {dims_new}."
-    )
-    tm1_service.cubes.create(temp_cube_object)
-
-    logger.info(
-        f"Copying data from old Cube '{cube_name}' to temporary Cube '{temp_cube_name}' "
-        f"using data_copy_intercube (multiple deleted dimensions)."
-    )
-    data_copy_intercube(
-        tm1_service=tm1_service,
-        data_mdx=source_mdx_old,
-        target_cube_name=temp_cube_name,
-        source_dim_mapping=source_dim_mapping,
-        clear_target=True,
-        sum_numeric_duplicates=True,
-        logging_level=logging_level
-    )
-
-    # 2) Delete the original cube and recreate it with the reduced dimension set
-    logger.warning(f"Deleting original Cube '{cube_name}' before recreation.")
-    delete_cube(tm1_service=tm1_service, cube=cube_old)
-
-    logger.info(
-        f"Recreating Cube '{cube_name}' with new Dimensions: {dims_new} and rules "
-        f"from your model definition."
-    )
-    create_cube(tm1_service=tm1_service, cube=cube_new)
-
-    # 3) Copy data from temp cube into the final re-created cube (dims match now)
-    source_mdx_temp = _build_cube_mdx_with_dim_sets(
-        cube_name=temp_cube_name,
-        dimension_names=dims_new
-    )
-
-    logger.info(
-        f"Copying data from temporary Cube '{temp_cube_name}' back to final Cube '{cube_name}'."
-    )
-    data_copy_intercube(
-        tm1_service=tm1_service,
-        data_mdx=source_mdx_temp,
-        target_cube_name=cube_name,
-        clear_target=True,
-        sum_numeric_duplicates=True,
-        logging_level=logging_level
-    )
-
-    # 4) Clean up temporary cube
-    logger.info(f"Deleting temporary Cube '{temp_cube_name}'.")
-    tm1_service.cubes.delete(temp_cube_name)
 
 
 # ------------------------------------------------------------------------------------------------------------

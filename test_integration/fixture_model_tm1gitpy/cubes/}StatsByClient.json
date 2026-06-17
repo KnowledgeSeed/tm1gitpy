@@ -1,17 +1,18 @@
 {
-	"@type": "Cube",
-	"Name": "}StatsByClient",
-	"Dimensions": [
+	"@type":"Cube",
+	"Name":"}StatsByClient",
+	"Dimensions":
+	[
 		{
-			"@id": "Dimensions('}StatsStatsByClient')"
+			"@id":"Dimensions('}StatsStatsByClient')"
 		},
 		{
-			"@id": "Dimensions('}PerfClients')"
+			"@id":"Dimensions('}PerfClients')"
 		},
 		{
-			"@id": "Dimensions('}TimeIntervals')"
+			"@id":"Dimensions('}TimeIntervals')"
 		}
 	],
-	"Rules@Code.link": "}StatsByClient.rules",
-	"Views@Code.links": []
+	"Rules@Code.link":"}StatsByClient.rules",
+	"Views@Code.links":[]
 }

@@ -1,8 +1,12 @@
 {
-	"@type": "Dimension",
-	"Name": "}Chores",
-	"Hierarchies@Code.links": [
+	"@type":"Dimension",
+	"Name":"}Chores",
+	"Hierarchies@Code.links":
+	[
 		"}Chores.hierarchies/}Chores.json"
 	],
-	"DefaultHierarchy": "Dimensions('}Chores')/Hierarchies('}Chores')"
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Chores')/Hierarchies('}Chores')"
+	}
 }

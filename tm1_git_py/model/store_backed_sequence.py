@@ -1,0 +1,289 @@
+from typing import Any, Callable, Generic, Iterable, Iterator, MutableSequence, Optional, TypeVar
+
+from tm1_git_py.model.edge import Edge
+from tm1_git_py.model.element import Element
+from tm1_git_py.db.model_store import ModelStore
+from tm1_git_py.model.subset import Subset
+T = TypeVar("T")
+
+
+def _element_to_dict(item: Element) -> dict[str, Any]:
+    payload = item.to_dict()
+    if item.element_index is not None:
+        payload["ElementIndex"] = item.element_index
+    return payload
+
+
+def _edge_to_dict(item: Edge) -> dict[str, Any]:
+    payload = item.to_dict()
+    if item.component_index is not None:
+        payload["ComponentIndex"] = item.component_index
+    return payload
+
+
+def _subset_to_dict(item: Subset) -> dict[str, Any]:
+    return item.to_dict()
+
+
+class StoreBackedSequence(MutableSequence[T], Generic[T]):
+    def __init__(
+        self,
+        *,
+        store: ModelStore,
+        model_id: Optional[str] = None,
+        dimension_name: str,
+        hierarchy_name: str,
+        object_type: str,
+        item_from_payload: Callable[[dict[str, Any]], T],
+        payload_from_item: Callable[[T], dict[str, Any]],
+    ):
+        self._store = store
+        self._store_db_path = store.db_path
+        self._dimension_name = dimension_name
+        self._hierarchy_name = hierarchy_name
+        self._object_type = object_type
+        self._model_id = model_id
+        self._item_from_payload = item_from_payload
+        self._payload_from_item = payload_from_item
+        self.group_id = self._active_store().ensure_group(
+            dimension_name,
+            hierarchy_name,
+            object_type,
+            model_id=model_id,
+        )
+
+    def _active_store(self) -> ModelStore:
+        if self._store is None or getattr(self._store, "_closed", False):
+            self._store = ModelStore.for_db_path(self._store_db_path)
+        return self._store
+
+    def __getstate__(self) -> dict[str, Any]:
+        # SqliteWorker / lease / lifecycle lock cannot cross processes. Drop the
+        # live store; the receiver re-acquires via ``ModelStore.for_db_path``.
+        state = self.__dict__.copy()
+        state["_store"] = None
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._store = None
+
+    @classmethod
+    def for_elements_sink(
+        cls,
+        *,
+        store: ModelStore,
+        model_id: Optional[str] = None,
+        dimension_name: str,
+        hierarchy_name: str,
+    ) -> "StoreBackedSequence[Element]":
+        return cls(
+            store=store,
+            model_id=model_id,
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+            object_type="elements",
+            item_from_payload=Element.from_dict,
+            payload_from_item=_element_to_dict,
+        )
+
+    @classmethod
+    def for_edges_sink(
+        cls,
+        *,
+        store: ModelStore,
+        model_id: Optional[str] = None,
+        dimension_name: str,
+        hierarchy_name: str,
+    ) -> "StoreBackedSequence[Edge]":
+        return cls(
+            store=store,
+            model_id=model_id,
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+            object_type="edges",
+            item_from_payload=Edge.from_dict,
+            payload_from_item=_edge_to_dict,
+        )
+
+    @classmethod
+    def for_subsets_sink(
+        cls,
+        *,
+        store: ModelStore,
+        model_id: Optional[str] = None,
+        dimension_name: str,
+        hierarchy_name: str,
+    ) -> "StoreBackedSequence[Subset]":
+        return cls(
+            store=store,
+            model_id=model_id,
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+            object_type="subsets",
+            item_from_payload=Subset.from_dict,
+            payload_from_item=_subset_to_dict,
+        )
+
+    def __len__(self) -> int:
+        return self._active_store().row_count(self.group_id)
+
+    def __iter__(self) -> Iterator[T]:
+        for payload in self.iter_payloads():
+            yield self._item_from_payload(payload)
+
+    def __getitem__(self, index: int) -> T:
+        if not isinstance(index, int):
+            raise TypeError("StoreBackedSequence supports integer indexes only.")
+        if index < 0:
+            index = len(self) + index
+        rows = list(self.iter_payloads())
+        return self._item_from_payload(rows[index])
+
+    def __setitem__(self, index: int, value: T) -> None:
+        raise NotImplementedError("Index assignment is not supported for StoreBackedSequence.")
+
+    def __delitem__(self, index: int) -> None:
+        raise NotImplementedError("Index deletion is not supported for StoreBackedSequence.")
+
+    def insert(self, index: int, value: T) -> None:
+        raise NotImplementedError("Insert is not supported for StoreBackedSequence.")
+
+    def append(self, value: T) -> None:  # type: ignore[override]
+        self.extend([value])
+
+    def extend(self, values: Iterable[T]) -> None:  # type: ignore[override]
+        payloads = [self._payload_from_item(item) for item in values]
+        if not payloads:
+            return
+        self._active_store().append_payloads(
+            self.group_id,
+            payloads,
+        )
+
+    def extend_payloads(
+        self,
+        payloads: Iterable[dict[str, Any]],
+        *,
+        start_index: Optional[int] = None,
+    ) -> None:
+        """
+        Append rows from REST/OData-shaped dicts without building model objects first.
+
+        Each dict must include the fields expected by
+        ``ModelStore._payload_values_for_type`` for this sequence's ``object_type``
+        (elements: ``Name``/``Type``; edges: ``ParentName``/``ComponentName``/``Weight``;
+        dynamic subsets: ``Name``/``Expression``; static subsets: ``Name`` plus
+        ``Elements`` or ``element_ids`` reference IDs). Mixed-case keys from TM1
+        JSON are accepted.
+        """
+        batch = list(payloads)
+        if not batch:
+            return
+        self._active_store().append_payloads(self.group_id, batch, start_index=start_index)
+
+    def iter_payloads(
+        self,
+        *,
+        ordered_by_identity: bool = False,
+        order_by_internal_index: bool = False,
+        include_internal_indexes: bool = False,
+    ) -> Iterator[dict[str, Any]]:
+        yield from self._active_store().iter_payloads(
+            self.group_id,
+            progress_label=True,
+            ordered_by_identity=ordered_by_identity,
+            order_by_internal_index=order_by_internal_index,
+            include_internal_indexes=include_internal_indexes,
+        )
+
+    def iter_payload_json_strings(
+        self,
+        *,
+        ordered_by_identity: bool = False,
+        order_by_internal_index: bool = False,
+        progress_label: Optional[str] = None,
+        progress_every: int = 10_000,
+    ) -> Iterator[str]:
+        yield from self._active_store().iter_payload_json_strings(
+            self.group_id,
+            ordered_by_identity=ordered_by_identity,
+            order_by_internal_index=order_by_internal_index,
+            progress_label=progress_label,
+            progress_every=progress_every,
+        )
+
+    def item_from_payload(self, payload: dict[str, Any]) -> T:
+        return self._item_from_payload(payload)
+
+    def replace_with_payloads(
+        self,
+        payloads: Iterable[dict[str, Any]],
+    ) -> None:
+        self._active_store().replace_group_payloads(
+            self.group_id,
+            payloads,
+        )
+        self.recalculate_content_signature_parallel()
+
+    def filter_in_place(self, predicate: Callable[[T], bool]) -> int:
+        kept_payloads = []
+        for payload in self.iter_payloads(include_internal_indexes=True):
+            item = self._item_from_payload(payload)
+            if predicate(item):
+                kept_payloads.append(payload)
+        self.replace_with_payloads(kept_payloads)
+        return len(kept_payloads)
+
+    def content_signature(self) -> Optional[tuple[int, str]]:
+        return self._active_store().content_signature(self.group_id)
+
+    def set_content_signature(self, *, row_count: int, content_hash: str) -> None:
+        self._active_store().set_content_signature(
+            self.group_id,
+            row_count=row_count,
+            content_hash=content_hash,
+        )
+
+    def recalculate_content_signature_parallel(self) -> tuple[int, str]:
+        from tm1_git_py.internal.content_hash_calculator import calculate_group_content_signature
+
+        store = self._active_store()
+        normalized, _, _ = store.resolve_parallel_hash_inputs(self.group_id)
+        row_count, content_hash = calculate_group_content_signature(
+            db_path=store.db_path,
+            group_id=self.group_id,
+            object_type=normalized,
+            max_workers=1,
+            count=len(self),
+        )
+        store.commit_group_content_signature(
+            self.group_id,
+            row_count=row_count,
+            content_hash=content_hash,
+        )
+        return row_count, content_hash
+
+    def set_source_json_mtime_ns(self, source_json_mtime_ns: int) -> None:
+        self._active_store().set_source_json_mtime_ns(self.group_id, source_json_mtime_ns)
+
+    def source_json_mtime_ns(self) -> Optional[int]:
+        return self._active_store().source_json_mtime_ns(self.group_id)
+
+    def set_etag(self, etag: Optional[str]) -> None:
+        self._active_store().set_group_etag(self.group_id, etag)
+
+    def etag(self) -> Optional[str]:
+        return self._active_store().group_etag(self.group_id)
+
+    def set_filter_rules(self, filter_rules: list[str]) -> None:
+        self._active_store().set_group_filter_rules(self.group_id, filter_rules)
+
+    def filter_rules(self) -> list[str]:
+        return self._active_store().group_filter_rules(self.group_id)
+
+    def set_sort_metadata(self, sort_metadata: dict[str, Any]) -> None:
+        self._active_store().set_group_sort_metadata(self.group_id, sort_metadata)
+
+    def sort_metadata(self) -> dict[str, str]:
+        return self._active_store().group_sort_metadata(self.group_id)

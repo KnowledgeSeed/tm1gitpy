@@ -1,72 +1,72 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}DimensionProperties",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}DimensionProperties",
+	"Elements":
+	[
 		{
-			"name": "REPLICATION",
-			"type": "String"
+			"Name":"ALLLEAVESHIERARCHYNAME",
+			"Type":"String"
 		},
 		{
-			"name": "REPSRCNAME",
-			"type": "String"
+			"Name":"DEFAULT_HIERARCHY",
+			"Type":"String"
 		},
 		{
-			"name": "LOCK",
-			"type": "String"
+			"Name":"DEMANDLOAD",
+			"Type":"String"
 		},
 		{
-			"name": "DEFAULT_HIERARCHY",
-			"type": "String"
+			"Name":"LASTREPSYNCCHANGEDTIME",
+			"Type":"String"
 		},
 		{
-			"name": "DEMANDLOAD",
-			"type": "String"
+			"Name":"LAST_TIME_UPDATED",
+			"Type":"String"
 		},
 		{
-			"name": "SORTELEMENTSTYPE",
-			"type": "String"
+			"Name":"LOCK",
+			"Type":"String"
 		},
 		{
-			"name": "SORTCOMPONENTSTYPE",
-			"type": "String"
+			"Name":"REPLICATION",
+			"Type":"String"
 		},
 		{
-			"name": "SORTELEMENTSSENSE",
-			"type": "String"
+			"Name":"REPSRCNAME",
+			"Type":"String"
 		},
 		{
-			"name": "SORTCOMPONENTSSENSE",
-			"type": "String"
+			"Name":"REPSTATUS",
+			"Type":"String"
 		},
 		{
-			"name": "LAST_TIME_UPDATED",
-			"type": "String"
+			"Name":"SORTCOMPONENTSSENSE",
+			"Type":"String"
 		},
 		{
-			"name": "SYNCATTRIBUTES",
-			"type": "String"
+			"Name":"SORTCOMPONENTSTYPE",
+			"Type":"String"
 		},
 		{
-			"name": "SYNCSUBSETS",
-			"type": "String"
+			"Name":"SORTELEMENTSSENSE",
+			"Type":"String"
 		},
 		{
-			"name": "REPSTATUS",
-			"type": "String"
+			"Name":"SORTELEMENTSTYPE",
+			"Type":"String"
 		},
 		{
-			"name": "LASTREPSYNCCHANGEDTIME",
-			"type": "String"
+			"Name":"SYNCATTRIBUTES",
+			"Type":"String"
 		},
 		{
-			"name": "VISIBILITY",
-			"type": "String"
+			"Name":"SYNCSUBSETS",
+			"Type":"String"
 		},
 		{
-			"name": "ALLLEAVESHIERARCHYNAME",
-			"type": "String"
+			"Name":"VISIBILITY",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

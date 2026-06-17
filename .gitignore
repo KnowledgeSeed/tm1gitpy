@@ -8,7 +8,10 @@ __pycache__/
 *.pyo
 *.pyd
 export
+export2
+export3
 **/tm1servers.yaml
+.tm1gitpy
 
 # Virtual environment
 .env/
@@ -40,3 +43,9 @@ tests/config.ini
 dist/
 
 **/License.xml
+.internal
+
+test_integration/test_create_and_delete.json
+test_integration/test_create_and_delete.json
+tests/test_create_and_delete.json
+changeset.yml

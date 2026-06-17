@@ -1,72 +1,72 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}ClientSettings",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}ClientSettings",
+	"Elements":
+	[
 		{
-			"name": "Web Home Page Object",
-			"type": "String"
+			"Name":"Web Collapse NavTree OnStart",
+			"Type":"String"
 		},
 		{
-			"name": "Web Home Page Object Type",
-			"type": "String"
+			"Name":"Web Hide Cubeviewer ToolBar",
+			"Type":"String"
 		},
 		{
-			"name": "Web Home Page Object Description",
-			"type": "String"
+			"Name":"Web Hide Cubeviewer ToolBar Allow Overwrite",
+			"Type":"String"
 		},
 		{
-			"name": "Web Home Page Object Allow Overwrite",
-			"type": "String"
+			"Name":"Web Hide NavTree",
+			"Type":"String"
 		},
 		{
-			"name": "Web Hide NavTree",
-			"type": "String"
+			"Name":"Web Hide NavTree Allow Overwrite",
+			"Type":"String"
 		},
 		{
-			"name": "Web Hide NavTree Allow Overwrite",
-			"type": "String"
+			"Name":"Web Hide TabBar",
+			"Type":"String"
 		},
 		{
-			"name": "Web Collapse NavTree OnStart",
-			"type": "String"
+			"Name":"Web Hide TabBar Allow Overwrite",
+			"Type":"String"
 		},
 		{
-			"name": "Web Toggle NavTree Allow Overwrite",
-			"type": "String"
+			"Name":"Web Hide Websheet ToolBar",
+			"Type":"String"
 		},
 		{
-			"name": "Web Hide TabBar",
-			"type": "String"
+			"Name":"Web Hide Websheet ToolBar Allow Overwrite",
+			"Type":"String"
 		},
 		{
-			"name": "Web Hide TabBar Allow Overwrite",
-			"type": "String"
+			"Name":"Web Home Page Object",
+			"Type":"String"
 		},
 		{
-			"name": "Web Hide Websheet ToolBar",
-			"type": "String"
+			"Name":"Web Home Page Object Allow Overwrite",
+			"Type":"String"
 		},
 		{
-			"name": "Web Hide Websheet ToolBar Allow Overwrite",
-			"type": "String"
+			"Name":"Web Home Page Object Description",
+			"Type":"String"
 		},
 		{
-			"name": "Web Hide Cubeviewer ToolBar",
-			"type": "String"
+			"Name":"Web Home Page Object Type",
+			"Type":"String"
 		},
 		{
-			"name": "Web Hide Cubeviewer ToolBar Allow Overwrite",
-			"type": "String"
+			"Name":"Web Toggle NavTree Allow Overwrite",
+			"Type":"String"
 		},
 		{
-			"name": "Web User Style",
-			"type": "String"
+			"Name":"Web User Style",
+			"Type":"String"
 		},
 		{
-			"name": "Web User Style Allow Overwrite",
-			"type": "String"
+			"Name":"Web User Style Allow Overwrite",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

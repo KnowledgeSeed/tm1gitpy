@@ -1,0 +1,104 @@
+name: Release Binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: tm1gitpy-linux-x86_64
+            built_name: tm1gitpy
+          - os: windows-latest
+            artifact_name: tm1gitpy-windows-x86_64.exe
+            built_name: tm1gitpy.exe
+          - os: macos-15
+            artifact_name: tm1gitpy-macos-arm64
+            built_name: tm1gitpy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package and PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Set package version from release tag
+        shell: bash
+        run: |
+          ver="${{ github.event.release.tag_name }}"
+          ver="${ver#v}"
+          python -c "from tm1_git_py import update_version; update_version('${ver}')"
+
+      - name: Build standalone binary
+        run: python -m PyInstaller --clean tm1gitpy.spec
+
+      - name: Rename artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x "dist/${{ matrix.built_name }}"
+          mv "dist/${{ matrix.built_name }}" "dist/${{ matrix.artifact_name }}"
+
+      - name: Rename artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Move-Item -Path "dist\${{ matrix.built_name }}" -Destination "dist\${{ matrix.artifact_name }}"
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            dist/tm1gitpy-windows-x86_64.exe --version
+            dist/tm1gitpy-windows-x86_64.exe -h
+          else
+            "./dist/${{ matrix.artifact_name }}" --version
+            "./dist/${{ matrix.artifact_name }}" -h
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}
+          if-no-files-found: error
+
+  publish:
+    name: Attach binaries to GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all platform binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd release-assets
+          sha256sum tm1gitpy-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/tm1gitpy-*
+            release-assets/SHA256SUMS.txt

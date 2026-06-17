@@ -8,6 +8,7 @@ dynamic = ["version"]
 description = "Utilities for exporting and comparing TM1 models for Git workflows."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
+license = "MIT"
 authors = [
     { name = "KnowledgeSeed" },
 ]
@@ -25,23 +26,39 @@ classifiers = [
 dependencies = [
     "TM1py>=2.1,<3.0",
     "requests>=2.25",
-    "tm1_bedrock_py>=1.1.4",
+    "PyYAML>=6.0",
+    "orjson",
+    "ijson",
+    "cffi",
+    "tqdm",
 ]
 
+[project.scripts]
+tm1gitpy = "tm1_git_py.main:main"
+
 [project.urls]
-Homepage = "https://github.com/KnowledgeSeed/tm1_git_py"
-Repository = "https://github.com/KnowledgeSeed/tm1_git_py"
-Issues = "https://github.com/KnowledgeSeed/tm1_git_py/issues"
+Homepage = "https://github.com/KnowledgeSeed/tm1gitpy"
+Repository = "https://github.com/KnowledgeSeed/tm1gitpy"
+Issues = "https://github.com/KnowledgeSeed/tm1gitpy/issues"
+Changelog = "https://github.com/KnowledgeSeed/tm1gitpy/releases"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-mock",
     "testcontainers>=4.0.0",
+    "pyinstaller>=6.0",
+    "orjson",
+    "ijson",
+    "cffi",
+    "tqdm",
 ]
 
 [tool.setuptools]
 packages = { find = {} }
+
+[tool.setuptools.dynamic]
+version = { attr = "tm1_git_py.__version__" }
 
 [tool.setuptools.package-data]
 "tm1_git_py" = ["*.txt", "*.json"]

@@ -1,16 +1,19 @@
+import io
 import json
 import logging
-from typing import Any, Dict, TYPE_CHECKING, Optional
+from typing import Any, Dict, TYPE_CHECKING
 
 import TM1py
 from TM1py import TM1Service, Process
 from requests import Response
 
 from tm1_git_py.model.ti import TI
+from tm1_git_py.model.tm1git_json import dump_as_tm1git
 
-# Importáljuk a TI osztályt a típus-ellenőrzéshez (type hinting)
 if TYPE_CHECKING:
     pass
+
+PROCESS_JSON_SPACED_COLON_KEYS: frozenset[str] = frozenset()
 # {
 #   "@type":"Process",
 # 	"Name":"airflow_test_success",
@@ -25,7 +28,18 @@ if TYPE_CHECKING:
 # }
 
 class Process:
-    def __init__(self, name, hasSecurityAccess, code_link, datasource, parameters, variables, ti, source_path: str):
+    def __init__(
+        self,
+        name,
+        hasSecurityAccess,
+        code_link,
+        datasource,
+        parameters,
+        variables,
+        ti,
+        variables_ui_data=None,
+        ui_data=None,
+    ):
         self.type = 'Process'
         self.name = name
         self.hasSecurityAccess = hasSecurityAccess
@@ -34,30 +48,26 @@ class Process:
         self.parameters = parameters
         self.variables = variables
         self.ti = ti
-        self.source_path = source_path
-
-    # def __init__(self, name: str, hasSecurityAccess: bool, parameters: List[Dict], variables: List[Dict], data_source: Dict, ti: 'TI', code_link: str):
-    #     self.name = name
-    #     self.hasSecurityAccess = hasSecurityAccess
-    #     self.parameters = parameters
-    #     self.variables = variables
-    #     self.code_link = code_link
-
-    #     self.data_source_type = data_source.get('Type')
-    #     self.data_source_name = data_source.get('Name')
-
-    #     self.ti = ti
+        self.variables_ui_data = _normalize_variables_ui_data(variables_ui_data)
+        self.ui_data = _normalize_ui_data(ui_data)
 
     def as_json(self):
-        return json.dumps({
+        payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
             "HasSecurityAccess": self.hasSecurityAccess,
             "Code@Code.link": self.code_link,
-            "DataSource": {"Type": "None"},
-            "Parameters": self.parameters,
-            "Variables": self.variables
-        }, indent='\t')
+        }
+        if self.ui_data:
+            payload["UIData"] = self.ui_data
+        if self.variables_ui_data:
+            payload["VariablesUIData"] = self.variables_ui_data
+        payload["DataSource"] = _serialize_datasource(self.datasource)
+        payload["Parameters"] = self.parameters
+        payload["Variables"] = self.variables
+        buf = io.StringIO()
+        dump_as_tm1git(payload, buf, spaced_colon_keys=PROCESS_JSON_SPACED_COLON_KEYS)
+        return buf.getvalue()
     
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Process):
@@ -72,9 +82,7 @@ class Process:
         if self.code_link != other.code_link:
             return False
 
-        other.datasource = other.datasource or None
-        self.datasource = self.datasource or None
-        if self.datasource != other.datasource:
+        if _normalize_datasource_for_compare(self.datasource) != _normalize_datasource_for_compare(other.datasource):
             return False
 
         if self.ti.ti_as_string() != other.ti.ti_as_string():
@@ -86,18 +94,22 @@ class Process:
         if self.variables != other.variables:
             return False
 
+        if _normalize_variables_ui_data(self.variables_ui_data) != _normalize_variables_ui_data(other.variables_ui_data):
+            return False
+        if _normalize_ui_data(self.ui_data) != _normalize_ui_data(other.ui_data):
+            return False
+
         return True
-        #return self.to_dict() == other.to_dict()
 
     def __hash__(self) -> int:
         return hash((
             self.name,
             self.hasSecurityAccess,
-            #self.data_source_type,
-            #self.data_source_name,
-            self.datasource,
+            json.dumps(_normalize_datasource_for_compare(self.datasource), sort_keys=True),
             json.dumps(self.parameters, sort_keys=True),
             json.dumps(self.variables, sort_keys=True),
+            json.dumps(_normalize_ui_data(self.ui_data) or "", sort_keys=True),
+            json.dumps(_normalize_variables_ui_data(self.variables_ui_data) or [], sort_keys=True),
             self.ti
         ))
     
@@ -108,34 +120,38 @@ class Process:
         return {
             'name': self.name,
             'has_security_access': self.hasSecurityAccess,
-            #'data_source_type': self.data_source_type,
-            #'data_source_name': self.data_source_name,
             "code_link": self.code_link,
-            'datasource' : self.datasource,
+            'datasource' : _serialize_datasource(self.datasource),
             'parameters': self.parameters,
             'variables': self.variables,
+            'ui_data': self.ui_data,
+            'variables_ui_data': self.variables_ui_data,
             'ti': self.ti.to_dict()
         }
 
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Process":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path or f"processes/{name}.json"
-
         has_security = data.get("has_security_access")
         if has_security is None:
             has_security = data.get("HasSecurityAccess")
 
         code_link = data.get("code_link") or data.get("Code@Code.link") or data.get("Code")
-        datasource = _normalize_datasource_type(data.get("datasource") or data.get("DataSource"))
+        datasource = data.get("datasource") or data.get("DataSource")
+        if datasource is None:
+            datasource = _normalize_datasource_type(datasource)
         parameters = data.get("parameters") or data.get("Parameters") or []
         variables = data.get("variables") or data.get("Variables") or []
+        ui_data = data.get("ui_data")
+        if ui_data is None:
+            ui_data = data.get("UIData")
+        variables_ui_data = data.get("variables_ui_data")
+        if variables_ui_data is None:
+            variables_ui_data = data.get("VariablesUIData")
         ti_payload = data.get("ti") or {}
 
         ti_obj = TI.from_dict(ti_payload)
@@ -148,13 +164,16 @@ class Process:
             parameters=parameters,
             variables=variables,
             ti=ti_obj,
-            source_path=resolved_path
+            variables_ui_data=variables_ui_data,
+            ui_data=ui_data,
         )
 
     @staticmethod
-    def as_link(name : str):
-        # /processes/Process_A.json
-        return '/processes/' + name
+    def uri_for(process_name: str) -> str:
+        return f"Processes('{process_name}')"
+
+    def uri(self) -> str:
+        return self.uri_for(self.name)
 
 
 # ------------------------------------------------------------------------------------------------------------
@@ -175,24 +194,108 @@ def _normalize_datasource_type(datasource: Any) -> str:
     return text or "None"
 
 
+def _serialize_datasource(datasource: Any) -> dict[str, Any]:
+    if isinstance(datasource, dict):
+        payload = dict(datasource)
+        if "Type" not in payload and "type" in payload:
+            payload["Type"] = payload.pop("type")
+        payload.pop("password", None)
+        payload.setdefault("Type", "None")
+        return payload
+    return {"Type": _normalize_datasource_type(datasource)}
+
+
+_DATASOURCE_TM1PY_KWARG_MAP = {
+    "Type": "datasource_type",
+    "type": "datasource_type",
+    "asciiDecimalSeparator": "datasource_ascii_decimal_separator",
+    "asciiDelimiterChar": "datasource_ascii_delimiter_char",
+    "asciiDelimiterType": "datasource_ascii_delimiter_type",
+    "asciiHeaderRecords": "datasource_ascii_header_records",
+    "asciiQuoteCharacter": "datasource_ascii_quote_character",
+    "asciiThousandSeparator": "datasource_ascii_thousand_separator",
+    "dataSourceNameForClient": "datasource_data_source_name_for_client",
+    "dataSourceNameForServer": "datasource_data_source_name_for_server",
+    "password": "datasource_password",
+    "userName": "datasource_user_name",
+    "query": "datasource_query",
+    "usesUnicode": "datasource_uses_unicode",
+    "view": "datasource_view",
+    "subset": "datasource_subset",
+    "jsonRootPointer": "datasource_json_root_pointer",
+    "jsonVariableMapping": "datasource_json_variable_mapping",
+}
+
+
+def _datasource_tm1py_kwargs(datasource: Any) -> dict[str, Any]:
+    if not isinstance(datasource, dict):
+        return {"datasource_type": _normalize_datasource_type(datasource)}
+
+    kwargs: dict[str, Any] = {}
+    for source_key, value in datasource.items():
+        target_key = _DATASOURCE_TM1PY_KWARG_MAP.get(source_key)
+        if target_key is None:
+            continue
+        kwargs[target_key] = value
+    kwargs.setdefault("datasource_type", "None")
+    return kwargs
+
+
+def _normalize_datasource_for_compare(datasource: Any) -> dict[str, Any]:
+    return _serialize_datasource(datasource)
+
+
+def _normalize_variables_ui_data(variables_ui_data: Any) -> list[str] | None:
+    if variables_ui_data is None:
+        return None
+    if isinstance(variables_ui_data, str):
+        text = variables_ui_data.strip()
+        return [text] if text else None
+    if isinstance(variables_ui_data, (list, tuple)):
+        normalized = [str(item) for item in variables_ui_data if str(item).strip()]
+        return normalized or None
+    text = str(variables_ui_data).strip()
+    return [text] if text else None
+
+
+def _normalize_ui_data(ui_data: Any) -> str | None:
+    if ui_data is None:
+        return None
+    if isinstance(ui_data, str):
+        return ui_data if ui_data.strip() else None
+    text = str(ui_data)
+    return text if text.strip() else None
+
+
 def create_process(tm1_service: TM1Service, process: Process) -> Response:
-    datasource_type = _normalize_datasource_type(process.datasource)
-    process_object = TM1py.Process(
-        name=process.name,
-        has_security_access=process.hasSecurityAccess,
-        datasource_type=datasource_type,
-        parameters=process.parameters,
-        variables=process.variables
-    )
+    process_kwargs: dict[str, Any] = {
+        "name": process.name,
+        "has_security_access": process.hasSecurityAccess,
+        "parameters": process.parameters,
+        "variables": process.variables,
+        **_datasource_tm1py_kwargs(process.datasource),
+    }
+    if process.ui_data is not None:
+        process_kwargs["ui_data"] = process.ui_data
+    if process.variables_ui_data is not None:
+        process_kwargs["variables_ui_data"] = process.variables_ui_data
+
+    process_object = TM1py.Process(**process_kwargs)
+
     logger.info(f"Creating Process: {process.name}.")
-    return tm1_service.processes.create(process_object)
+    response = tm1_service.processes.create(process_object)
+    if process.ui_data is not None or process.variables_ui_data is not None:
+        tm1_service.processes.update(process_object)
+    return response
 
 
 def update_process(tm1_service: TM1Service, process: Process) -> Response:
-    datasource_type = _normalize_datasource_type(process.datasource)
     process_object = tm1_service.processes.get(name_process=process.name)
-    process_object.datasource_type = datasource_type
+    for key, value in _datasource_tm1py_kwargs(process.datasource).items():
+        setattr(process_object, key, value)
     process_object.has_security_access = process.hasSecurityAccess
+    if process.ui_data is not None:
+        process_object.ui_data = process.ui_data
     if process.ti:
         process_object.prolog_procedure = process.ti.prolog_procedure
         process_object.metadata_procedure = process.ti.metadata_procedure
@@ -201,6 +304,8 @@ def update_process(tm1_service: TM1Service, process: Process) -> Response:
 
     _update_process_parameters(process_new=process, process_object=process_object)
     _update_process_variables(process_new=process, process_object=process_object)
+    if process.variables_ui_data is not None:
+        process_object._variables_ui_data = process.variables_ui_data
 
     logger.info(f"Updating Process: {process.name}.")
 
@@ -214,53 +319,51 @@ def delete_process(tm1_service: TM1Service, process: Process) -> Response:
 
 def _update_process_variables(process_new: Process, process_object: TM1py.Process):
     variables_old = process_object.variables
-    datasource_type = _normalize_datasource_type(process_new.datasource)
     process_new = TM1py.Process(
         name=process_new.name,
         has_security_access=process_new.hasSecurityAccess,
-        datasource_type=datasource_type,
         parameters=process_new.parameters,
-        variables=process_new.variables
+        variables=process_new.variables,
+        **_datasource_tm1py_kwargs(process_new.datasource),
     )
     variables_new = process_new.variables
     if variables_new != variables_old:
         vars_to_add, vars_to_remove = _diff_lists(variables_old, variables_new)
         for var in vars_to_add:
             process_object.add_variable(
-                name=var.get('name'),
-                variable_type=var.get('type')
+                name=var.get('Name'),
+                variable_type=var.get('Type')
             )
         logger.info(f"Added Variables: {vars_to_add} to Process: {process_new.name}.")
 
         for var in vars_to_remove:
-            process_object.remove_variable(name=var.get('name'))
+            process_object.remove_variable(name=var.get('Name'))
         logger.info(f"Removed Variables: {vars_to_remove} from Process: {process_new.name}.")
 
 
 def _update_process_parameters(process_new: Process, process_object: TM1py.Process):
     parameters_old = process_object.parameters
-    datasource_type = _normalize_datasource_type(process_new.datasource)
     process_new = TM1py.Process(
         name=process_new.name,
         has_security_access=process_new.hasSecurityAccess,
-        datasource_type=datasource_type,
         parameters=process_new.parameters,
-        variables=process_new.variables
+        variables=process_new.variables,
+        **_datasource_tm1py_kwargs(process_new.datasource),
     )
     parameters_new = process_new.parameters
     if parameters_new != parameters_old:
         params_to_add, params_to_remove = _diff_lists(parameters_old, parameters_new)
         for param in params_to_add:
             process_object.add_parameter(
-                name=param.get('name'),
-                prompt=param.get('prompt'),
-                value=param.get('value'),
-                parameter_type=param.get('type')
+                name=param.get('Name'),
+                prompt=param.get('Prompt'),
+                value=param.get('Value'),
+                parameter_type=param.get('Type')
             )
         logger.debug(f"Added Parameters: {params_to_add} to Process: {process_new.name}.")
 
         for param in params_to_remove:
-            process_object.remove_parameter(name=param.get('name'))
+            process_object.remove_parameter(name=param.get('Name'))
         logger.debug(f"Removed Parameters: {params_to_remove} from Process: {process_new.name}.")
 
 

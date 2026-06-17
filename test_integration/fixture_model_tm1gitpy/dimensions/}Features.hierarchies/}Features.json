@@ -1,40 +1,40 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Features",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Features",
+	"Elements":
+	[
 		{
-			"name": "RunServerExplorer",
-			"type": "String"
+			"Name":"Allow Export as Text",
+			"Type":"String"
 		},
 		{
-			"name": "UsePersonalWorkspaceWritebackMode",
-			"type": "String"
+			"Name":"Allow Spreading",
+			"Type":"String"
 		},
 		{
-			"name": "UseSandbox",
-			"type": "String"
+			"Name":"Consolidation TypeIn Spreading",
+			"Type":"String"
 		},
 		{
-			"name": "ManageDataReservation",
-			"type": "String"
+			"Name":"DataReservationOverride",
+			"Type":"String"
 		},
 		{
-			"name": "DataReservationOverride",
-			"type": "String"
+			"Name":"ManageDataReservation",
+			"Type":"String"
 		},
 		{
-			"name": "Consolidation TypeIn Spreading",
-			"type": "String"
+			"Name":"RunServerExplorer",
+			"Type":"String"
 		},
 		{
-			"name": "Allow Spreading",
-			"type": "String"
+			"Name":"UsePersonalWorkspaceWritebackMode",
+			"Type":"String"
 		},
 		{
-			"name": "Allow Export as Text",
-			"type": "String"
+			"Name":"UseSandbox",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

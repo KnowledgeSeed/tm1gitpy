@@ -1,24 +1,24 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Cube Functions",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Cube Functions",
+	"Elements":
+	[
 		{
-			"name": "Cell Update",
-			"type": "Numeric"
+			"Name":"Cell Retrieval",
+			"Type":"Numeric"
 		},
 		{
-			"name": "Cell Retrieval",
-			"type": "Numeric"
+			"Name":"Cell Update",
+			"Type":"Numeric"
 		},
 		{
-			"name": "View Calculation",
-			"type": "Numeric"
+			"Name":"View Calculation",
+			"Type":"Numeric"
 		},
 		{
-			"name": "View Retrieval",
-			"type": "Numeric"
+			"Name":"View Retrieval",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

@@ -1,12 +1,12 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Clients",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Clients",
+	"Elements":
+	[
 		{
-			"name": "Admin",
-			"type": "String"
+			"Name":"Admin",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

@@ -1,92 +1,97 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Cubes",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Cubes",
+	"ElementsSortType":"ByName",
+	"Elements":
+	[
 		{
-			"name": "TestCube1",
-			"type": "String"
+			"Name":"TestCube1",
+			"Type":"String"
 		},
 		{
-			"name": "TestCube2WithRule",
-			"type": "String"
+			"Name":"TestCube2WithRule",
+			"Type":"String"
 		},
 		{
-			"name": "TestCube3WithView",
-			"type": "String"
+			"Name":"TestCube3WithView",
+			"Type":"String"
 		},
 		{
-			"name": "}Capabilities",
-			"type": "String"
+			"Name":"}Capabilities",
+			"Type":"String"
 		},
 		{
-			"name": "}ClientCAMAssociatedGroups",
-			"type": "String"
+			"Name":"}ClientCAMAssociatedGroups",
+			"Type":"String"
 		},
 		{
-			"name": "}ClientGroups",
-			"type": "String"
+			"Name":"}ClientGroups",
+			"Type":"String"
 		},
 		{
-			"name": "}ClientProperties",
-			"type": "String"
+			"Name":"}ClientProperties",
+			"Type":"String"
 		},
 		{
-			"name": "}ClientSettings",
-			"type": "String"
+			"Name":"}ClientSettings",
+			"Type":"String"
 		},
 		{
-			"name": "}CubeSecurityProperties",
-			"type": "String"
+			"Name":"}CubeDrill_TestCube2WithRule",
+			"Type":"String"
 		},
 		{
-			"name": "}DimensionProperties",
-			"type": "String"
+			"Name":"}CubeSecurityProperties",
+			"Type":"String"
 		},
 		{
-			"name": "}ElementAttributes_}Clients",
-			"type": "String"
+			"Name":"}DimensionProperties",
+			"Type":"String"
 		},
 		{
-			"name": "}ElementAttributes_}Cultures",
-			"type": "String"
+			"Name":"}ElementAttributes_}Clients",
+			"Type":"String"
 		},
 		{
-			"name": "}ElementAttributes_}Groups",
-			"type": "String"
+			"Name":"}ElementAttributes_}Cultures",
+			"Type":"String"
 		},
 		{
-			"name": "}HierarchyProperties",
-			"type": "String"
+			"Name":"}ElementAttributes_}Groups",
+			"Type":"String"
 		},
 		{
-			"name": "}StatsByChore",
-			"type": "String"
+			"Name":"}HierarchyProperties",
+			"Type":"String"
 		},
 		{
-			"name": "}StatsByClient",
-			"type": "String"
+			"Name":"}StatsByChore",
+			"Type":"String"
 		},
 		{
-			"name": "}StatsByCube",
-			"type": "String"
+			"Name":"}StatsByClient",
+			"Type":"String"
 		},
 		{
-			"name": "}StatsByCubeByClient",
-			"type": "String"
+			"Name":"}StatsByCube",
+			"Type":"String"
 		},
 		{
-			"name": "}StatsByProcess",
-			"type": "String"
+			"Name":"}StatsByCubeByClient",
+			"Type":"String"
 		},
 		{
-			"name": "}StatsByRule",
-			"type": "String"
+			"Name":"}StatsByProcess",
+			"Type":"String"
 		},
 		{
-			"name": "}StatsForServer",
-			"type": "String"
+			"Name":"}StatsByRule",
+			"Type":"String"
+		},
+		{
+			"Name":"}StatsForServer",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

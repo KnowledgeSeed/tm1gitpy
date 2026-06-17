@@ -1,100 +1,100 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}HierarchyProperties",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}HierarchyProperties",
+	"Elements":
+	[
 		{
-			"name": "defaultMember",
-			"type": "String"
+			"Name":"LevelsToHierarchize",
+			"Type":"Numeric"
 		},
 		{
-			"name": "level000",
-			"type": "String"
+			"Name":"defaultMember",
+			"Type":"String"
 		},
 		{
-			"name": "level001",
-			"type": "String"
+			"Name":"level000",
+			"Type":"String"
 		},
 		{
-			"name": "level002",
-			"type": "String"
+			"Name":"level001",
+			"Type":"String"
 		},
 		{
-			"name": "level003",
-			"type": "String"
+			"Name":"level002",
+			"Type":"String"
 		},
 		{
-			"name": "level004",
-			"type": "String"
+			"Name":"level003",
+			"Type":"String"
 		},
 		{
-			"name": "level005",
-			"type": "String"
+			"Name":"level004",
+			"Type":"String"
 		},
 		{
-			"name": "level006",
-			"type": "String"
+			"Name":"level005",
+			"Type":"String"
 		},
 		{
-			"name": "level007",
-			"type": "String"
+			"Name":"level006",
+			"Type":"String"
 		},
 		{
-			"name": "level008",
-			"type": "String"
+			"Name":"level007",
+			"Type":"String"
 		},
 		{
-			"name": "level009",
-			"type": "String"
+			"Name":"level008",
+			"Type":"String"
 		},
 		{
-			"name": "level010",
-			"type": "String"
+			"Name":"level009",
+			"Type":"String"
 		},
 		{
-			"name": "level011",
-			"type": "String"
+			"Name":"level010",
+			"Type":"String"
 		},
 		{
-			"name": "level012",
-			"type": "String"
+			"Name":"level011",
+			"Type":"String"
 		},
 		{
-			"name": "level013",
-			"type": "String"
+			"Name":"level012",
+			"Type":"String"
 		},
 		{
-			"name": "level014",
-			"type": "String"
+			"Name":"level013",
+			"Type":"String"
 		},
 		{
-			"name": "level015",
-			"type": "String"
+			"Name":"level014",
+			"Type":"String"
 		},
 		{
-			"name": "level016",
-			"type": "String"
+			"Name":"level015",
+			"Type":"String"
 		},
 		{
-			"name": "level017",
-			"type": "String"
+			"Name":"level016",
+			"Type":"String"
 		},
 		{
-			"name": "level018",
-			"type": "String"
+			"Name":"level017",
+			"Type":"String"
 		},
 		{
-			"name": "level019",
-			"type": "String"
+			"Name":"level018",
+			"Type":"String"
 		},
 		{
-			"name": "level020",
-			"type": "String"
+			"Name":"level019",
+			"Type":"String"
 		},
 		{
-			"name": "LevelsToHierarchize",
-			"type": "Numeric"
+			"Name":"level020",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

@@ -1,66 +1,496 @@
+import io
 import json
 import logging
+import os
 import re
-from typing import List, Any, Dict, Optional, Tuple
+import time
+import uuid
+from typing import List, Any, Dict, Optional, Tuple, MutableSequence, Iterator
+
 import TM1py
+import orjson
 from TM1py import TM1Service
 from TM1py.Utils import format_url
 from requests import Response
 
-from .element import Element, create_element, delete_element, update_element, build_element_create_ti, \
-    build_element_update_ti, build_element_delete_ti
-from .edge import Edge, build_edge_create_ti
-from .subset import Subset, build_subset_create_ti
+from tm1_git_py.db.model_store import ModelStore
+from tm1_git_py.reporting.progress_reporting import ProgressEvent, ProgressSink
+from .edge import Edge
+# Keep CRUD helpers imported in module namespace for compatibility with existing patches/tests.
+from .element import Element, create_element, delete_element, update_element
+from .store_backed_sequence import StoreBackedSequence
+from .subset import Subset
+from .tm1git_json import dump_as_tm1git
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_HIERARCHY_SORT_TYPE = "ByName"
+DEFAULT_HIERARCHY_SORT_SENSE = "Ascending"
+
+_HIERARCHY_SORT_TYPE_VALUES = {
+    "BYINPUT": "ByInput",
+    "BYNAME": "ByName",
+    "BYLEVEL": "ByLevel",
+    "BYHIERARCHY": "ByHierarchy",
+}
+_HIERARCHY_SORT_SENSE_VALUES = {
+    "ASCENDING": "Ascending",
+    "DESCENDING": "Descending",
+}
+_HIERARCHY_SORT_JSON_FIELDS = (
+    ("elements_sort_type", "ElementsSortType", DEFAULT_HIERARCHY_SORT_TYPE),
+    ("elements_sort_sense", "ElementsSortSense", DEFAULT_HIERARCHY_SORT_SENSE),
+    ("components_sort_type", "ComponentsSortType", DEFAULT_HIERARCHY_SORT_TYPE),
+    ("components_sort_sense", "ComponentsSortSense", DEFAULT_HIERARCHY_SORT_SENSE),
+)
 
 
-# {
-# 	"@type": "Hierarchy",
-# 	"Name": "Capex Balance Sheet Assignment Measure",
-# 	"Elements": [
-# 		{
-# 			"Name": "Assignment",
-# 			"Type": "Numeric"
-# 		},
-# 		{
-# 			"Name": "Comment",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "CapexName",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "BalanceSheetName",
-# 			"Type": "String"
-# 		},
-# 		{
-# 			"Name": "Value",
-# 			"Type": "Numeric"
-# 		}
-# 	],
-# 	"Subsets@Code.links": []
-# }
+def _normalize_hierarchy_sort_value(value: Optional[str], values: dict[str, str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    lookup_key = text.replace("_", "").replace(" ", "").upper()
+    return values.get(lookup_key, text)
+
+
+def _normalize_hierarchy_sort_type(value: Optional[str]) -> Optional[str]:
+    return _normalize_hierarchy_sort_value(value, _HIERARCHY_SORT_TYPE_VALUES)
+
+
+def _normalize_hierarchy_sort_sense(value: Optional[str]) -> Optional[str]:
+    return _normalize_hierarchy_sort_value(value, _HIERARCHY_SORT_SENSE_VALUES)
+
+
+def _stored_hierarchy_sort_type(value: Optional[str]) -> Optional[str]:
+    return _normalize_hierarchy_sort_type(value)
+
+
+def _stored_hierarchy_sort_sense(value: Optional[str]) -> Optional[str]:
+    return _normalize_hierarchy_sort_sense(value)
+
+
+def hierarchy_sort_metadata_json(hierarchy: Any) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for attr_name, json_key, default_value in _HIERARCHY_SORT_JSON_FIELDS:
+        value = getattr(hierarchy, attr_name, None)
+        if value is None:
+            continue
+        if json_key.endswith("SortSense") and value == default_value:
+            continue
+        metadata[json_key] = value
+    return metadata
+
+
+def hierarchy_has_sort_metadata(hierarchy: Any) -> bool:
+    return bool(hierarchy_sort_metadata_json(hierarchy))
+
+
+def hierarchy_has_sort_order_metadata(hierarchy: Any) -> bool:
+    for attr_name, _, _ in _HIERARCHY_SORT_JSON_FIELDS:
+        if getattr(hierarchy, attr_name, None) is not None:
+            return True
+    return False
+
+
+def _order_value(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
+def ordered_hierarchy_items(hierarchy: Any, key: str, collection: MutableSequence[Any]) -> list[Any]:
+    indexed_order = hierarchy_has_sort_order_metadata(hierarchy)
+    items = list(collection)
+    type_map = {
+        "Elements": "element",
+        "Edges": "component"
+    }
+    if indexed_order:
+        return [
+            item
+            for _, item in sorted(
+                enumerate(items),
+                key=lambda indexed: (
+                    getattr(indexed[1], f"{type_map.get(key)}_index", None) is None,
+                    getattr(indexed[1], f"{type_map.get(key)}_index", indexed[0]),
+                    indexed[0],
+                ),
+            )
+        ]
+
+    if key == "Elements":
+        items.sort(key=lambda item: (_order_value(getattr(item, "name", None)), _order_value(getattr(item, "type", None))))
+    elif key == "Edges":
+        items.sort(key=lambda item: (_order_value(getattr(item, "component_name", None)), _order_value(getattr(item, "parent", None))))
+    return items
+
+
+def _loads_json(payload_json: str) -> dict:
+    return dict(orjson.loads(payload_json))
+
+
+def _write_json_object_block(
+    fh,
+    obj: dict,
+    *,
+    item_line_prefix: str,
+) -> None:
+    """Write one flat JSON object (array element) with tabs and compact ``\"Key\":value`` (tm1git-style)."""
+    if not obj:
+        fh.write(item_line_prefix + "{}")
+        return
+    inner = item_line_prefix + "\t"
+    fh.write(item_line_prefix + "{\n")
+    items = list(obj.items())
+    for i, (k, v) in enumerate(items):
+        if isinstance(v, (dict, list)):
+            raise TypeError(
+                f"Hierarchy JSON item must be flat; got {type(v).__name__} for key {k!r}"
+            )
+        kj = json.dumps(k, ensure_ascii=False)
+        fh.write(inner + kj + ":" + json.dumps(v, ensure_ascii=False))
+        if i != len(items) - 1:
+            fh.write(",\n")
+        else:
+            fh.write("\n")
+    fh.write(item_line_prefix + "}")
+
+
+def _write_hierarchy_subset_links_field(fh, subset_links: list[str]) -> None:
+    fh.write('\t"Subsets@Code.links":')
+    if subset_links:
+        fh.write("\n\t")
+    dump_as_tm1git(subset_links, fh, level=1)
+    fh.write("\n")
+
+
+class _HierarchyStagedWriter:
+    """SQLite-backed hierarchy writer with streaming finalize."""
+    JSON_DUMP_PROGRESS_EVERY = 100_000
+
+    def __init__(
+        self,
+        model_output_dir: str,
+        dimension_name: str,
+        hierarchy: Any,
+    ):
+        self.hierarchy = hierarchy
+        self.hierarchy_name = hierarchy.name
+        final_parent_dir = os.path.join(model_output_dir, "dimensions", f"{dimension_name}.hierarchies")
+        os.makedirs(final_parent_dir, exist_ok=True)
+        self.final_path = os.path.join(final_parent_dir, f"{self.hierarchy_name}.json")
+        self.inprogress_path = os.path.join(
+            final_parent_dir,
+            f".{self.hierarchy_name}.{uuid.uuid4().hex}.json.inprogress",
+        )
+        self.elements_ref: Any = None
+        self.edges_ref: Any = None
+        self.subsets_ref: Any = None
+        self._finalized = False
+
+    def bind_collections(self) -> None:
+        self.elements_ref = self.hierarchy.elements
+        self.edges_ref = self.hierarchy.edges
+        self.subsets_ref = self.hierarchy.subsets
+
+    def _write_payload_array_from_json_strings(
+        self,
+        fh,
+        key: str,
+        payload_json_iter: Iterator[str],
+        *,
+        progress_sink: Optional[ProgressSink] = None,
+        progress_message: Optional[str] = None,
+        progress_total: Optional[int] = None,
+    ) -> int:
+        fh.write(f'\t"{key}":\n\t[')
+        first = True
+        progress_every = max(1, self.JSON_DUMP_PROGRESS_EVERY)
+        emitted = 0
+        for payload_json in payload_json_iter:
+
+            if first:
+                fh.write("\n")
+                first = False
+            else:
+                fh.write(",\n")
+            emitted += 1
+            fh.write("\t\t")
+            fh.write(payload_json)
+            if progress_sink is not None and emitted % progress_every == 0:
+                progress_sink.on_event(ProgressEvent.worker_line(current_delta=emitted))
+                emitted = 0
+        if first:
+            fh.write("]")
+        else:
+            fh.write("\n\t]")
+        if progress_sink is not None:
+            progress_sink.on_event(ProgressEvent.worker_line(current_delta=emitted))
+        return emitted
+
+    def _build_subset_links(self) -> list[str]:
+        links: list[str] = []
+        if self.subsets_ref is None:
+            return links
+        for payload_json in self.subsets_ref.iter_payload_json_strings(ordered_by_identity=True):
+            payload = _loads_json(payload_json)
+            subset_name = payload.get("name") or payload.get("Name")
+            if not subset_name:
+                continue
+            links.append(format_url("{}.subsets/{}.json", self.hierarchy_name, subset_name))
+        return links
+
+    def _sort_staged_jsonls(self) -> None:
+        if self.elements_ref is None or self.edges_ref is None or self.subsets_ref is None:
+            return
+        for collection_name, collection_ref in (
+            ("Elements", self.elements_ref),
+            ("Edges", self.edges_ref),
+            ("Subsets", self.subsets_ref),
+        ):
+            count = len(collection_ref)
+            logger.info(
+                "Finalization order check hierarchy='%s' collection=%s count=%d",
+                self.hierarchy_name,
+                collection_name,
+                count,
+            )
+            logger.info(
+                "Finalization order done hierarchy='%s' collection=%s count=%d",
+                self.hierarchy_name,
+                collection_name,
+                len(collection_ref),
+            )
+
+    @staticmethod
+    def _sorted_element_payload_json_strings(payload_json_iter: Iterator[str]) -> Iterator[str]:
+        payloads = [_loads_json(payload_json) for payload_json in payload_json_iter]
+        # payloads.sort(key=lambda payload: ((payload.get("Name") or payload.get("name") or ""), (payload.get("Type") or payload.get("type") or "")))
+        for payload in payloads:
+            yield json.dumps(payload, ensure_ascii=False)
+
+    @staticmethod
+    def _set_final_serialized_path_mtime(
+        sequence: Any,
+        *,
+        final_mtime_ns: int,
+    ) -> None:
+        if hasattr(sequence, "set_source_json_mtime_ns"):
+            sequence.set_source_json_mtime_ns(final_mtime_ns)
+
+    def _finalize_sequence(
+        self,
+        sequence: Any,
+        *,
+        final_mtime_ns: int,
+        signature: Optional[tuple[int, str]] = None,
+    ) -> None:
+        self._set_final_serialized_path_mtime(sequence, final_mtime_ns=final_mtime_ns)
+        if signature is None or not hasattr(sequence, "_store"):
+            return
+        row_count, content_hash = signature
+        sequence._store.commit_group_content_signature(
+            sequence.group_id,
+            row_count=row_count,
+            content_hash=content_hash,
+        )
+
+    def serialize_hierarchy_json(self, progress_sink: ProgressSink) -> str:
+        if self._finalized and os.path.exists(self.final_path):
+            logger.debug("Skipping finalize for hierarchy='%s' (already finalized)", self.hierarchy_name)
+            return self.final_path
+        total_started = time.perf_counter()
+        elements_count = len(self.elements_ref) if self.elements_ref is not None else 0
+        edges_count = len(self.edges_ref) if self.edges_ref is not None else 0
+        subsets_count = len(self.subsets_ref) if self.subsets_ref is not None else 0
+        total_rows = elements_count + edges_count + subsets_count
+
+        progress_sink.on_event(ProgressEvent.worker_line(current=0, total=max(1, total_rows), message=f"Serializing hierarchy ({self.hierarchy_name})"))
+        order_by_internal_index = hierarchy_has_sort_order_metadata(self.hierarchy)
+
+        with open(self.inprogress_path, "w", encoding="utf-8") as fh:
+            fh.write("{\n")
+            fh.write('\t"@type":' + json.dumps("Hierarchy", ensure_ascii=False) + ",\n")
+            fh.write("\t\"Name\":" + json.dumps(self.hierarchy_name, ensure_ascii=False) + ",\n")
+            for key, value in hierarchy_sort_metadata_json(self.hierarchy).items():
+                fh.write("\t" + json.dumps(key, ensure_ascii=False) + ":" + json.dumps(value, ensure_ascii=False) + ",\n")
+            elements_empty = elements_count == 0
+            if elements_empty:
+                fh.write('\t"Elements":[],\n')
+            else:
+                self._write_payload_array_from_json_strings(
+                    fh,
+                    "Elements",
+                    self.elements_ref.iter_payload_json_strings(
+                        ordered_by_identity=True,
+                        order_by_internal_index=order_by_internal_index,
+                        progress_label=f"{self.hierarchy_name}:Elements",
+                        progress_every=self.JSON_DUMP_PROGRESS_EVERY,
+                    ),
+                    progress_sink=progress_sink,
+                    progress_message=f"Writing elements ({self.hierarchy_name})",
+                    progress_total=elements_count,
+                )
+                fh.write(",\n")
+            edges_nonempty = edges_count > 0
+            if edges_nonempty:
+                self._write_payload_array_from_json_strings(
+                    fh,
+                    "Edges",
+                    self.edges_ref.iter_payload_json_strings(
+                        ordered_by_identity=True,
+                        order_by_internal_index=order_by_internal_index,
+                        progress_label=f"{self.hierarchy_name}:Edges",
+                        progress_every=self.JSON_DUMP_PROGRESS_EVERY,
+                    ),
+                    progress_sink=progress_sink,
+                    progress_message=f"Writing edges ({self.hierarchy_name})",
+                    progress_total=edges_count,
+                )
+                fh.write(",\n")
+            subset_links = self._build_subset_links()
+            _write_hierarchy_subset_links_field(fh, subset_links)
+            fh.write("}")
+        os.replace(self.inprogress_path, self.final_path)
+
+        progress_sink.on_event(ProgressEvent.total_line(current_delta=total_rows))
+        progress_sink.on_event(ProgressEvent.worker_line(current=total_rows, total=max(1, total_rows)))
+        self._finalized = True
+        return self.final_path
 
 
 class Hierarchy:
-    def __init__(self, name, elements: List[Element], edges: List[Edge], subsets: List[Subset], source_path: str):
+    def __init__(
+        self,
+        name,
+        elements: Optional[MutableSequence[Element]] = None,
+        edges: Optional[MutableSequence[Edge]] = None,
+        subsets: Optional[MutableSequence[Subset]] = None,
+        *,
+        dimension_name: Optional[str] = None,
+        model_id: Optional[str] = None,
+        hierarchy_etag: Optional[str] = None,
+        reuse_existing_store: bool = False,
+        elements_filter_rules: Optional[list[str]] = None,
+        edges_filter_rules: Optional[list[str]] = None,
+        subsets_filter_rules: Optional[list[str]] = None,
+        elements_sort_type: Optional[str] = None,
+        elements_sort_sense: Optional[str] = None,
+        components_sort_type: Optional[str] = None,
+        components_sort_sense: Optional[str] = None,
+    ):
+        _ = elements_filter_rules, edges_filter_rules, subsets_filter_rules
+        if model_id:
+            if not dimension_name:
+                raise ValueError("Hierarchy with model_id requires dimension_name.")
+            if elements is not None or edges is not None or subsets is not None:
+                raise ValueError(
+                    "Hierarchy with model_id should not provide explicit elements/edges/subsets."
+                )
+            store = ModelStore.for_model_id(model_id)
+            elements = StoreBackedSequence.for_elements_sink(
+                store=store,
+                model_id=model_id,
+                dimension_name=dimension_name,
+                hierarchy_name=name,
+            )
+            edges = StoreBackedSequence.for_edges_sink(
+                store=store,
+                model_id=model_id,
+                dimension_name=dimension_name,
+                hierarchy_name=name,
+            )
+            subsets = StoreBackedSequence.for_subsets_sink(
+                store=store,
+                model_id=model_id,
+                dimension_name=dimension_name,
+                hierarchy_name=name,
+            )
+            if not reuse_existing_store:
+                elements.replace_with_payloads(())
+                edges.replace_with_payloads(())
+                subsets.replace_with_payloads(())
+
         self.type = 'Hierarchy'
         self.name = name
-        self.elements = elements
-        self.edges = edges
-        self.subsets = subsets
-        self.source_path = source_path
+        self.hierarchy_etag = hierarchy_etag
+        self.model_id = model_id
+        self.dimension_name = dimension_name
+        self.elements_sort_type = _stored_hierarchy_sort_type(elements_sort_type)
+        self.elements_sort_sense = _stored_hierarchy_sort_sense(elements_sort_sense)
+        self.components_sort_type = _stored_hierarchy_sort_type(components_sort_type)
+        self.components_sort_sense = _stored_hierarchy_sort_sense(components_sort_sense)
+        self.elements = elements if elements is not None else []
+        self.edges = edges if edges is not None else []
+        self.subsets = subsets if subsets is not None else []
+
+    @property
+    def effective_elements_sort_type(self) -> str:
+        return self.elements_sort_type or DEFAULT_HIERARCHY_SORT_TYPE
+
+    @property
+    def effective_elements_sort_sense(self) -> str:
+        return self.elements_sort_sense or DEFAULT_HIERARCHY_SORT_SENSE
+
+    @property
+    def effective_components_sort_type(self) -> str:
+        return self.components_sort_type or DEFAULT_HIERARCHY_SORT_TYPE
+
+    @property
+    def effective_components_sort_sense(self) -> str:
+        return self.components_sort_sense or DEFAULT_HIERARCHY_SORT_SENSE
 
     def as_json(self):
-        elements = [obj.to_dict() for obj in self.elements]
-        edges = [obj.to_dict() for obj in self.edges]
-        return json.dumps({
-            "@type": self.type,
-            "Name": self.name,
-            "Elements": elements,
-            "Edges": edges,
-            "Subsets@Code.links": [format_url("{}.subsets/{}.json", self.name, s.name) for s in self.subsets]
-        }, indent='\t')
+        buf = io.StringIO()
+        self.write_json(buf)
+        return buf.getvalue()
+
+    def persist_elements_etag(self) -> None:
+        if hasattr(self.elements, "set_etag"):
+            self.elements.set_etag(self.hierarchy_etag)
+
+    def persist_edges_etag(self) -> None:
+        if hasattr(self.edges, "set_etag"):
+            self.edges.set_etag(self.hierarchy_etag)
+
+    def persist_subsets_etag(self) -> None:
+        if hasattr(self.subsets, "set_etag"):
+            self.subsets.set_etag(self.hierarchy_etag)
+
+    def _write_array(self, fh, key: str, collection: MutableSequence[Any], *, indent: str = "\t") -> None:
+        item_prefix = indent * 2
+        fh.write(f'{indent}"{key}":\n{indent}[')
+        items = ordered_hierarchy_items(self, key, collection)
+        first = True
+        for item in items:
+            if first:
+                fh.write("\n")
+                first = False
+            else:
+                fh.write(",\n")
+            _write_json_object_block(fh, item.to_dict(), item_line_prefix=item_prefix)
+        if not first:
+            fh.write(f"\n{indent}]")
+        else:
+            fh.write("]")
+
+    def write_json(self, fh) -> None:
+        fh.write("{\n")
+        fh.write("\t\"@type\":" + json.dumps(self.type, ensure_ascii=False) + ",\n")
+        fh.write("\t\"Name\":" + json.dumps(self.name, ensure_ascii=False) + ",\n")
+        for key, value in hierarchy_sort_metadata_json(self).items():
+            fh.write("\t" + json.dumps(key, ensure_ascii=False) + ":" + json.dumps(value, ensure_ascii=False) + ",\n")
+        if not self.elements:
+            fh.write('\t"Elements":[],\n')
+        else:
+            self._write_array(fh, "Elements", self.elements)
+            fh.write(",\n")
+        if self.edges:
+            self._write_array(fh, "Edges", self.edges)
+            fh.write(",\n")
+        subset_links = [format_url("{}.subsets/{}.json", self.name, s.name) for s in self.subsets]
+        _write_hierarchy_subset_links_field(fh, subset_links)
+        fh.write("}")
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Hierarchy):
@@ -68,7 +498,10 @@ class Hierarchy:
         
         if self.name != other.name:
             return False
-        
+
+        if self._effective_sort_metadata() != other._effective_sort_metadata():
+            return False
+
         if set(self.elements) != set(other.elements):
             return False
 
@@ -83,91 +516,99 @@ class Hierarchy:
     def __hash__(self) -> int:
         return hash((
             self.name,
+            self._effective_sort_metadata(),
             frozenset(self.elements),
             frozenset(self.edges),
-            frozenset(self.subsets)
+            frozenset(self.subsets),
         ))
     
     def __repr__(self):
         return f"{self.type}('{self.name}')"
 
     def to_dict(self):
-        return {
+        result = {
             'name': self.name,
             'elements': [e.to_dict() for e in self.elements],
             'edges': [e.to_dict() for e in self.edges],
-            'subsets': [s.to_dict() for s in self.subsets]
+            'subsets': [s.to_dict() for s in self.subsets],
         }
+        if self.elements_sort_type is not None:
+            result["elements_sort_type"] = self.elements_sort_type
+        if self.elements_sort_sense is not None:
+            result["elements_sort_sense"] = self.elements_sort_sense
+        if self.components_sort_type is not None:
+            result["components_sort_type"] = self.components_sort_type
+        if self.components_sort_sense is not None:
+            result["components_sort_sense"] = self.components_sort_sense
+        return result
 
-    def asLink(self, dimension_name):
-        # /dimensions/Dimension_A.hierarchies/Dimension_A.json
-        return '/dimensions/' + dimension_name + '.hierarchies/' + self.name + '.json'
+    def _effective_sort_metadata(self) -> tuple[str, str, str, str]:
+        return (
+            self.effective_elements_sort_type,
+            self.effective_elements_sort_sense,
+            self.effective_components_sort_type,
+            self.effective_components_sort_sense,
+        )
 
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None,
-            dimension_name: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Hierarchy":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path
-        if resolved_path is None and dimension_name and name:
-            resolved_path = f"dimensions/{dimension_name}.hierarchies/{name}.json"
-        if resolved_path is None:
-            raise ValueError("Hierarchy.from_dict requires a source_path or dimension context.")
 
         element_payloads = data.get("elements") or data.get("Elements") or []
         edge_payloads = data.get("edges") or data.get("Edges") or []
         subset_payloads = data.get("subsets") or data.get("Subsets") or []
-        subset_base_path = resolved_path.rsplit(".json", 1)[0] + ".subsets" if resolved_path else None
 
         elements: List[Element] = []
         for payload in element_payloads:
-            element_name = payload.get("name") or payload.get("Name")
-            element_path = f"{resolved_path}/{element_name}" if element_name else None
-            elements.append(Element.from_dict(payload, source_path=element_path))
+            elements.append(Element.from_dict(payload))
 
         edges: List[Edge] = []
         for payload in edge_payloads:
-            parent = payload.get("parentName") or payload.get("parent") or payload.get("ParentName")
-            component = payload.get("componentName") or payload.get("name") or payload.get("ComponentName")
-            edge_path = f"{resolved_path}/{parent}:{component}" if parent and component else None
-            edges.append(Edge.from_dict(payload, source_path=edge_path))
+            edges.append(Edge.from_dict(payload))
+
         subsets: List[Subset] = []
         for payload in subset_payloads:
-            subset_name = payload.get("name") or payload.get("Name")
-            subset_path = None
-            if subset_base_path and subset_name:
-                subset_path = f"{subset_base_path}/{subset_name}.json"
-            subsets.append(
-                Subset.from_dict(payload, source_path=subset_path, dimension_name=dimension_name, hierarchy_name=name)
-            )
+            subsets.append(Subset.from_dict(payload))
 
-        return cls(name=name, elements=elements, edges=edges, subsets=subsets, source_path=resolved_path)
+        return cls(
+            name=name,
+            elements=elements,
+            edges=edges,
+            subsets=subsets,
+            elements_sort_type=data.get("elements_sort_type") or data.get("ElementsSortType"),
+            elements_sort_sense=data.get("elements_sort_sense") or data.get("ElementsSortSense"),
+            components_sort_type=data.get("components_sort_type") or data.get("ComponentsSortType"),
+            components_sort_sense=data.get("components_sort_sense") or data.get("ComponentsSortSense"),
+        )
 
     @staticmethod
-    def as_link(dimension_name_base, name):
-        # /dimensions/Dimension_A.json
-        return '/dimensions/' + dimension_name_base + '.hierarchies/' + name
+    def uri_for(dimension_name: str, hierarchy_name: str) -> str:
+        return f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+
+    def uri(self, dimension_name: str) -> Optional[str]:
+        if not dimension_name or not self.name:
+            return None
+        return self.uri_for(dimension_name, self.name)
 
 
 # ------------------------------------------------------------------------------------------------------------
 # Utility: interface between TM1py and tm1_git_py for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-logger = logging.getLogger(__name__)
-
-def _hierarchy_context_from_path(source_path: str) -> Tuple[str, str]:
-    dimension_name = re.search(r'/([\w}]*)(.hierarchies)', source_path).group(1)
-    hierarchy_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
+def _hierarchy_context_from_uri(uri: str) -> Tuple[str, str]:
+    match = re.search(r"^Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)$", uri or "")
+    if not match:
+        raise ValueError(f"Invalid hierarchy uri format: '{uri}'")
+    dimension_name, hierarchy_name = match.groups()
     return dimension_name, hierarchy_name
 
 
-def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     hierarchy_object = TM1py.Hierarchy(name=hierarchy.name, dimension_name=dimension_name)
     response = tm1_service.hierarchies.create(hierarchy_object)
     logger.info(f"Created Hierarchy: {hierarchy.name}.")
@@ -175,8 +616,8 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     return response
 
 
-def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     logger.info("Skipping direct Hierarchy update for '%s'; updates are handled by child changes.", hierarchy.name)
     return _build_noop_update_response(
         resource_url=format_url("/api/v1/Dimensions('{}')/Hierarchies('{}')", dimension_name, hierarchy.name),
@@ -184,8 +625,8 @@ def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
     )
 
 
-def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy) -> Response:
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+def delete_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
     logger.info(f"Deleting Hierarchy: {hierarchy.name} of Dimension: {dimension_name}.")
     return tm1_service.hierarchies.delete(dimension_name=dimension_name, hierarchy_name=hierarchy.name)
 
@@ -224,7 +665,7 @@ def build_hierarchy_create_ti(hierarchy: Hierarchy, dimension_name: Optional[str
     # 1. Resolve Context
     # Using your existing helper logic
     if not dimension_name:
-        dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+        dimension_name, _ = _hierarchy_context_from_uri(hierarchy.source_path)
     hierarchy_name = hierarchy.name
 
     # 2. Sanitize Inputs for TI
@@ -267,7 +708,7 @@ def build_hierarchy_delete_ti(
     """
     Generates TI code to delete a hierarchy from a specific dimension.
     """
-    dimension_name, _ = _hierarchy_context_from_path(hierarchy.source_path)
+    dimension_name, _ = _hierarchy_context_from_uri(hierarchy.source_path)
 
     # 1. Sanitize Inputs
     dim_clean = _escape_ti(dimension_name)

@@ -1,354 +1,421 @@
-import filecmp
-import tempfile
-from pathlib import Path
+import logging
 
-import pytest
 import TM1py
+import pytest
 from TM1py import Cube, Dimension, Hierarchy, TM1Service
 
-from test_integration.test_base import export_check_no_errors, load_fixture_model_tm1gitpy, tm1_service
-from tm1_git_py.changeset import ChangeType, Changeset, Change, ObjectType
-from tm1_git_py.comparator import Comparator
-from tm1_git_py.model.edge import Edge
+from test_integration.test_base import (
+    export_check_no_errors,
+    load_fixture_model_tm1gitpy,
+    tm1_service,
+    check_no_diff,
+)
 from tm1_git_py.model.element import Element
-from tm1_git_py.model.hierarchy import Hierarchy as GitHierarchy
 from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.nativeview import NativeView
-from tm1_git_py.model.process import Process as GitProcess
 from tm1_git_py.model.rule import Rule
-from tm1_git_py.model.subset import Subset as GitSubset
-from tm1_git_py.model.ti import TI
-from tm1_git_py.serializer import serialize_model
+from tm1_git_py.services.changeset import ChangeType, Changeset, Change, ObjectType
+from tm1_git_py.services.comparator import Comparator
+from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS, FilterRules
+
 
 @pytest.mark.usefixtures("tm1_service")
 class TestChangesetApply:
 
-    _f_no_meta_obj = [ "-/cubes/}*", "-/dimensions/}*"]
+    _fixture_model_id_no_meta = "fixture_model_no_meta"
+    _fixture_model_id_with_meta = "fixture_model_with_meta"
+    _f_no_meta = DEFAULT_TM1_TECHNICAL_OBJECTS
+    _f_with_meta = [
+        "!Cubes('}*')",
+        "!Dimensions('}*')",
+        "!Processes('}*')",
+    ]
 
     @pytest.fixture(autouse=True)
     def _tm1_service(self, tm1_service):
-        self.tm1_service : TM1Service = tm1_service
+        self.tm1_service: TM1Service = tm1_service
 
     @staticmethod
     def _changes_by(changeset: Changeset, change_type: ChangeType, class_name: str):
         return [
-            change.body for change in changeset.changes
-            if change.change_type == change_type and change.body.__class__.__name__ == class_name
+            change.body
+            for change in changeset.changes
+            if change.change_type == change_type
+            and change.body.__class__.__name__ == class_name
         ]
 
-    def _restore_fixture_no_meta(self, fixture_dir: str, fixture_model):
-        current_model = export_check_no_errors(self, self._f_no_meta_obj)
-        restore_changeset = self.compare(current_model, fixture_model)
-        if restore_changeset.has_changes():
-            self.apply(restore_changeset)
-        restored_model = export_check_no_errors(self, self._f_no_meta_obj)
-        self.check_no_diff(fixture_dir, restored_model)
-
     def test_create_cube_full_no_meta_objects(self):
-        
-        # given
-        fixture_model, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
 
-        self.tm1_service.cubes.delete("TestCube1")
-        test_model = export_check_no_errors(self, self._f_no_meta_obj)
-        
+        # given
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCube1"
+
+        self.tm1_service.cubes.delete(cube_name)
+        test_model = export_check_no_errors(self)
+    
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
-        test_model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then
         added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
         assert len(added_cubes) == 1
-        assert added_cubes[0].name == "TestCube1"
-        self.check_no_diff(fixture_model, test_model)
+        assert added_cubes[0].name == cube_name
+        assert self.tm1_service.cubes.exists(cube_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_create_cube_full_with_meta_objects(self):
-        
         # given
-        fixture_model, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, [])
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_with_meta
+        )
+        cube_name = "TestCube1"
 
-        self.tm1_service.cubes.delete("TestCube1")
-        test_model = export_check_no_errors(self, [])
-        
+        self.tm1_service.cubes.delete(cube_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_with_meta)
         self.apply(changeset)
-        test_model = export_check_no_errors(self, [])
 
         # then
         added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
         assert len(added_cubes) == 1
-        assert added_cubes[0].name == "TestCube1"
-        self.check_no_diff(fixture_model, test_model)
+        assert added_cubes[0].name == cube_name
+        assert self.tm1_service.cubes.exists(cube_name)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
+
+    @pytest.mark.skip
+    def test_recreate_cube_with_force_included_technical_objects_ignores_duplicate_adds(
+        self, caplog
+    ):
+        # given
+        cube_name = "TestCube1"
+        technical_element_uri = Element.uri_for("}Cubes", "}Cubes", cube_name)
+        filter_rules = [
+            "Cubes('}*')",
+            "Dimensions('}*')",
+            "Processes('}*')",
+            f"!{technical_element_uri}",
+        ]
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+
+        self.tm1_service.cubes.delete(cube_name)
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=filter_rules)
+
+        added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
+
+        technical_add = next(
+            change
+            for change in changeset.changes
+            if change.change_type == ChangeType.ADD
+            and change.object_type == ObjectType.ELEMENT
+            and change.uri == technical_element_uri
+        )
+
+        # Duplicate the real technical add change so TM1 returns "already exists"
+        # on the second create and apply must continue.
+        changeset.changes.append(
+            Change(
+                change_type=technical_add.change_type,
+                object_type=technical_add.object_type,
+                uri=technical_add.uri,
+                body=technical_add.body,
+            )
+        )
+
+        with caplog.at_level(logging.WARNING):
+            self.apply(changeset)
+        test_model = export_check_no_errors(self, filter_rules)
+        remaining_changeset = self.compare(
+            test_model, fixture_model, filter_rules=filter_rules
+        )
+
+        # then
+        assert len(added_cubes) == 1
+        assert added_cubes[0].name == cube_name
+        assert self.tm1_service.cubes.exists(cube_name)
+        assert any(
+            "Ignoring duplicate create failure for technical object" in record.message
+            and technical_element_uri in record.message
+            for record in caplog.records
+        )
+        assert not remaining_changeset.has_changes()
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_create_cube_add_only_no_meta_objects(self):
-        
-        # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
 
-        self.tm1_service.cubes.delete("TestCube1")
-        test_model = export_check_no_errors(self, self._f_no_meta_obj)
-        
+        # given
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCube1"
+
+        self.tm1_service.cubes.delete(cube_name)
+        test_model = export_check_no_errors(self)
+
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model, mode='add_only')
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta, mode="add_only")
         self.apply(changeset)
-        test_model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
         # then
         added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
         assert len(added_cubes) == 1
-        assert added_cubes[0].name == "TestCube1"
-        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
+        assert added_cubes[0].name == cube_name
+        assert self.tm1_service.cubes.exists(cube_name)
+        check_no_diff(fixture_dir, test_model)
 
     def test_create_cube_add_only_with_meta_objects(self):
-        
-        # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, [])
 
-        self.tm1_service.cubes.delete("TestCube1")
-        test_model = export_check_no_errors(self, [])
-        
+        # given
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_with_meta
+        )
+        cube_name = "TestCube1"
+
+        self.tm1_service.cubes.delete(cube_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model, mode='add_only')
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_with_meta, mode="add_only")
         self.apply(changeset)
-        test_model = export_check_no_errors(self, [])
 
         # then
         added_cubes = self._changes_by(changeset, ChangeType.ADD, "Cube")
         assert len(added_cubes) == 1
-        assert added_cubes[0].name == "TestCube1"
-        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
+        assert added_cubes[0].name == cube_name
+        assert self.tm1_service.cubes.exists(cube_name)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_delete_cube_full_no_meta_objects(self):
-        
+
         # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        
-        self.tm1_service.cubes.create(Cube("TestCubeRemovable1", dimensions=["TestDim1", "TestDim2"]))
-        test_model = export_check_no_errors(self, self._f_no_meta_obj)
-        
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCubeRemovable1"
+
+        self.tm1_service.cubes.create(
+            Cube(cube_name, dimensions=["TestDim1", "TestDim2"])
+        )
+        test_model = export_check_no_errors(self, self._f_no_meta)
+
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
-        test_model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
         # then
         removed_cubes = self._changes_by(changeset, ChangeType.REMOVE, "Cube")
         assert len(removed_cubes) == 1
-        assert removed_cubes[0].name == "TestCubeRemovable1"
-        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
+        assert removed_cubes[0].name == cube_name
+        assert not self.tm1_service.cubes.exists(cube_name)
+        check_no_diff(fixture_dir, test_model)
 
     def test_delete_cube_full_with_meta_objects(self):
-        
+
         # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, [])
-        
-        self.tm1_service.cubes.create(Cube("TestCubeRemovable2", dimensions=["TestDim1", "TestDim2"]))
-        test_model = export_check_no_errors(self, [])
-        
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_with_meta
+        )
+        cube_name = "TestCubeRemovable2"
+        filter_rules = [
+            "Dimensions('}Cubes')/Hierarchies('}Cubes')/Elements('*')",
+            "Dimensions('}Dimensions')/Hierarchies('}Dimensions')/Elements('*')",
+            "Dimensions('}*')",
+        ]
+
+        self.tm1_service.cubes.create(
+            Cube(cube_name, dimensions=["TestDim1", "TestDim2"])
+        )
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=filter_rules)
         self.apply(changeset)
-        test_model = export_check_no_errors(self, [])
 
         # then
         removed_cubes = self._changes_by(changeset, ChangeType.REMOVE, "Cube")
         assert len(removed_cubes) == 1
-        assert removed_cubes[0].name == "TestCubeRemovable2"
-        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
+        assert removed_cubes[0].name == cube_name
+        assert not self.tm1_service.cubes.exists(cube_name)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_delete_cube_add_only_no_meta_objects(self):
-        
+
         # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        
-        self.tm1_service.cubes.create(Cube("TestCubeRemovable3", dimensions=["TestDim1", "TestDim2"]))
-        test_model = export_check_no_errors(self, self._f_no_meta_obj)
-        
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCubeRemovable3"
+
+        self.tm1_service.cubes.create(
+            Cube(cube_name, dimensions=["TestDim1", "TestDim2"])
+        )
+        test_model = export_check_no_errors(self)
+
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model, mode='add_only')
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta, mode="add_only")
         self.apply(changeset)
-        
+
         # then
         assert not self._changes_by(changeset, ChangeType.REMOVE, "Cube")
-        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
+        assert self.tm1_service.cubes.exists(cube_name)
+        self.tm1_service.cubes.delete(cube_name)
 
     def test_delete_cube_add_only_with_meta_objects(self):
-        
         # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self)
-        
-        self.tm1_service.cubes.create(Cube("TestCubeRemovable4", dimensions=["TestDim1", "TestDim2"]))
-        test_model = export_check_no_errors(self)
-        
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_with_meta
+        )
+        cube_name = "TestCubeRemovable4"
+
+        filter_rules = [
+            "Dimensions('}Cubes')/Hierarchies('}Cubes')/Elements('*')",
+            "Dimensions('}Dimensions')/Hierarchies('}Dimensions')/Elements('*')",
+            "Dimensions('}*')",
+        ]
+
+        self.tm1_service.cubes.create(
+            Cube(cube_name, dimensions=["TestDim1", "TestDim2"])
+        )
+
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model, mode='add_only')
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        changeset = self.compare(
+            test_model, fixture_model, mode="add_only", filter_rules=filter_rules
+        )
         self.apply(changeset)
-        
+
         # then
         assert not self._changes_by(changeset, ChangeType.REMOVE, "Cube")
-        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
+        assert self.tm1_service.cubes.exists(cube_name)
 
+        # cleanup
+        self.tm1_service.cubes.delete(cube_name)
 
     # -----------------------------------------------------------------------
     # View tests
     # -----------------------------------------------------------------------
 
     def test_apply_add_mdxview(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
         cube_name = "TestCube3WithView"
-        view_name = "zz_temp_mdx_view_add"
-        source_path = f"cubes/{cube_name}.views/{view_name}.json"
-        try:
-            self.tm1_service.views.delete(cube_name=cube_name, view_name=view_name)
-        except Exception:
-            pass
+        fixture_cube = next(
+            cube for cube in fixture_model.cubes if cube.name == cube_name
+        )
+        fixture_mdx = next(
+            view for view in fixture_cube.views if isinstance(view, MDXView)
+        )
 
-        changeset = Changeset("add_mdxview_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.ADD,
-            object_type=ObjectType.MDX_VIEW,
-            source_path=source_path,
-            body=MDXView(name=view_name,
-                         mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
-                         source_path=source_path)
-        )]
-        try:
-            self.apply(changeset)
-            assert self.tm1_service.views.exists(cube_name=cube_name, view_name=view_name)
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        self.tm1_service.views.delete(cube_name=cube_name, view_name=fixture_mdx.name)
+        test_model = export_check_no_errors(self)
+
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        added_mdx = self._changes_by(changeset, ChangeType.ADD, "MDXView")
+
+        assert any(view.name == fixture_mdx.name for view in added_mdx)
+
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
+
+    def test_apply_add_nativeview(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCube3WithView"
+        fixture_cube = next(
+            cube for cube in fixture_model.cubes if cube.name == cube_name
+        )
+        fixture_native = next(
+            view for view in fixture_cube.views if isinstance(view, NativeView)
+        )
+
+        self.tm1_service.views.delete(
+            cube_name=cube_name, view_name=fixture_native.name
+        )
+        test_model = export_check_no_errors(self)
+
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        added_native = self._changes_by(changeset, ChangeType.ADD, "NativeView")
+
+        assert any(view.name == fixture_native.name for view in added_native)
+
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_apply_remove_mdxview(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
         cube_name = "TestCube3WithView"
         view_name = "zz_temp_mdx_view_remove"
-        source_path = f"cubes/{cube_name}.views/{view_name}.json"
-        self.tm1_service.views.create(TM1py.MDXView(cube_name=cube_name, view_name=view_name,
-                                                    MDX=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]"))
-
-        changeset = Changeset("remove_mdxview_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.REMOVE,
-            object_type=ObjectType.MDX_VIEW,
-            source_path=source_path,
-            body=MDXView(name=view_name, mdx="", source_path=source_path)
-        )]
-        try:
-            self.apply(changeset)
-            exists_private_public = self.tm1_service.views.exists(cube_name=cube_name, view_name=view_name)
-            assert not any(exists_private_public)
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
-
-    def test_apply_remove_nativeview(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        cube_name = "TestCube3WithView"
-        view_name = "zz_temp_native_view_remove"
-        source_path = f"cubes/{cube_name}.views/{view_name}.json"
-        nv = TM1py.NativeView.from_dict(
-            view_as_dict={
-                "Name": view_name,
-                "Columns": [{"Subset": {"Expression": "{[TestDim2].[TestDim2].Members}",
-                                        "Hierarchy@odata.bind": "Dimensions('TestDim2')/Hierarchies('TestDim2')"}}],
-                "Rows": [{"Subset": {"Expression": "{[TestDim1].[TestDim1].Members}",
-                                     "Hierarchy@odata.bind": "Dimensions('TestDim1')/Hierarchies('TestDim1')"}}],
-                "Titles": [],
-                "SuppressEmptyColumns": True,
-                "SuppressEmptyRows": True,
-                "FormatString": "0.#########",
-            },
-            cube_name=cube_name
-        )
-        self.tm1_service.views.create(nv)
-
-        changeset = Changeset("remove_nativeview_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.REMOVE,
-            object_type=ObjectType.NATIVE_VIEW,
-            source_path=source_path,
-            body=NativeView(
-                name=view_name,
-                columns=[],
-                rows=[],
-                titles=[],
-                suppress_empty_columns=True,
-                suppress_empty_rows=True,
-                format_string="0.#########",
-                source_path=source_path,
-            )
-        )]
-        try:
-            self.apply(changeset)
-            exists_private_public = self.tm1_service.views.exists(cube_name=cube_name, view_name=view_name)
-            assert not any(exists_private_public)
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
-
-    def test_apply_modify_nativeview(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        cube_name = "TestCube3WithView"
-        view_name = "TestCube3WithView_view2"
-        source_path = f"cubes/{cube_name}.views/{view_name}.json"
-
-        changeset = Changeset("modify_nativeview_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.MODIFY,
-            object_type=ObjectType.NATIVE_VIEW,
-            source_path=source_path,
-            body=NativeView(
-                name=view_name,
-                columns=[{
-                    "Subset": {"Expression": "{[TestDim2].[TestDim2].Members}",
-                               "Hierarchy": {"@id": "Dimensions('TestDim2')/Hierarchies('TestDim2')"}}
-                }],
-                rows=[{
-                    "Subset": {"Expression": "{[TestDim1].[TestDim1].[TestDim1Elem1]}",
-                               "Hierarchy": {"@id": "Dimensions('TestDim1')/Hierarchies('TestDim1')"}}
-                }],
-                titles=[],
-                suppress_empty_columns=True,
-                suppress_empty_rows=False,
-                format_string="0.#########",
-                source_path=source_path,
-            )
-        )]
-        try:
-            self.apply(changeset)
-            updated = self.tm1_service.views.get_native_view(cube_name=cube_name, view_name=view_name)
-            assert updated.suppress_empty_rows is False
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
-
-    def test_compare_tracks_added_mdx_and_native_views(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        cube_name = "TestCube3WithView"
-        mdx_name = "zz_temp_mdx_view_compare"
-        native_name = "zz_temp_native_view_compare"
-        try:
-            self.tm1_service.views.delete(cube_name=cube_name, view_name=mdx_name)
-        except Exception:
-            pass
-        try:
-            self.tm1_service.views.delete(cube_name=cube_name, view_name=native_name)
-        except Exception:
-            pass
-
         self.tm1_service.views.create(
             TM1py.MDXView(
                 cube_name=cube_name,
-                view_name=mdx_name,
-                MDX=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]"
+                view_name=view_name,
+                MDX=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
             )
         )
-        native_view = TM1py.NativeView.from_dict(
+
+        changeset = Changeset("remove_mdxview_case")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.MDX_VIEW,
+                uri=MDXView.uri_for(cube_name, view_name),
+                body=MDXView(name=view_name, mdx=""),
+            )
+        ]
+        self.apply(changeset)
+        exists_private_public = self.tm1_service.views.exists(
+            cube_name=cube_name, view_name=view_name
+        )
+        assert not any(exists_private_public)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
+
+    def test_apply_remove_nativeview(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCube3WithView"
+        view_name = "zz_temp_native_view_remove"
+        nv = TM1py.NativeView.from_dict(
             view_as_dict={
-                "Name": native_name,
-                "Columns": [{"Subset": {"Expression": "{[TestDim2].[TestDim2].Members}",
-                                        "Hierarchy@odata.bind": "Dimensions('TestDim2')/Hierarchies('TestDim2')"}}],
-                "Rows": [{"Subset": {"Expression": "{[TestDim1].[TestDim1].Members}",
-                                     "Hierarchy@odata.bind": "Dimensions('TestDim1')/Hierarchies('TestDim1')"}}],
+                "Name": view_name,
+                "Columns": [
+                    {
+                        "Subset": {
+                            "Expression": "{[TestDim2].[TestDim2].Members}",
+                            "Hierarchy@odata.bind": "Dimensions('TestDim2')/Hierarchies('TestDim2')",
+                        }
+                    }
+                ],
+                "Rows": [
+                    {
+                        "Subset": {
+                            "Expression": "{[TestDim1].[TestDim1].Members}",
+                            "Hierarchy@odata.bind": "Dimensions('TestDim1')/Hierarchies('TestDim1')",
+                        }
+                    }
+                ],
                 "Titles": [],
                 "SuppressEmptyColumns": True,
                 "SuppressEmptyRows": True,
@@ -356,230 +423,419 @@ class TestChangesetApply:
             },
             cube_name=cube_name,
         )
-        self.tm1_service.views.create(native_view)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        self.tm1_service.views.create(nv)
 
-        try:
-            changeset = self.compare(model, fixture_model)
-            removed_mdx = self._changes_by(changeset, ChangeType.REMOVE, "MDXView")
-            removed_native = self._changes_by(changeset, ChangeType.REMOVE, "NativeView")
+        changeset = Changeset("remove_nativeview_case")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.NATIVE_VIEW,
+                uri=NativeView.uri_for(cube_name, view_name),
+                body=NativeView(
+                    name=view_name,
+                    columns=[],
+                    rows=[],
+                    titles=[],
+                    suppress_empty_columns=True,
+                    suppress_empty_rows=True,
+                    format_string="0.#########",
+                ),
+            )
+        ]
+        self.apply(changeset)
+        exists_private_public = self.tm1_service.views.exists(
+            cube_name=cube_name, view_name=view_name
+        )
+        assert not any(exists_private_public)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
-            assert any(v.name == mdx_name for v in removed_mdx)
-            assert any(v.name == native_name for v in removed_native)
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+    def test_apply_modify_nativeview(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCube3WithView"
+        view_name = "TestCube3WithView_view2"
 
+        changeset = Changeset("modify_nativeview_case")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.MODIFY,
+                object_type=ObjectType.NATIVE_VIEW,
+                uri=NativeView.uri_for(cube_name, view_name),
+                body=NativeView(
+                    name=view_name,
+                    columns=[
+                        {
+                            "Subset": {
+                                "Expression": "{[TestDim2].[TestDim2].Members}",
+                                "Hierarchy": {
+                                    "@id": "Dimensions('TestDim2')/Hierarchies('TestDim2')"
+                                },
+                            }
+                        }
+                    ],
+                    rows=[
+                        {
+                            "Subset": {
+                                "Expression": "{[TestDim1].[TestDim1].[TestDim1Elem1]}",
+                                "Hierarchy": {
+                                    "@id": "Dimensions('TestDim1')/Hierarchies('TestDim1')"
+                                },
+                            }
+                        }
+                    ],
+                    titles=[],
+                    suppress_empty_columns=True,
+                    suppress_empty_rows=False,
+                    format_string="0.#########",
+                ),
+            )
+        ]
+        self.apply(changeset)
+        updated = self.tm1_service.views.get_native_view(
+            cube_name=cube_name, view_name=view_name
+        )
+        assert updated.suppress_empty_rows is False
+
+        # clean-up
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Dimension tests
     # -----------------------------------------------------------------------
 
     def test_create_dimension_no_meta_objects(self):
-        
+
         # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        dimension_name = "TestDim3"
 
-        dimension = Dimension("TestDimension")
-        dimension.add_hierarchy(Hierarchy(dimension_name="TestDimension", name= "TestDimension"))
-        self.tm1_service.dimensions.create(dimension)
-        test_model = export_check_no_errors(self, self._f_no_meta_obj)
-        
+        self.tm1_service.dimensions.delete(dimension_name)
+        test_model = export_check_no_errors(self)
+
         # when
-        changeset = self.compare(test_model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
-        self.check_no_diff(fixture_tm1gitpy_dir, test_model)
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
 
     def test_create_dimension_with_meta_objects(self):
-        
-        # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, [])
 
-        dimension = Dimension("TestDimension")
-        dimension.add_hierarchy(Hierarchy(dimension_name="TestDimension", name= "TestDimension"))
-        self.tm1_service.dimensions.create(dimension)
-        model = export_check_no_errors(self, [])
-        
+        # given
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_with_meta
+        )
+        dimension_name = "TestDim3"
+        filter_rules = [
+            "Dimensions('}Dimensions')/Hierarchies('}Dimensions')/Elements('*')",
+            "Dimensions('}*')",
+        ]
+
+        self.tm1_service.dimensions.delete(dimension_name)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
         # when
-        changeset = self.compare(model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=filter_rules)
         self.apply(changeset)
 
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     def test_delete_dimension_no_meta_objects(self):
-        
-        # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
 
-        dimension = Dimension("TestDimension")
-        dimension.add_hierarchy(Hierarchy(dimension_name="TestDimension", name= "TestDimension"))
+        # given
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        dimension_name = "TestDimension"
+
+        dimension = Dimension(dimension_name)
+        dimension.add_hierarchy(
+            Hierarchy(dimension_name=dimension_name, name=dimension_name)
+        )
+
         self.tm1_service.dimensions.create(dimension)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
-        
+        test_model = export_check_no_errors(self)
+
         # when
-        changeset = self.compare(model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        removed_dimensions = self._changes_by(changeset, ChangeType.REMOVE, "Dimension")
+        assert len(removed_dimensions) == 1
+        assert removed_dimensions[0].name == dimension_name
+        assert not self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+    def test_delete_dimension_with_meta_objects(self):
+
+        # given
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_with_meta
+        )
+        dimension_name = "TestDimension"
+        filter_rules = [
+            "Dimensions('}Dimensions')/Hierarchies('}Dimensions')/Elements('*')",
+            "Dimensions('}*')",
+        ]
+
+        dimension = Dimension(dimension_name)
+        dimension.add_hierarchy(
+            Hierarchy(dimension_name=dimension_name, name=dimension_name)
+        )
+
+        self.tm1_service.dimensions.create(dimension)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=filter_rules)
         self.apply(changeset)
 
         removed_dimensions = self._changes_by(changeset, ChangeType.REMOVE, "Dimension")
         assert len(removed_dimensions) == 1
-        assert removed_dimensions[0].name == "TestDimension"
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
-
-    def test_delete_dimension_with_meta_objects(self):
-        
-        # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, [])
-
-        dimension = Dimension("TestDimension")
-        dimension.add_hierarchy(Hierarchy(dimension_name="TestDimension", name= "TestDimension"))
-        self.tm1_service.dimensions.create(dimension)
-        model = export_check_no_errors(self, [])
-        
-        # when
-        changeset = self.compare(model, fixture_tm1gitpy_model)
-        self.apply(changeset)
-
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
-
+        assert removed_dimensions[0].name == dimension_name
+        assert not self.tm1_service.dimensions.exists(dimension_name)
+        restored_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(expected_dir=fixture_dir, model=restored_model)
 
     # -----------------------------------------------------------------------
     # Element and Edge tests
     # -----------------------------------------------------------------------
 
     def test_apply_add_element(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        element_name = "zz_temp_element_add"
-        source_path = f"dimensions/TestDim1.hierarchies/TestDim1.json/{element_name}"
-        try:
-            self.tm1_service.elements.delete(hierarchy_name="TestDim1", dimension_name="TestDim1", element_name=element_name)
-        except Exception:
-            pass
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        element_name = "TestDim1Elem1"
+        self.tm1_service.elements.delete(
+            hierarchy_name="TestDim1",
+            dimension_name="TestDim1",
+            element_name=element_name,
+        )
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
-        changeset = Changeset("add_element_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.ADD,
-            object_type=ObjectType.ELEMENT,
-            source_path=source_path,
-            body=Element(name=element_name, type="Numeric", source_path=source_path)
-        )]
-        try:
-            self.apply(changeset)
-            added = self.tm1_service.elements.get(dimension_name="TestDim1", hierarchy_name="TestDim1", element_name=element_name)
-            assert added is not None
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        added = self.tm1_service.elements.get(
+            dimension_name="TestDim1",
+            hierarchy_name="TestDim1",
+            element_name=element_name,
+        )
+        assert added is not None
+        check_no_diff(expected_dir=fixture_dir, model=test_model)
 
     def test_apply_remove_edge(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        edge_source = "dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:a"
-        try:
-            self.tm1_service.elements.add_edges("TestDimMultiHier", "TestDimMultiHier", {("DimElemC", "a"): 1})
-        except Exception:
-            pass
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        self.tm1_service.elements.add_edges(
+            "TestDimMultiHier", "TestDimMultiHier", {("DimElemC", "DimElem1"): 1}
+        )
 
-        changeset = Changeset("remove_edge_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.REMOVE,
-            object_type=ObjectType.EDGE,
-            source_path=edge_source,
-            body=Edge(parent="DimElemC", name="a", weight=1, source_path=edge_source)
-        )]
-        try:
-            self.apply(changeset)
-            hierarchy = self.tm1_service.hierarchies.get("TestDimMultiHier", "TestDimMultiHier")
-            assert ("DimElemC", "a") not in hierarchy.edges
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        hierarchy = self.tm1_service.hierarchies.get(
+            "TestDimMultiHier", "TestDimMultiHier"
+        )
+        assert ("DimElemC", "DimElem1") not in hierarchy.edges
+        check_no_diff(expected_dir=fixture_dir, model=test_model)
 
     def test_apply_modify_edge(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        edge_source = "dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:b"
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        hierarchy = self.tm1_service.hierarchies.get(
+            "TestDimMultiHier", "TestDimMultiHier"
+        )
+        hierarchy.update_edge(parent="DimElemC", component="b", weight=2)
 
-        changeset = Changeset("modify_edge_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.MODIFY,
-            object_type=ObjectType.EDGE,
-            source_path=edge_source,
-            body=Edge(parent="DimElemC", name="b", weight=2, source_path=edge_source)
-        )]
-        try:
-            self.apply(changeset)
-            hierarchy = self.tm1_service.hierarchies.get("TestDimMultiHier", "TestDimMultiHier")
-            assert hierarchy.edges.get(("DimElemC", "b")) == 2
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        self.tm1_service.hierarchies.update(hierarchy)
+        assert hierarchy.edges.get(("DimElemC", "b")) == 2
 
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        hierarchy = self.tm1_service.hierarchies.get(
+            "TestDimMultiHier", "TestDimMultiHier"
+        )
+        assert hierarchy.edges.get(("DimElemC", "b")) == 1
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Subset tests
     # -----------------------------------------------------------------------
 
-    def test_apply_add_subset(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        subset_name = "zz_temp_subset_add"
-        source_path = f"dimensions/TestDim1.hierarchies/TestDim1.subsets/{subset_name}.json"
-        try:
-            self.tm1_service.subsets.delete(subset_name=subset_name, dimension_name="TestDim1", hierarchy_name="TestDim1")
-        except Exception:
-            pass
+    def test_apply_add_static_subset(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
 
-        changeset = Changeset("add_subset_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.ADD,
-            object_type=ObjectType.SUBSET,
-            source_path=source_path,
-            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].Members}", source_path=source_path)
-        )]
-        try:
-            self.apply(changeset)
-            subset_obj = self.tm1_service.subsets.get(subset_name=subset_name, dimension_name="TestDim1", hierarchy_name="TestDim1")
-            assert subset_obj is not None
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "TestDimMultiHierStaticSubset"
 
-    def test_apply_remove_subset(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        self.tm1_service.subsets.delete(
+            subset_name=subset_name,
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+        )
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+
+    def test_apply_modify_static_subset(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "TestDimMultiHierStaticSubset"
+
+        subset = self.tm1_service.subsets.get(dimension_name=dimension_name, hierarchy_name=hierarchy_name, subset_name=subset_name)
+        subset.elements.append("b")
+        self.tm1_service.subsets.update(subset)
+
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+
+    def test_apply_remove_static_subset(self):
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "zz_temp_static_subset_remove"
+
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        subset_kwargs = {
+            "subset_name": subset_name,
+            "dimension_name": dimension_name,
+            "hierarchy_name": hierarchy_name,
+            "elements": ["a", "b"]
+        }
+        subset = TM1py.Subset(**subset_kwargs)
+        self.tm1_service.subsets.create(subset)
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+
+    def test_apply_add_dynamic_subset(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "TestDimMultiHierDynamicSubset"
+
+        self.tm1_service.subsets.delete(
+            subset_name=subset_name,
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+        )
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
+
+    def test_apply_remove_dynamic_subset(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
         subset_name = "zz_temp_subset_remove"
-        source_path = f"dimensions/TestDim1.hierarchies/TestDim1.subsets/{subset_name}.json"
-        subset_obj = TM1py.Subset(subset_name=subset_name, dimension_name="TestDim1", hierarchy_name="TestDim1",
-                                  expression="{[TestDim1].[TestDim1].Members}")
-        self.tm1_service.subsets.update_or_create(subset_obj)
+        subset_obj = TM1py.Subset(
+            subset_name=subset_name,
+            dimension_name="TestDim1",
+            hierarchy_name="TestDim1",
+            expression="{[TestDim1].[TestDim1].Members}",
+        )
+        self.tm1_service.subsets.create(subset_obj)
 
-        changeset = Changeset("remove_subset_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.REMOVE,
-            object_type=ObjectType.SUBSET,
-            source_path=source_path,
-            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].Members}", source_path=source_path)
-        )]
-        try:
-            self.apply(changeset)
-            assert not self.tm1_service.subsets.exists(subset_name=subset_name, dimension_name="TestDim1", hierarchy_name="TestDim1")
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        assert not self.tm1_service.subsets.exists(
+            subset_name=subset_name,
+            dimension_name="TestDim1",
+            hierarchy_name="TestDim1",
+        )
 
-    def test_apply_modify_subset(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        subset_name = "zz_temp_subset_modify"
-        source_path = f"dimensions/TestDim1.hierarchies/TestDim1.subsets/{subset_name}.json"
-        subset_obj = TM1py.Subset(subset_name=subset_name, dimension_name="TestDim1", hierarchy_name="TestDim1",
-                                  expression="{[TestDim1].[TestDim1].Members}")
-        self.tm1_service.subsets.update_or_create(subset_obj)
+        # clean-up
+        self.tm1_service.hierarchies.delete("}Subsets_TestDim1", "}Subsets_TestDim1")
+        self.tm1_service.dimensions.delete("}Subsets_TestDim1")
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
-        changeset = Changeset("modify_subset_case")
-        changeset.changes = [Change(
-            change_type=ChangeType.MODIFY,
-            object_type=ObjectType.SUBSET,
-            source_path=source_path,
-            body=GitSubset(name=subset_name, expression="{[TestDim1].[TestDim1].[TestDim1Elem1]}", source_path=source_path)
-        )]
-        try:
-            self.apply(changeset)
-            updated_subset = self.tm1_service.subsets.get(subset_name=subset_name, dimension_name="TestDim1", hierarchy_name="TestDim1")
-            assert "TestDim1Elem1" in updated_subset.expression
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+    def test_apply_modify_dynamic_subset(self):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
 
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "TestDimMultiHier"
+        subset_name = "TestDimMultiHierDynamicSubset"
+
+        subset = self.tm1_service.subsets.get(
+            dimension_name=dimension_name,
+            hierarchy_name=hierarchy_name,
+            subset_name=subset_name,
+        )
+        subset.expression = "{[TestDimMultiHier].[TestDimMultiHier].[DimElem1]}"
+        self.tm1_service.subsets.update(subset)
+
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        assert self.tm1_service.dimensions.exists(dimension_name)
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Hierarchy tests
@@ -588,145 +844,177 @@ class TestChangesetApply:
     def test_create_hierarchy_no_meta_objects(self):
         """Changeset should re-create a hierarchy that was deleted from the server."""
         # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        dimension_name = "TestDimMultiHier"
+        hierarchy_name = "Hier2"
 
         # Delete an existing fixture hierarchy so it is missing on the server
         self.tm1_service.hierarchies.delete(
-            dimension_name="TestDimMultiHier", hierarchy_name="Hier2"
+            dimension_name=dimension_name, hierarchy_name=hierarchy_name
         )
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self, self._f_no_meta)
 
         # when
-        changeset = self.compare(model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
         # then
         added_hierarchies = self._changes_by(changeset, ChangeType.ADD, "Hierarchy")
         assert len(added_hierarchies) >= 1
-        assert any(h.name == "Hier2" for h in added_hierarchies)
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
+        assert any(h.name == hierarchy_name for h in added_hierarchies)
+        assert self.tm1_service.hierarchies.exists(
+            dimension_name=dimension_name, hierarchy_name=hierarchy_name
+        )
+        check_no_diff(fixture_dir, test_model)
 
     def test_delete_hierarchy_no_meta_objects(self):
         """Changeset should remove an extra hierarchy that does not exist in the fixture."""
         # given
-        fixture_tm1gitpy_dir, fixture_tm1gitpy_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        dimension_name = "TestDim1"
+        hierarchy_name = "AltHierarchy"
 
         # Add an alternate hierarchy to an existing fixture dimension
-        alt_hierarchy = Hierarchy(
-            dimension_name="TestDim1", name="AltHierarchy"
-        )
+        alt_hierarchy = Hierarchy(dimension_name=dimension_name, name=hierarchy_name)
         alt_hierarchy.add_element("AltElement1", "Numeric")
         self.tm1_service.hierarchies.create(alt_hierarchy)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self)
 
         # when
-        changeset = self.compare(model, fixture_tm1gitpy_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self, self._f_with_meta)
 
         # then
-        removed_hierarchies = self._changes_by(changeset, ChangeType.REMOVE, "Hierarchy")
+        removed_hierarchies = self._changes_by(
+            changeset, ChangeType.REMOVE, "Hierarchy"
+        )
         assert len(removed_hierarchies) >= 1
-        assert any(h.name == "AltHierarchy" for h in removed_hierarchies)
-        self.check_no_diff(fixture_tm1gitpy_dir, model)
+        assert any(h.name == hierarchy_name for h in removed_hierarchies)
+        assert not self.tm1_service.hierarchies.exists(
+            dimension_name=dimension_name, hierarchy_name=hierarchy_name
+        )
+        check_no_diff(fixture_dir, test_model)
 
     def test_compare_child_only_hierarchy_change_does_not_modify_dimension(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
 
-        alt_hierarchy = Hierarchy(dimension_name="TestDim1", name="AltHierarchyNoParentModify")
+        alt_hierarchy = Hierarchy(
+            dimension_name="TestDim1", name="AltHierarchyNoParentModify"
+        )
         alt_hierarchy.add_element("AltElem", "Numeric")
         self.tm1_service.hierarchies.create(alt_hierarchy)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        model = export_check_no_errors(self)
 
-        try:
-            changeset = self.compare(model, fixture_model)
-            removed_hierarchies = self._changes_by(changeset, ChangeType.REMOVE, "Hierarchy")
-            modified_dimensions = self._changes_by(changeset, ChangeType.MODIFY, "Dimension")
+        changeset = self.compare(model, fixture_model, filter_rules=self._f_no_meta)
+        removed_hierarchies = self._changes_by(
+            changeset, ChangeType.REMOVE, "Hierarchy"
+        )
+        modified_dimensions = self._changes_by(
+            changeset, ChangeType.MODIFY, "Dimension"
+        )
 
-            assert any(h.name == "AltHierarchyNoParentModify" for h in removed_hierarchies)
-            assert not modified_dimensions
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        assert any(h.name == "AltHierarchyNoParentModify" for h in removed_hierarchies)
+        assert not modified_dimensions
 
     def test_compare_ignores_leaf_elements(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
         leaf_element_name = "zz_leaf_noise_elem"
         try:
-            self.tm1_service.elements.delete(
+            self.tm1_service.elements.create(
                 hierarchy_name="Leaves",
                 dimension_name="TestDimMultiHier",
-                element_name=leaf_element_name
+                element=TM1py.Element(name=leaf_element_name, element_type="Numeric"),
             )
         except Exception:
             pass
 
-        self.tm1_service.elements.create(
-            hierarchy_name="Leaves",
-            dimension_name="TestDimMultiHier",
-            element=TM1py.Element(name=leaf_element_name, element_type="Numeric")
+        test_model = export_check_no_errors(self)
+        filter_rules = list(self._f_no_meta)
+        filter_rules.append(
+            "Dimensions('TestDimMultiHier')/Hierarchies('Leaves')/Elements('*')"
         )
-        model = export_check_no_errors(self, self._f_no_meta_obj)
-        try:
-            changeset = self.compare(model, fixture_model)
-            leaf_element_changes = [
-                c for c in changeset.changes
-                if c.body.__class__.__name__ == "Element" and "/Leaves.json/" in c.source_path
-            ]
-            assert not leaf_element_changes
-        finally:
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=filter_rules)
 
+        leaf_element_uri = Element.uri_for(
+            "TestDimMultiHier", "Leaves", leaf_element_name
+        )
+        leaf_element_changes = [
+            c
+            for c in changeset.changes
+            if c.object_type == ObjectType.ELEMENT and c.uri == leaf_element_uri
+        ]
+        assert not leaf_element_changes
 
     # -----------------------------------------------------------------------
     # Rule tests (rules are part of cubes)
     # -----------------------------------------------------------------------
 
     def test_delete_rule_no_meta_objects(self):
-        """Changeset should remove a rule that was added on the server but is absent in the fixture."""
-        # given — fixture TestCube1 has no rules
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
+        """Changeset should clear rules on the server and no-meta restore should bring them back."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCube2WithRule"
 
-        # Add a rule to TestCube1 on the server
-        cube_object = self.tm1_service.cubes.get("TestCube1")
-        cube_object.rules = TM1py.Rules("SKIPCHECK;\n['myelement_num'] = 1;\nFEEDERS;\n")
+        cube_object = self.tm1_service.cubes.get(cube_name)
+        cube_object.rules = TM1py.Rules("")
         self.tm1_service.cubes.update(cube_object)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
 
-        # when
-        changeset = self.compare(model, fixture_model)
+        changeset = Changeset("delete_rule_case")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.MODIFY,
+                object_type=ObjectType.RULE,
+                uri=Rule.uri_for(cube_name),
+                body=Rule(name="default", area="[default]", full_statement=""),
+            )
+        ]
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
 
-        # then — rule changes are unified into one modify Rule change per cube
-        modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
-        assert len(modified_rules) == 1
-        assert modified_rules[0].source_path == "cubes/TestCube1.rules"
-        assert modified_rules[0].name == "default"
-        assert modified_rules[0].full_statement == ""
-        self.check_no_diff(fixture_dir, model)
+        cube_after = self.tm1_service.cubes.get(cube_name)
+        assert cube_after.rules is None
+
+        # clean-up
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     def test_create_rule_no_meta_objects(self):
         """Changeset should add a rule that exists in the fixture but is missing on the server."""
         # given — fixture TestCube2WithRule has rules; remove them from server first
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-        fixture_cube = next(c for c in fixture_model.cubes if c.name == "TestCube2WithRule")
-        expected_rule_text = fixture_cube.get_rule_text()
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCube2WithRule"
+        expected_rule_text = self.tm1_service.cubes.get(cube_name).rules.text
 
         # Remove rule from TestCube2WithRule to create the expected diff against fixture.
         cube_object = self.tm1_service.cubes.get("TestCube2WithRule")
         cube_object.rules = TM1py.Rules("SKIPCHECK;")
         self.tm1_service.cubes.update(cube_object)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
+        test_model = export_check_no_errors(self)
 
         # when
-        changeset = self.compare(model, fixture_model)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
-        model = export_check_no_errors(self, self._f_no_meta_obj)
 
         # then — rule changes are unified into one modify Rule change per cube
         modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
-        target_rules = [rule for rule in modified_rules if rule.source_path == "cubes/TestCube2WithRule.rules"]
+        target_rules = [
+            rule for rule in modified_rules if rule.full_statement == expected_rule_text
+        ]
         assert len(target_rules) == 1
         assert target_rules[0].name == "default"
         assert target_rules[0].full_statement == expected_rule_text
@@ -735,198 +1023,166 @@ class TestChangesetApply:
         cube_final = self.tm1_service.cubes.get("TestCube2WithRule")
         assert cube_final.rules is not None
         assert "TestDim1Elem1" in str(cube_final.rules)
-        self.check_no_diff(fixture_dir, model)
 
+        # clean-up
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
     # -----------------------------------------------------------------------
     # Apply chain test
     # -----------------------------------------------------------------------
 
     def test_apply_mixed_changeset_operations(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, self._f_no_meta_obj)
-
         temp_hierarchy_name = "TmpHierForChangeset"
-        process_name = "zz_test_changeset_apply_proc"
+        process_name = "myprocess2"
         cube_name = "TestCube3WithView"
         view_name = "testcube3withview_view1"
-        native_view_name = "zz_mixed_native_view"
+        native_view_name = "TestCube3WithView_view2"
         rule_cube_name = "TestCube2WithRule"
+        extra_element_name = "zz_mixed_element"
 
-        # Preconditions for deterministic behavior.
-        if process_name in self.tm1_service.processes.get_all_names(skip_control_processes=False):
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        fixture_cube = next(
+            cube for cube in fixture_model.cubes if cube.name == cube_name
+        )
+        fixture_mdx_view = next(
+            view
+            for view in fixture_cube.views
+            if isinstance(view, MDXView) and view.name == view_name
+        )
+
+        # Preconditions for deterministic behaviour.
+        if process_name in self.tm1_service.processes.get_all_names(
+            skip_control_processes=False
+        ):
             self.tm1_service.processes.delete(process_name)
         try:
-            self.tm1_service.elements.remove_edge("TestDimMultiHier", "TestDimMultiHier", "DimElemC", "DimElem1")
-        except Exception:
-            pass
-        try:
-            self.tm1_service.hierarchies.delete(dimension_name="TestDim1", hierarchy_name=temp_hierarchy_name)
-        except Exception:
-            pass
-        try:
-            self.tm1_service.views.delete(cube_name=cube_name, view_name=native_view_name)
-        except Exception:
-            pass
-        self.tm1_service.hierarchies.create(Hierarchy(dimension_name="TestDim1", name=temp_hierarchy_name))
-        leaves = self.tm1_service.hierarchies.get("TestDimMultiHier", "Leaves")
-        if "b" not in leaves.elements:
-            self.tm1_service.elements.create(
-                hierarchy_name="Leaves",
-                dimension_name="TestDimMultiHier",
-                element=TM1py.Element(name="b", element_type="Numeric")
+            self.tm1_service.elements.delete(
+                "TestDimMultiHier", "TestDimMultiHier", extra_element_name
             )
+        except Exception:
+            pass
+        try:
+            self.tm1_service.elements.remove_edge(
+                "TestDimMultiHier", "TestDimMultiHier", "DimElemC", "DimElem1"
+            )
+        except Exception:
+            pass
+        try:
+            self.tm1_service.hierarchies.delete(
+                dimension_name="TestDim1", hierarchy_name=temp_hierarchy_name
+            )
+        except Exception:
+            pass
+        try:
+            self.tm1_service.views.delete(
+                cube_name=cube_name, view_name=native_view_name
+            )
+        except Exception:
+            pass
 
-        changeset = Changeset(changeset_name="mixed_changeset_ops")
-        changeset.changes = [
-            Change(
-                change_type=ChangeType.REMOVE,
-                object_type=ObjectType.ELEMENT,
-                source_path="dimensions/TestDimMultiHier.hierarchies/Leaves.json/b",
-                body=Element(
-                    name="b",
-                    type="Numeric",
-                    source_path="dimensions/TestDimMultiHier.hierarchies/Leaves.json/b"
-                ),
-            ),
-            Change(
-                change_type=ChangeType.ADD,
-                object_type=ObjectType.EDGE,
-                source_path="dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:DimElem1",
-                body=Edge(
-                    parent="DimElemC",
-                    name="DimElem1",
-                    weight=1,
-                    source_path="dimensions/TestDimMultiHier.hierarchies/TestDimMultiHier.json/DimElemC:DimElem1",
-                ),
-            ),
-            Change(
-                change_type=ChangeType.REMOVE,
-                object_type=ObjectType.HIERARCHY,
-                source_path=f"dimensions/TestDim1.hierarchies/{temp_hierarchy_name}.json",
-                body=GitHierarchy(
-                    name=temp_hierarchy_name,
-                    elements=[],
-                    edges=[],
-                    subsets=[],
-                    source_path=f"dimensions/TestDim1.hierarchies/{temp_hierarchy_name}.json",
-                ),
-            ),
-            Change(
-                change_type=ChangeType.MODIFY,
-                object_type=ObjectType.MDX_VIEW,
-                source_path=f"cubes/{cube_name}.views/{view_name}.json",
-                body=MDXView(
-                    name=view_name,
-                    mdx=f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 FROM [{cube_name}]",
-                    source_path=f"cubes/{cube_name}.views/{view_name}.json",
-                ),
-            ),
-            Change(
-                change_type=ChangeType.MODIFY,
-                object_type=ObjectType.RULE,
-                source_path=f"cubes/{rule_cube_name}.rules",
-                body=Rule(
-                    name="default",
-                    area="[default]",
-                    full_statement="SKIPCHECK;\n['TestDim1Elem1'] = 2;\n",
-                    source_path=f"cubes/{rule_cube_name}.rules",
-                    cube_name=rule_cube_name,
-                ),
-            ),
-            Change(
-                change_type=ChangeType.ADD,
-                object_type=ObjectType.NATIVE_VIEW,
-                source_path=f"cubes/{cube_name}.views/{native_view_name}.json",
-                body=NativeView(
-                    name=native_view_name,
-                    columns=[{
-                        "Subset": {
-                            "Expression": "{[TestDim2].[TestDim2].Members}",
-                            "Hierarchy": {"@id": "Dimensions('TestDim2')/Hierarchies('TestDim2')"},
-                        }
-                    }],
-                    rows=[{
-                        "Subset": {
-                            "Expression": "{[TestDim1].[TestDim1].Members}",
-                            "Hierarchy": {"@id": "Dimensions('TestDim1')/Hierarchies('TestDim1')"},
-                        }
-                    }],
-                    titles=[],
-                    suppress_empty_columns=True,
-                    suppress_empty_rows=True,
-                    format_string="0.#########",
-                    source_path=f"cubes/{cube_name}.views/{native_view_name}.json",
-                ),
-            ),
-            Change(
-                change_type=ChangeType.ADD,
-                object_type=ObjectType.PROCESS,
-                source_path=f"processes/{process_name}.json",
-                body=GitProcess(
-                    name=process_name,
-                    hasSecurityAccess=False,
-                    code_link=f"{process_name}.ti",
-                    datasource="None",
-                    parameters=[],
-                    variables=[],
-                    ti=TI("", "", "", ""),
-                    source_path=f"processes/{process_name}.json",
-                ),
-            ),
+        self.tm1_service.elements.create(
+            hierarchy_name="TestDimMultiHier",
+            dimension_name="TestDimMultiHier",
+            element=TM1py.Element(name=extra_element_name, element_type="Numeric"),
+        )
+        self.tm1_service.elements.add_edges(
+            "TestDimMultiHier", "TestDimMultiHier", {("DimElemC", "DimElem1"): 1}
+        )
+        self.tm1_service.hierarchies.create(
+            Hierarchy(dimension_name="TestDim1", name=temp_hierarchy_name)
+        )
+
+        mdx_view = self.tm1_service.views.get_mdx_view(
+            cube_name=cube_name, view_name=view_name
+        )
+        mdx_view.mdx = (
+            f"SELECT {{[TestDim1].[TestDim1].[TestDim1Elem1]}} ON 0 "
+            f"FROM [{cube_name}]"
+        )
+        self.tm1_service.views.update(mdx_view)
+
+        cube = self.tm1_service.cubes.get(rule_cube_name)
+        cube.rules = TM1py.Rules("SKIPCHECK;")
+        self.tm1_service.cubes.update(cube)
+
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(
+            test_model, fixture_model, filter_rules=self._f_no_meta
+        )
+
+        removed_elements = self._changes_by(changeset, ChangeType.REMOVE, "Element")
+        removed_edges = self._changes_by(changeset, ChangeType.REMOVE, "Edge")
+        removed_hierarchies = self._changes_by(
+            changeset, ChangeType.REMOVE, "Hierarchy"
+        )
+        modified_mdx_views = self._changes_by(changeset, ChangeType.MODIFY, "MDXView")
+        modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
+        added_native_views = self._changes_by(changeset, ChangeType.ADD, "NativeView")
+        added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
+
+        assert any(element.name == extra_element_name for element in removed_elements)
+        assert any(
+            edge.parent == "DimElemC" and edge.component_name == "DimElem1"
+            for edge in removed_edges
+        )
+        assert any(
+            hierarchy.name == temp_hierarchy_name for hierarchy in removed_hierarchies
+        )
+        assert any(view.name == view_name for view in modified_mdx_views)
+        assert any(rule.name == "default" for rule in modified_rules)
+        assert any(view.name == native_view_name for view in added_native_views)
+        assert any(process.name == process_name for process in added_processes)
+
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+
+        default_hierarchy = self.tm1_service.hierarchies.get(
+            "TestDimMultiHier", "TestDimMultiHier"
+        )
+        assert extra_element_name not in default_hierarchy.elements
+        assert ("DimElemC", "DimElem1") not in default_hierarchy.edges
+
+        testdim1 = self.tm1_service.dimensions.get("TestDim1")
+        assert temp_hierarchy_name not in [
+            hier.name for hier in testdim1.hierarchies
         ]
 
-        try:
-            self.apply(changeset)
+        updated_view = self.tm1_service.views.get_mdx_view(
+            cube_name=cube_name, view_name=view_name
+        )
+        assert updated_view.mdx == fixture_mdx_view.mdx
 
-            leaves_hierarchy = self.tm1_service.hierarchies.get("TestDimMultiHier", "Leaves")
-            assert "b" not in leaves_hierarchy.elements
+        updated_cube = self.tm1_service.cubes.get(rule_cube_name)
+        assert updated_cube.rules is not None
+        assert " = 1;" in str(updated_cube.rules)
 
-            default_hierarchy = self.tm1_service.hierarchies.get("TestDimMultiHier", "TestDimMultiHier")
-            assert ("DimElemC", "DimElem1") in default_hierarchy.edges
+        created_native_view = self.tm1_service.views.get_native_view(
+            cube_name=cube_name, view_name=native_view_name
+        )
+        assert created_native_view is not None
 
-            testdim1 = self.tm1_service.dimensions.get("TestDim1")
-            assert temp_hierarchy_name not in [hier.name for hier in testdim1.hierarchies]
+        assert process_name in self.tm1_service.processes.get_all_names(
+            skip_control_processes=False
+        )
+        check_no_diff(fixture_dir, test_model)
 
-            updated_view = self.tm1_service.views.get_mdx_view(cube_name=cube_name, view_name=view_name)
-            assert "TestDim1Elem1" in updated_view.mdx
-
-            updated_cube = self.tm1_service.cubes.get(rule_cube_name)
-            assert updated_cube.rules is not None
-            assert " = 2;" in str(updated_cube.rules)
-
-            created_native_view = self.tm1_service.views.get_native_view(cube_name=cube_name, view_name=native_view_name)
-            assert created_native_view is not None
-
-            assert process_name in self.tm1_service.processes.get_all_names(skip_control_processes=False)
-        finally:
-            # Restore fixture baseline to keep integration tests isolated.
-            self._restore_fixture_no_meta(fixture_dir, fixture_model)
-
-
-    def compare(self, source, target, mode :str = 'full'):
+    def compare(
+        self, source, target, mode: str = "full", filter_rules: list[str] = None
+    ):
         comparator = Comparator()
-        return comparator.compare(source, target, mode=mode)
-        
-    
+        rules = FilterRules(filter_rules) if filter_rules is not None else None
+        return comparator.compare(source, target, mode=mode, filter_rules=rules)
+
     def apply(self, changeset: Changeset):
-        changeset.sort()
-        status_dir = 'tests'
-        exec_id = 'test_create_and_delete'
+        status_dir = "test_integration"
+        exec_id = "test_create_and_delete"
         success, _errors = changeset.apply(
-            tm1_service=self.tm1_service,
-            status_dir=status_dir,
-            execution_id=exec_id
+            tm1_service=self.tm1_service, status_dir=status_dir, execution_id=exec_id
         )
         assert success, f"Changeset application failed with errors: {_errors}"
-
-
-    def check_no_diff(self, expected_dir, model):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            export_dir = str(Path(temp_dir) / "exported_model")
-            serialize_model(model, export_dir)
-            cmp = filecmp.dircmp(export_dir, expected_dir)
-            
-            # then 
-            assert not cmp.left_only, f"Files only in left directory: {cmp.left_only}"
-            assert not cmp.right_only, f"Files only in right directory: {cmp.right_only}"
-            assert not cmp.diff_files, f"Files that differ: {cmp.diff_files}"

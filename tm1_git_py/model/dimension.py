@@ -1,5 +1,6 @@
-import json
+import io
 import logging
+import re
 from typing import List, Any, Dict, Union, Optional
 
 import TM1py
@@ -8,6 +9,10 @@ from TM1py.Utils import format_url
 from requests import Response
 
 from tm1_git_py.model.hierarchy import Hierarchy
+from tm1_git_py.model.tm1git_json import dump_as_tm1git
+
+# Keys (at any object depth) that use ``"key" : value``; dimension export uses compact colons throughout.
+DIMENSION_JSON_SPACED_COLON_KEYS: frozenset[str] = frozenset()
 
 
 # {
@@ -24,28 +29,64 @@ from tm1_git_py.model.hierarchy import Hierarchy
 # }
 
 class Dimension:
-    def __init__(self, name, hierarchies: List[Hierarchy], defaultHierarchy: Hierarchy, source_path: str):
+    def __init__(
+        self,
+        name,
+        hierarchies: Optional[List[Hierarchy]] = None,
+        defaultHierarchy: Optional[Hierarchy] = None,
+    ):
         self.type = 'Dimension'
         self.name = name
-        self.hierarchies = hierarchies
-        self.defaultHierarchy = defaultHierarchy
-        self.source_path = source_path
+        self.hierarchies = list(hierarchies or [])
+        self.defaultHierarchy = self._select_default_hierarchy(
+            dimension_name=name,
+            hierarchies=self.hierarchies,
+            default_hierarchy=defaultHierarchy,
+        )
+
+    @staticmethod
+    def _select_default_hierarchy(
+        *,
+        dimension_name: str,
+        hierarchies: List[Hierarchy],
+        default_hierarchy: Optional[Hierarchy],
+    ) -> Hierarchy:
+        matching_hierarchy = next((hier for hier in hierarchies if hier.name == dimension_name), None)
+        if matching_hierarchy is not None:
+            return matching_hierarchy
+        if default_hierarchy is not None:
+            return default_hierarchy
+        if hierarchies:
+            return hierarchies[0]
+        return Hierarchy(name=dimension_name, elements=[], edges=[], subsets=[])
 
     def as_json(self):
-        return json.dumps({
+        payload: Dict[str, Any] = {
             "@type": self.type,
             "Name": self.name,
-            "Hierarchies@Code.links": [format_url("{}.hierarchies/{}.json", self.name, h.name) for h in self.hierarchies],
-            "DefaultHierarchy": format_url("Dimensions('{}')/Hierarchies('{}')", self.name, self.defaultHierarchy.name)
-        }, indent='\t')
-    
+            "Hierarchies@Code.links": [
+                format_url("{}.hierarchies/{}.json", self.name, h.name)
+                for h in self.hierarchies
+            ],
+            "DefaultHierarchy": {
+                "@id": format_url(
+                    "Dimensions('{}')/Hierarchies('{}')",
+                    self.name,
+                    self.defaultHierarchy.name,
+                ),
+            },
+        }
+        buf = io.StringIO()
+        dump_as_tm1git(payload, buf, spaced_colon_keys=DIMENSION_JSON_SPACED_COLON_KEYS)
+        return buf.getvalue()
+
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Dimension):
             return NotImplemented
-        
+
         if self.name != other.name:
             return False
-        
+
         if self.defaultHierarchy.name != other.defaultHierarchy.name:
             return False
 
@@ -60,7 +101,7 @@ class Dimension:
             self.defaultHierarchy.name,
             frozenset(self.hierarchies)
         ))
-    
+
     def __repr__(self):
         return f"{self.type}('{self.name}')"
 
@@ -74,41 +115,49 @@ class Dimension:
     @classmethod
     def from_dict(
             cls,
-            data: Dict[str, Any],
-            *,
-            source_path: Optional[str] = None
+            data: Dict[str, Any]
     ) -> "Dimension":
 
         name = data.get("name") or data.get("Name")
-        resolved_path = source_path or f"dimensions/{name}.json"
-
         hierarchy_payloads = data.get("hierarchies") or data.get("Hierarchies") or []
-        hierarchies = [
-            Hierarchy.from_dict(payload, dimension_name=name)
-            for payload in hierarchy_payloads
-        ]
+        hierarchies = [Hierarchy.from_dict(payload) for payload in hierarchy_payloads]
 
         default_payload = data.get("defaultHierarchy") or data.get("DefaultHierarchy") or {}
-        default_name = default_payload.get("name") or default_payload.get("Name")
+        default_name = None
+        if isinstance(default_payload, str):
+            pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
+            match = re.search(pattern, default_payload)
+            if match:
+                _, default_name = match.groups()
+        elif isinstance(default_payload, dict):
+            default_name = default_payload.get("name") or default_payload.get("Name")
+            if not default_name:
+                default_id = default_payload.get("@id") or default_payload.get("id")
+                if isinstance(default_id, str):
+                    pattern = r"Dimensions\('([^']*)'\)/Hierarchies\('([^']*)'\)"
+                    match = re.search(pattern, default_id)
+                    if match:
+                        _, default_name = match.groups()
 
         default_hierarchy = None
         if default_name:
             default_hierarchy = next((hier for hier in hierarchies if hier.name == default_name), None)
-        if default_hierarchy is None and default_payload:
-            default_hierarchy = Hierarchy.from_dict(default_payload, dimension_name=name)
+        if default_hierarchy is None and isinstance(default_payload, dict) and default_payload:
+            default_hierarchy = Hierarchy.from_dict(default_payload)
             hierarchies.append(default_hierarchy)
         if default_hierarchy is None and hierarchies:
             default_hierarchy = hierarchies[0]
         if default_hierarchy is None:
-            hierarchy_path = f"{cls.as_link(name)}.hierarchies/{name}.json"
-            default_hierarchy = Hierarchy(name=name, elements=[], edges=[], subsets=[], source_path=hierarchy_path)
+            default_hierarchy = Hierarchy(name=name, elements=[], edges=[], subsets=[])
 
-        return cls(name=name, hierarchies=hierarchies, defaultHierarchy=default_hierarchy, source_path=resolved_path)
+        return cls(name=name, hierarchies=hierarchies, defaultHierarchy=default_hierarchy)
 
     @staticmethod
-    def as_link(name):
-        # /dimensions/Dimension_A.json
-        return '/dimensions/' + name
+    def uri_for(dimension_name: str) -> str:
+        return f"Dimensions('{dimension_name}')"
+
+    def uri(self) -> str:
+        return self.uri_for(self.name)
 
 
 # ------------------------------------------------------------------------------------------------------------

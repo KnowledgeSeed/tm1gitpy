@@ -1,0 +1,5 @@
+{
+	"@type":"Subset",
+	"Name":"TestDimMultiHierDynamicSubset",
+	"Expression":"{DRILLDOWNMEMBER({TM1SUBSETALL([TestDimMultiHier].[TestDimMultiHier])}, {[TestDimMultiHier].[TestDimMultiHier].[DimElemC]})}"
+}

@@ -1,24 +1,24 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}StatsStatsForServer",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}StatsStatsForServer",
+	"Elements":
+	[
 		{
-			"name": "Number of Connected Clients",
-			"type": "Numeric"
+			"Name":"Memory In Garbage",
+			"Type":"Numeric"
 		},
 		{
-			"name": "Number of Active Threads",
-			"type": "Numeric"
+			"Name":"Memory Used",
+			"Type":"Numeric"
 		},
 		{
-			"name": "Memory Used",
-			"type": "Numeric"
+			"Name":"Number of Active Threads",
+			"Type":"Numeric"
 		},
 		{
-			"name": "Memory In Garbage",
-			"type": "Numeric"
+			"Name":"Number of Connected Clients",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

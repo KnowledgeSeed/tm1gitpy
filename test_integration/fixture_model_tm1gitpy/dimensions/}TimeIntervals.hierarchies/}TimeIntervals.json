@@ -1,684 +1,684 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}TimeIntervals",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}TimeIntervals",
+	"Elements":
+	[
 		{
-			"name": "LATEST",
-			"type": "Numeric"
+			"Name":"0H00",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M00",
-			"type": "Numeric"
+			"Name":"0H01",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M01",
-			"type": "Numeric"
+			"Name":"0H02",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M02",
-			"type": "Numeric"
+			"Name":"0H03",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M03",
-			"type": "Numeric"
+			"Name":"0H04",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M04",
-			"type": "Numeric"
+			"Name":"0H05",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M05",
-			"type": "Numeric"
+			"Name":"0H06",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M06",
-			"type": "Numeric"
+			"Name":"0H07",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M07",
-			"type": "Numeric"
+			"Name":"0H08",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M08",
-			"type": "Numeric"
+			"Name":"0H09",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M09",
-			"type": "Numeric"
+			"Name":"0H10",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M10",
-			"type": "Numeric"
+			"Name":"0H11",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M11",
-			"type": "Numeric"
+			"Name":"0H12",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M12",
-			"type": "Numeric"
+			"Name":"0H13",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M13",
-			"type": "Numeric"
+			"Name":"0H14",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M14",
-			"type": "Numeric"
+			"Name":"0H15",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M15",
-			"type": "Numeric"
+			"Name":"0H16",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M16",
-			"type": "Numeric"
+			"Name":"0H17",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M17",
-			"type": "Numeric"
+			"Name":"0H18",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M18",
-			"type": "Numeric"
+			"Name":"0H19",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M19",
-			"type": "Numeric"
+			"Name":"0H20",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M20",
-			"type": "Numeric"
+			"Name":"0H21",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M21",
-			"type": "Numeric"
+			"Name":"0H22",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M22",
-			"type": "Numeric"
+			"Name":"0H23",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M23",
-			"type": "Numeric"
+			"Name":"0M00",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M24",
-			"type": "Numeric"
+			"Name":"0M01",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M25",
-			"type": "Numeric"
+			"Name":"0M02",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M26",
-			"type": "Numeric"
+			"Name":"0M03",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M27",
-			"type": "Numeric"
+			"Name":"0M04",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M28",
-			"type": "Numeric"
+			"Name":"0M05",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M29",
-			"type": "Numeric"
+			"Name":"0M06",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M30",
-			"type": "Numeric"
+			"Name":"0M07",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M31",
-			"type": "Numeric"
+			"Name":"0M08",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M32",
-			"type": "Numeric"
+			"Name":"0M09",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M33",
-			"type": "Numeric"
+			"Name":"0M10",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M34",
-			"type": "Numeric"
+			"Name":"0M11",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M35",
-			"type": "Numeric"
+			"Name":"0M12",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M36",
-			"type": "Numeric"
+			"Name":"0M13",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M37",
-			"type": "Numeric"
+			"Name":"0M14",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M38",
-			"type": "Numeric"
+			"Name":"0M15",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M39",
-			"type": "Numeric"
+			"Name":"0M16",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M40",
-			"type": "Numeric"
+			"Name":"0M17",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M41",
-			"type": "Numeric"
+			"Name":"0M18",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M42",
-			"type": "Numeric"
+			"Name":"0M19",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M43",
-			"type": "Numeric"
+			"Name":"0M20",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M44",
-			"type": "Numeric"
+			"Name":"0M21",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M45",
-			"type": "Numeric"
+			"Name":"0M22",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M46",
-			"type": "Numeric"
+			"Name":"0M23",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M47",
-			"type": "Numeric"
+			"Name":"0M24",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M48",
-			"type": "Numeric"
+			"Name":"0M25",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M49",
-			"type": "Numeric"
+			"Name":"0M26",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M50",
-			"type": "Numeric"
+			"Name":"0M27",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M51",
-			"type": "Numeric"
+			"Name":"0M28",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M52",
-			"type": "Numeric"
+			"Name":"0M29",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M53",
-			"type": "Numeric"
+			"Name":"0M30",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M54",
-			"type": "Numeric"
+			"Name":"0M31",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M55",
-			"type": "Numeric"
+			"Name":"0M32",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M56",
-			"type": "Numeric"
+			"Name":"0M33",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M57",
-			"type": "Numeric"
+			"Name":"0M34",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M58",
-			"type": "Numeric"
+			"Name":"0M35",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0M59",
-			"type": "Numeric"
+			"Name":"0M36",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M00",
-			"type": "Numeric"
+			"Name":"0M37",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M01",
-			"type": "Numeric"
+			"Name":"0M38",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M02",
-			"type": "Numeric"
+			"Name":"0M39",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M03",
-			"type": "Numeric"
+			"Name":"0M40",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M04",
-			"type": "Numeric"
+			"Name":"0M41",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M05",
-			"type": "Numeric"
+			"Name":"0M42",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M06",
-			"type": "Numeric"
+			"Name":"0M43",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M07",
-			"type": "Numeric"
+			"Name":"0M44",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M08",
-			"type": "Numeric"
+			"Name":"0M45",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M09",
-			"type": "Numeric"
+			"Name":"0M46",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M10",
-			"type": "Numeric"
+			"Name":"0M47",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M11",
-			"type": "Numeric"
+			"Name":"0M48",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M12",
-			"type": "Numeric"
+			"Name":"0M49",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M13",
-			"type": "Numeric"
+			"Name":"0M50",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M14",
-			"type": "Numeric"
+			"Name":"0M51",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M15",
-			"type": "Numeric"
+			"Name":"0M52",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M16",
-			"type": "Numeric"
+			"Name":"0M53",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M17",
-			"type": "Numeric"
+			"Name":"0M54",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M18",
-			"type": "Numeric"
+			"Name":"0M55",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M19",
-			"type": "Numeric"
+			"Name":"0M56",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M20",
-			"type": "Numeric"
+			"Name":"0M57",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M21",
-			"type": "Numeric"
+			"Name":"0M58",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M22",
-			"type": "Numeric"
+			"Name":"0M59",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M23",
-			"type": "Numeric"
+			"Name":"1H00",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M24",
-			"type": "Numeric"
+			"Name":"1H01",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M25",
-			"type": "Numeric"
+			"Name":"1H02",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M26",
-			"type": "Numeric"
+			"Name":"1H03",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M27",
-			"type": "Numeric"
+			"Name":"1H04",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M28",
-			"type": "Numeric"
+			"Name":"1H05",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M29",
-			"type": "Numeric"
+			"Name":"1H06",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M30",
-			"type": "Numeric"
+			"Name":"1H07",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M31",
-			"type": "Numeric"
+			"Name":"1H08",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M32",
-			"type": "Numeric"
+			"Name":"1H09",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M33",
-			"type": "Numeric"
+			"Name":"1H10",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M34",
-			"type": "Numeric"
+			"Name":"1H11",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M35",
-			"type": "Numeric"
+			"Name":"1H12",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M36",
-			"type": "Numeric"
+			"Name":"1H13",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M37",
-			"type": "Numeric"
+			"Name":"1H14",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M38",
-			"type": "Numeric"
+			"Name":"1H15",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M39",
-			"type": "Numeric"
+			"Name":"1H16",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M40",
-			"type": "Numeric"
+			"Name":"1H17",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M41",
-			"type": "Numeric"
+			"Name":"1H18",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M42",
-			"type": "Numeric"
+			"Name":"1H19",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M43",
-			"type": "Numeric"
+			"Name":"1H20",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M44",
-			"type": "Numeric"
+			"Name":"1H21",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M45",
-			"type": "Numeric"
+			"Name":"1H22",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M46",
-			"type": "Numeric"
+			"Name":"1H23",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M47",
-			"type": "Numeric"
+			"Name":"1M00",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M48",
-			"type": "Numeric"
+			"Name":"1M01",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M49",
-			"type": "Numeric"
+			"Name":"1M02",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M50",
-			"type": "Numeric"
+			"Name":"1M03",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M51",
-			"type": "Numeric"
+			"Name":"1M04",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M52",
-			"type": "Numeric"
+			"Name":"1M05",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M53",
-			"type": "Numeric"
+			"Name":"1M06",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M54",
-			"type": "Numeric"
+			"Name":"1M07",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M55",
-			"type": "Numeric"
+			"Name":"1M08",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M56",
-			"type": "Numeric"
+			"Name":"1M09",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M57",
-			"type": "Numeric"
+			"Name":"1M10",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M58",
-			"type": "Numeric"
+			"Name":"1M11",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1M59",
-			"type": "Numeric"
+			"Name":"1M12",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H00",
-			"type": "Numeric"
+			"Name":"1M13",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H01",
-			"type": "Numeric"
+			"Name":"1M14",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H02",
-			"type": "Numeric"
+			"Name":"1M15",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H03",
-			"type": "Numeric"
+			"Name":"1M16",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H04",
-			"type": "Numeric"
+			"Name":"1M17",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H05",
-			"type": "Numeric"
+			"Name":"1M18",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H06",
-			"type": "Numeric"
+			"Name":"1M19",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H07",
-			"type": "Numeric"
+			"Name":"1M20",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H08",
-			"type": "Numeric"
+			"Name":"1M21",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H09",
-			"type": "Numeric"
+			"Name":"1M22",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H10",
-			"type": "Numeric"
+			"Name":"1M23",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H11",
-			"type": "Numeric"
+			"Name":"1M24",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H12",
-			"type": "Numeric"
+			"Name":"1M25",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H13",
-			"type": "Numeric"
+			"Name":"1M26",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H14",
-			"type": "Numeric"
+			"Name":"1M27",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H15",
-			"type": "Numeric"
+			"Name":"1M28",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H16",
-			"type": "Numeric"
+			"Name":"1M29",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H17",
-			"type": "Numeric"
+			"Name":"1M30",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H18",
-			"type": "Numeric"
+			"Name":"1M31",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H19",
-			"type": "Numeric"
+			"Name":"1M32",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H20",
-			"type": "Numeric"
+			"Name":"1M33",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H21",
-			"type": "Numeric"
+			"Name":"1M34",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H22",
-			"type": "Numeric"
+			"Name":"1M35",
+			"Type":"Numeric"
 		},
 		{
-			"name": "0H23",
-			"type": "Numeric"
+			"Name":"1M36",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H00",
-			"type": "Numeric"
+			"Name":"1M37",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H01",
-			"type": "Numeric"
+			"Name":"1M38",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H02",
-			"type": "Numeric"
+			"Name":"1M39",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H03",
-			"type": "Numeric"
+			"Name":"1M40",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H04",
-			"type": "Numeric"
+			"Name":"1M41",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H05",
-			"type": "Numeric"
+			"Name":"1M42",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H06",
-			"type": "Numeric"
+			"Name":"1M43",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H07",
-			"type": "Numeric"
+			"Name":"1M44",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H08",
-			"type": "Numeric"
+			"Name":"1M45",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H09",
-			"type": "Numeric"
+			"Name":"1M46",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H10",
-			"type": "Numeric"
+			"Name":"1M47",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H11",
-			"type": "Numeric"
+			"Name":"1M48",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H12",
-			"type": "Numeric"
+			"Name":"1M49",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H13",
-			"type": "Numeric"
+			"Name":"1M50",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H14",
-			"type": "Numeric"
+			"Name":"1M51",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H15",
-			"type": "Numeric"
+			"Name":"1M52",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H16",
-			"type": "Numeric"
+			"Name":"1M53",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H17",
-			"type": "Numeric"
+			"Name":"1M54",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H18",
-			"type": "Numeric"
+			"Name":"1M55",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H19",
-			"type": "Numeric"
+			"Name":"1M56",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H20",
-			"type": "Numeric"
+			"Name":"1M57",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H21",
-			"type": "Numeric"
+			"Name":"1M58",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H22",
-			"type": "Numeric"
+			"Name":"1M59",
+			"Type":"Numeric"
 		},
 		{
-			"name": "1H23",
-			"type": "Numeric"
+			"Name":"LATEST",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

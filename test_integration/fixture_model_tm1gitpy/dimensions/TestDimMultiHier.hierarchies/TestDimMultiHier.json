@@ -1,39 +1,45 @@
 {
-	"@type": "Hierarchy",
-	"Name": "TestDimMultiHier",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"TestDimMultiHier",
+	"Elements":
+	[
 		{
-			"name": "DimElem1",
-			"type": "Numeric"
+			"Name":"DimElem1",
+			"Type":"Numeric"
 		},
 		{
-			"name": "DimElem2",
-			"type": "Numeric"
+			"Name":"DimElem2",
+			"Type":"Numeric"
 		},
 		{
-			"name": "DimElemC",
-			"type": "Consolidated"
+			"Name":"DimElemC",
+			"Type":"Consolidated"
 		},
 		{
-			"name": "a",
-			"type": "Numeric"
+			"Name":"a",
+			"Type":"Numeric"
 		},
 		{
-			"name": "b",
-			"type": "Numeric"
+			"Name":"b",
+			"Type":"Numeric"
 		}
 	],
-	"Edges": [
+	"Edges":
+	[
 		{
-			"parent": "DimElemC",
-			"name": "a",
-			"weight": 1
+			"ParentName":"DimElemC",
+			"ComponentName":"a",
+			"Weight":1
 		},
 		{
-			"parent": "DimElemC",
-			"name": "b",
-			"weight": 1
+			"ParentName":"DimElemC",
+			"ComponentName":"b",
+			"Weight":1
 		}
 	],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":
+	[
+		"TestDimMultiHier.subsets/TestDimMultiHierDynamicSubset.json",
+		"TestDimMultiHier.subsets/TestDimMultiHierStaticSubset.json"
+	]
 }

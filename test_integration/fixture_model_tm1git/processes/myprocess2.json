@@ -4,10 +4,42 @@
 	"HasSecurityAccess":false,
 	"Code@Code.link":"myprocess2.ti",
 	"UIData":"CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f",
+	"VariablesUIData":
+	[
+		"VarType=32\fColType=827\f",
+		"VarType=32\fColType=827\f",
+		"VarType=33\fColType=827\f"
+	],
 	"DataSource":
 	{
-		"Type":"None"
+		"Type":"TM1CubeView",
+		"dataSourceNameForClient":"TestCube3WithView",
+		"dataSourceNameForServer":"TestCube3WithView",
+		"view":"testcube3withview_view1"
 	},
 	"Parameters":[],
-	"Variables":[]
+	"Variables":
+	[
+		{
+			"Name":"v1",
+			"Type":"String",
+			"Position":1,
+			"StartByte":0,
+			"EndByte":0
+		},
+		{
+			"Name":"v2",
+			"Type":"String",
+			"Position":2,
+			"StartByte":0,
+			"EndByte":0
+		},
+		{
+			"Name":"v3",
+			"Type":"Numeric",
+			"Position":3,
+			"StartByte":0,
+			"EndByte":0
+		}
+	]
 }

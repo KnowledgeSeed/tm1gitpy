@@ -1,16 +1,17 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}Views_testcube3withview",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}Views_testcube3withview",
+	"ElementsSortType":"ByName",
+	"Elements":
+	[
 		{
-			"name": "testcube3withview_view1",
-			"type": "String"
+			"Name":"testcube3withview_view1",
+			"Type":"String"
 		},
 		{
-			"name": "testcube3withview_view2",
-			"type": "String"
+			"Name":"testcube3withview_view2",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }

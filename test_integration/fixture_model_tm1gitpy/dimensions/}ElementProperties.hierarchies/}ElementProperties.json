@@ -1,12 +1,12 @@
 {
-	"@type": "Hierarchy",
-	"Name": "}ElementProperties",
-	"Elements": [
+	"@type":"Hierarchy",
+	"Name":"}ElementProperties",
+	"Elements":
+	[
 		{
-			"name": "LOCK",
-			"type": "String"
+			"Name":"LOCK",
+			"Type":"String"
 		}
 	],
-	"Edges": [],
-	"Subsets@Code.links": []
+	"Subsets@Code.links":[]
 }
