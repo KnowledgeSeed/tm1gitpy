@@ -1,9 +1,11 @@
 import importlib
 import logging
 import re
+import uuid
 from pathlib import Path
 from typing import Iterable, Optional, Union, TypeVar
 
+import TM1py
 from TM1py import TM1Service
 from requests import Response
 
@@ -17,7 +19,7 @@ from tm1_git_py.reporting.progress_reporting import (
     ProgressSink,
     ProgressUnit,
 )
-from tm1_git_py.services.changeset import ChangeType, Change
+from tm1_git_py.services.changeset import ChangeType, Change, ObjectType
 from tm1_git_py.services.changeset_status import ChangeSetStatusStore
 from tm1_git_py.services.filter import DEFAULT_TM1_TECHNICAL_OBJECTS, should_exclude_path
 
@@ -420,3 +422,185 @@ def _prepare_execution_changes(changes: Iterable[Change]) -> list[Change]:
         len(executable_changes),
     )
     return sorted_execution_changes
+
+# --------------------------------------------------------------------------------
+# Master TI for batch update and rollback functionality
+# --------------------------------------------------------------------------------
+
+ATOMIC_SCHEMA_OBJECT_TYPES = {
+    ObjectType.DIMENSION,
+    ObjectType.HIERARCHY,
+    ObjectType.ELEMENT,
+    ObjectType.EDGE,
+    ObjectType.SUBSET,
+    ObjectType.CUBE,
+    ObjectType.MDX_VIEW,
+    ObjectType.NATIVE_VIEW,
+    ObjectType.RULE,
+}
+
+PROCESS_AND_CHORE_OBJECT_TYPES = {
+    ObjectType.PROCESS,
+    ObjectType.CHORE,
+}
+
+
+def _filter_changeset(changeset: Changeset, object_types: set[ObjectType]) -> Changeset:
+    filtered = Changeset()
+    filtered._changeset_id = changeset._changeset_id
+    filtered.last_execution_id = changeset.last_execution_id
+    filtered.errors = dict(changeset.errors)
+    filtered.changes = [
+        change for change in changeset.changes
+        if change.object_type in object_types
+    ]
+    return filtered
+
+
+def build_master_changeset_ti(changeset: Changeset) -> str:
+    """
+    Compiles a Changeset object into a single Atomic TurboIntegrator script.
+    """
+    ti_lines: list[str] = [
+        "# **** Atomic Changeset Execution ****",
+        "",
+    ]
+
+    # Keep execution order aligned with the regular apply pipeline.
+    execution_changes = _prepare_execution_changes(changeset.changes)
+    action_to_suffix = {
+        ChangeType.ADD: "create",
+        ChangeType.MODIFY: "update",
+        ChangeType.REMOVE: "delete",
+    }
+
+    for change in execution_changes:
+        action = ChangeType.from_raw(change.change_type)
+        builder_suffix = action_to_suffix[action]
+        obj = change.body
+        module = importlib.import_module(obj.__class__.__module__)
+        object_type = change.object_type.value
+
+        candidates = [
+            object_type.lower(),
+            _camel_to_snake(object_type),
+            obj.__class__.__name__.lower(),
+            _camel_to_snake(obj.__class__.__name__),
+        ]
+
+        builder = None
+        for candidate in dict.fromkeys(candidates):
+            fn = getattr(module, f"build_{candidate}_{builder_suffix}_ti", None)
+            if fn is not None:
+                builder = fn
+                break
+
+        if builder is None:
+            logger.debug(
+                "Skipping TI snippet build for %s %s: no build_*_%s_ti function in %s",
+                action.value,
+                object_type,
+                builder_suffix,
+                module.__name__,
+            )
+            continue
+
+        try:
+            snippet = builder(obj, uri=change.uri)
+        except TypeError:
+            snippet = builder(obj)
+        if snippet:
+            ti_lines.append(snippet)
+            ti_lines.append("")
+
+    return "\r\n".join(ti_lines)
+
+
+def apply_atomic(changeset: Changeset, tm1_service: TM1Service) -> bool:
+    if not changeset.has_changes():
+        return True
+
+    # 1. Generate the Code
+    master_ti_code = build_master_changeset_ti(changeset)
+    print(master_ti_code)
+
+    # 2. Create Ephemeral Process
+    process_name = f"}}git_atomic_{uuid.uuid4().hex}"
+    process = TM1py.Process(
+        name=process_name,
+        prolog_procedure=master_ti_code,
+        has_security_access=True
+    )
+
+    try:
+        # 3. Deploy
+        tm1_service.processes.create(process)
+
+        # 4. Execute (The Atomic Moment)
+        tm1_service.processes.execute(process_name)
+        return True
+
+    except Exception as e:
+        print(f"Atomic Batch Failed: {e}")
+        raise e
+
+    finally:
+        # 5. Cleanup
+        if tm1_service.processes.exists(process_name):
+            tm1_service.processes.delete(process_name)
+
+
+def apply_with_atomic_schema(
+        changeset: Changeset,
+        tm1_service: TM1Service,
+        *,
+        status_dir: Optional[Union[str, Path]] = None,
+        execution_id: Optional[str] = None,
+        fail_fast: bool = True,
+        progress_sink: Optional[ProgressSink] = None,
+) -> tuple[bool, Union[list, None]]:
+    """
+    Apply schema changes atomically, then apply process and chore changes via the regular TM1py flow.
+    """
+    logger.info(
+        "Starting atomic-schema apply execution_id=%s fail_fast=%s changes=%d",
+        execution_id,
+        fail_fast,
+        len(changeset.changes),
+    )
+    if not changeset.has_changes():
+        logger.info("No changes to apply.")
+        return True, None
+
+    schema_changeset = _filter_changeset(changeset, ATOMIC_SCHEMA_OBJECT_TYPES)
+    process_and_chore_changeset = _filter_changeset(changeset, PROCESS_AND_CHORE_OBJECT_TYPES)
+
+    applied_changes: list[str] = []
+
+    if schema_changeset.has_changes():
+        logger.info("Applying %d schema change(s) atomically", len(schema_changeset.changes))
+        ok = apply_atomic(schema_changeset, tm1_service)
+        if not ok:
+            return False, None
+        applied_changes.extend(
+            change.uri for change in _prepare_execution_changes(schema_changeset.changes)
+        )
+
+    if process_and_chore_changeset.has_changes():
+        logger.info(
+            "Applying %d process/chore change(s) through regular TM1py apply",
+            len(process_and_chore_changeset.changes),
+        )
+        ok, changes = apply(
+            changeset=process_and_chore_changeset,
+            tm1_service=tm1_service,
+            status_dir=status_dir,
+            execution_id=execution_id,
+            fail_fast=fail_fast,
+            progress_sink=progress_sink,
+        )
+        if changes:
+            applied_changes.extend(changes)
+        return ok, applied_changes or None
+
+    return True, applied_changes or None

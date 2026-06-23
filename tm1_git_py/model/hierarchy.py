@@ -617,6 +617,7 @@ def create_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optiona
 
 
 def update_hierarchy(tm1_service: TM1Service, hierarchy: Hierarchy, uri: Optional[str] = None) -> Response:
+    _ = tm1_service
     dimension_name, _ = _hierarchy_context_from_uri(uri)
     logger.info("Skipping direct Hierarchy update for '%s'; updates are handled by child changes.", hierarchy.name)
     return _build_noop_update_response(
@@ -644,48 +645,46 @@ def _build_noop_update_response(resource_url: str, message: str) -> Response:
 # Utility: interface between tm1_git_py and TI processes for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-def _escape_ti(value: str) -> str:
-    if value is None: return ""
+def _escape_ti(value: str | None) -> str:
+    if value is None: 
+        return ""
     return str(value).replace("'", "''")
 
 def _map_ti_type(api_type: str) -> str:
-    if not api_type: return "N"
+    if not api_type: 
+        return "N"
     t = api_type.lower()
-    if "string" in t: return "S"
-    if "consolidated" in t: return "C"
+    if "string" in t: 
+        return "S"
+    if "consolidated" in t: 
+        return "C"
     return "N"
 
 
-def build_hierarchy_create_ti(hierarchy: Hierarchy, dimension_name: Optional[str] = None) -> str:
+def build_hierarchy_create_ti(hierarchy: Hierarchy, dimension_name: Optional[str] = None, uri: Optional[str] = None) -> str:
     """
     Generates TI code to create a Hierarchy, Elements, and Edges.
     Does NOT check for Dimension existence (relies on TM1 erroring out to trigger rollback).
+    Notes: 
+        Only needed for named hierarchies.
+        The 'Leaves' hierarchy (same name as dim) is created automatically with the Dimension.
     """
 
-    # 1. Resolve Context
-    # Using your existing helper logic
     if not dimension_name:
-        dimension_name, _ = _hierarchy_context_from_uri(hierarchy.source_path)
+        dimension_name, _ = _hierarchy_context_from_uri(uri)
     hierarchy_name = hierarchy.name
 
-    # 2. Sanitize Inputs for TI
     dim_clean = _escape_ti(dimension_name)
     hier_clean = _escape_ti(hierarchy_name)
 
-    lines = []
-    lines.append(f"# --- Create Hierarchy: {dim_clean}:{hier_clean} ---")
-
-    # 3. Create the Hierarchy Object
-    # If the dimension is missing, 'HierarchyCreate' or 'HierarchyElementInsert'
-    # will throw a critical error, ensuring the transaction rolls back.
+    lines = [f"# --- Create Hierarchy: {dim_clean}:{hier_clean} ---"]
 
     if dimension_name != hierarchy_name:
-        # Only needed for named hierarchies.
-        # The 'Leaves' hierarchy (same name as dim) is created automatically with the Dimension.
-
-        lines.append(f"IF( HierarchyExists('{dim_clean}', '{hier_clean}') = 0 );")
-        lines.append(f"   HierarchyCreate('{dim_clean}', '{hier_clean}');")
-        lines.append(f"ENDIF;")
+        lines += [
+            f"IF( HierarchyExists('{dim_clean}', '{hier_clean}') = 0 );",
+            f"   HierarchyCreate('{dim_clean}', '{hier_clean}');",
+            "ENDIF;",
+        ]
 
     return "\r\n".join(lines)
 
@@ -704,26 +703,21 @@ def build_hierarchy_update_ti(
 
 def build_hierarchy_delete_ti(
         hierarchy: Hierarchy,
+        uri: Optional[str] = None
 ) -> str:
     """
     Generates TI code to delete a hierarchy from a specific dimension.
     """
-    dimension_name, _ = _hierarchy_context_from_uri(hierarchy.source_path)
+    dimension_name, _ = _hierarchy_context_from_uri(uri)
 
-    # 1. Sanitize Inputs
     dim_clean = _escape_ti(dimension_name)
     hier_clean = _escape_ti(hierarchy.name)
 
-    lines = []
-    lines.append(f"# --- Delete Hierarchy: {hier_clean} ---")
-
-    # 2. Check Existence
-    # HierarchyExists returns 1 if found, 0 if not.
-    lines.append(f"IF( HierarchyExists('{dim_clean}', '{hier_clean}') = 1 );")
-
-    # 3. Delete
-    lines.append(f"   HierarchyDestroy('{dim_clean}', '{hier_clean}');")
-
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Delete Hierarchy: {hier_clean} ---",
+        f"IF( HierarchyExists('{dim_clean}', '{hier_clean}') = 1 );",
+        f"   HierarchyDestroy('{dim_clean}', '{hier_clean}');",
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)

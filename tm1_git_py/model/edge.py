@@ -145,16 +145,16 @@ def delete_edge(tm1_service: TM1Service, edge: Edge, uri: Optional[str] = None) 
 # Utility: interface between tm1_git_py and TI processes for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-def _escape_ti(value: str) -> str:
+def _escape_ti(value: str | None) -> str:
     return str(value).replace("'", "''") if value else ""
 
 
-def build_edge_create_ti(edge: Edge) -> str:
+def build_edge_create_ti(edge: Edge, uri: Optional[str] = None) -> str:
     """
     Generates TI to add a component (child) to a parent.
     Acts as an Upsert (Updates weight if edge already exists).
     """
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=edge.source_path)
+    dimension_name, hierarchy_name = _edge_context_from_uri(uri=uri)
 
     # 1. Sanitize Inputs
     dim_clean = _escape_ti(dimension_name)
@@ -163,39 +163,36 @@ def build_edge_create_ti(edge: Edge) -> str:
     child_clean = _escape_ti(edge.name)  # Assuming edge.name is the Child element
     weight = edge.weight
 
-    lines = []
-    lines.append(f"# --- Create Edge: {parent_clean} -> {child_clean} (Weight: {weight}) ---")
-    lines.append(f"IF( ElementIsComponent('{dim_clean}', '{hier_clean}', '{child_clean}', '{parent_clean}') = 0 );")
-
-    # 2. Add Component
-    # Syntax: HierarchyElementComponentAdd(DimName, HierName, ConsolidatedElName, ElName, ElWeight);
-    lines.append(
-        f"    HierarchyElementComponentAdd('{dim_clean}', '{hier_clean}', '{parent_clean}', '{child_clean}', {weight});"
-    )
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Create Edge: {parent_clean} -> {child_clean} (Weight: {weight}) ---",
+        f"IF( ElementIsComponent('{dim_clean}', '{hier_clean}', '{child_clean}', '{parent_clean}') = 0 );",
+        f"    HierarchyElementComponentAdd('{dim_clean}', '{hier_clean}', '{parent_clean}', '{child_clean}', {weight});",
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)
 
 
-def build_edge_update_ti(edge: Edge) -> str:
+def build_edge_update_ti(edge: Edge,  uri: Optional[str] = None,) -> str:
     """
     Interface for Component Upsert via the build_edge_create_ti function.
     """
     parent_clean = _escape_ti(edge.parent)
     child_clean = _escape_ti(edge.name)
 
-    lines = []
-    lines.append(f"# --- Update (Recreate) Edge: {parent_clean} -> {child_clean} ---")
-    lines.append(build_edge_delete_ti(edge))
-    lines.append(build_edge_create_ti(edge))
+    lines = [
+        f"# --- Update (Recreate) Edge: {parent_clean} -> {child_clean} ---",
+        build_edge_delete_ti(edge, uri),
+        build_edge_create_ti(edge, uri)
+    ]
     return "\r\n".join(lines)
 
 
-def build_edge_delete_ti(edge: Edge) -> str:
+def build_edge_delete_ti(edge: Edge, uri: Optional[str] = None) -> str:
     """
     Generates TI to remove a component (child) from a parent.
     """
-    dimension_name, hierarchy_name = _edge_context_from_path(source_path=edge.source_path)
+    dimension_name, hierarchy_name = _edge_context_from_uri(uri=uri)
 
     # 1. Sanitize Inputs
     dim_clean = _escape_ti(dimension_name)
@@ -203,19 +200,11 @@ def build_edge_delete_ti(edge: Edge) -> str:
     parent_clean = _escape_ti(edge.parent)
     child_clean = _escape_ti(edge.name)
 
-    lines = []
-    lines.append(f"# --- Remove Edge: {parent_clean} -> {child_clean} ---")
-
-    # 2. Check Existence
-    # ElementIsComponent(Dim, Hier, Child, Parent ) returns 1 if true.
-    lines.append(f"IF( ElementIsComponent('{dim_clean}', '{hier_clean}', '{child_clean}', '{parent_clean}') = 1 );")
-
-    # 3. Delete Component
-    # Syntax: HierarchyElementComponentDelete(DimName, HierName, ConsolidatedElName, ElName);
-    lines.append(
-        f"    HierarchyElementComponentDelete('{dim_clean}', '{hier_clean}', '{parent_clean}', '{child_clean}');"
-    )
-
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Remove Edge: {parent_clean} -> {child_clean} ---",
+        f"IF( ElementIsComponent('{dim_clean}', '{hier_clean}', '{child_clean}', '{parent_clean}') = 1 );",
+        f"    HierarchyElementComponentDelete('{dim_clean}', '{hier_clean}', '{parent_clean}', '{child_clean}');",
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)

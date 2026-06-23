@@ -353,8 +353,9 @@ def _build_cube_mdx_with_dim_sets(
 # Utility: interface between tm1_git_py and TI processes for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-def _escape_ti(value: str) -> str:
-    if value is None: return ""
+def _escape_ti(value: str | None) -> str:
+    if value is None:
+        return ""
     return str(value).replace("'", "''")
 
 
@@ -364,14 +365,24 @@ def build_cube_create_ti(cube: Cube) -> str:
     """
 
     cube_clean = _escape_ti(cube.name)
-    dims_clean = [_escape_ti(dim.name) for dim in cube.dimensions]
+    dims_clean = [_escape_ti(dim) for dim in cube.dimensions]
     all_dims_str = ", ".join(f"'{dim_name}'" for dim_name in dims_clean)
+    rule_clean = _escape_ti(cube.get_rule_text()) or None
 
-    lines = []
-    lines.append(f"# --- Create Cube: {cube_clean} ---")
-    lines.append(f"IF( CubeExists('{cube_clean}') = 0 );")
-    lines.append(f"    CubeCreate('{cube_clean}', {all_dims_str});")
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Create Cube: {cube_clean} ---", f"IF( CubeExists('{cube_clean}') = 0 );",
+        f"    CubeCreate('{cube_clean}', {all_dims_str});",
+        "ENDIF;"
+    ]
+
+    if rule_clean:
+        rule_lines = [
+            f"# --- Add Rule to new Cube: {cube_clean} ---",
+            f"IF( CubeExists('{cube_clean}') = 1 );",
+            f"    CubeRuleSet('{cube_clean}', '{rule_clean}');",
+            "ENDIF;"
+        ]
+        lines += rule_lines
 
     return "\r\n".join(lines)
 
@@ -381,14 +392,15 @@ def build_cube_update_ti(cube: Cube) -> str:
     Generates TI code to update the Rules of a Cube.
     """
 
-    lines = []
     cube_clean = _escape_ti(cube.name)
     rule_clean = _escape_ti(cube.get_rule_text())
 
-    lines.append(f"# --- Update Cube Rules: {cube_clean} ---")
-    lines.append(f"IF( CubeExists('{cube_clean}') = 1 );")
-    lines.append(f"    CubeRuleSet('{cube_clean}', '{rule_clean}');")
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Update Cube Rules: {cube_clean} ---",
+        f"IF( CubeExists('{cube_clean}') = 1 );",
+        f"    CubeRuleSet('{cube_clean}', '{rule_clean}');",
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)
 
@@ -399,10 +411,11 @@ def build_cube_delete_ti(cube: Cube) -> str:
     """
     cube_clean = _escape_ti(cube.name)
 
-    lines = []
-    lines.append(f"# --- Delete Cube: {cube_clean} ---")
-    lines.append(f"IF( CubeExists('{cube_clean}') = 1 );")
-    lines.append(f"    CubeDestroy('{cube_clean}');")
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Delete Cube: {cube_clean} ---",
+        f"IF( CubeExists('{cube_clean}') = 1 );",
+        f"    CubeDestroy('{cube_clean}');",
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)

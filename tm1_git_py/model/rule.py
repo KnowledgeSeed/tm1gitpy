@@ -115,3 +115,61 @@ def update_rule(tm1_service: TM1Service, rule: Rule, uri: Optional[str] = None) 
 def delete_rule(tm1_service: TM1Service, rule: Rule, uri: Optional[str] = None) -> Response:
     cube_name = _target_rule_cube_name(uri)
     return tm1_service.cubes.update_or_create_rules(cube_name=cube_name, rules="")
+
+
+# ------------------------------------------------------------------------------------------------------------
+# Utility: interface between tm1_git_py and TI processes for CRUD operations
+# ------------------------------------------------------------------------------------------------------------
+
+def _escape_ti(value: str | None) -> str:
+    if value is None:
+        return ""
+    return str(value).replace("'", "''")
+
+
+def format_rul_for_ti(rule_text: str | None) -> str:
+    if rule_text is None:
+        return "''"
+    lines = str(rule_text).splitlines()
+    if not lines:
+        return "''"
+    return " | CHAR(10) | ".join(f"'{_escape_ti(line)}'" for line in lines)
+
+
+def build_rule_create_ti(rule: Rule, uri: Optional[str] = None) -> str:
+    cube_name = _target_rule_cube_name(uri)
+    cube_clean = _escape_ti(cube_name)
+    rule_expr = format_rul_for_ti(rule.full_statement)
+    lines = [
+        f"# --- Create Cube Rules: {cube_clean} ---",
+        f"IF( CubeExists('{cube_clean}') = 1 );",
+        f"    CubeRuleSet('{cube_clean}', {rule_expr});",
+        "ENDIF;"
+    ]
+    return "\r\n".join(lines)
+
+
+def build_rule_update_ti(rule: Rule, uri: Optional[str] = None) -> str:
+    cube_name = _target_rule_cube_name(uri)
+    cube_clean = _escape_ti(cube_name)
+    rule_expr = format_rul_for_ti(rule.full_statement)
+    lines = [
+        f"# --- Update Cube Rules: {cube_clean} ---",
+        f"IF( CubeExists('{cube_clean}') = 1 );",
+        f"    CubeRuleSet('{cube_clean}', {rule_expr});",
+        "ENDIF;"
+    ]
+    return "\r\n".join(lines)
+
+
+def build_rule_delete_ti(rule: Rule, uri: Optional[str] = None) -> str:
+    _ = rule
+    cube_name = _target_rule_cube_name(uri)
+    cube_clean = _escape_ti(cube_name)
+    lines = [
+        f"# --- Delete Cube Rules: {cube_clean} ---",
+        f"IF( CubeExists('{cube_clean}') = 1 );",
+        f"    CubeRuleDestroy('{cube_clean}');",
+        "ENDIF;"
+    ]
+    return "\r\n".join(lines)

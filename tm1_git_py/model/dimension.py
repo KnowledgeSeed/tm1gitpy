@@ -202,7 +202,7 @@ def _build_noop_update_response(resource_url: str, message: str) -> Response:
 # Utility: interface between tm1_git_py and TI processes for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-def _escape_ti(value: str) -> str:
+def _escape_ti(value: str | None) -> str:
     return str(value).replace("'", "''") if value else ""
 
 
@@ -218,11 +218,12 @@ def build_dimension_create_ti(dimension: Union[Dimension, str]) -> str:
 
     dim_clean = _escape_ti(dim_name)
 
-    lines = []
-    lines.append(f"# --- Create Dimension: {dim_clean} ---")
-    lines.append(f"IF( DimensionExists('{dim_clean}') = 0 );")
-    lines.append(f"    DimensionCreate('{dim_clean}');")
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Create Dimension: {dim_clean} ---",
+        f"IF( DimensionExists('{dim_clean}') = 0 );",
+        f"    DimensionCreate('{dim_clean}');",
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)
 
@@ -244,10 +245,10 @@ def build_dimension_delete_ti(dimension: Dimension) -> str:
     """
     dim_clean = _escape_ti(dimension.name)
 
-    lines = []
-    lines.append(f"# --- Delete Dimension: {dim_clean} ---")
-    lines.append(f"IF( DimensionExists('{dim_clean}') = 1 );")
-    lines.append(f"    DimensionDestroy('{dim_clean}');")
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Delete Dimension: {dim_clean} ---",
+        f"IF( DimensionExists('{dim_clean}') = 1 );",
+        f"    DimensionDestroy('{dim_clean}');", "ENDIF;"
+    ]
 
     return "\r\n".join(lines)

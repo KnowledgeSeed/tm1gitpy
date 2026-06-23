@@ -137,81 +137,72 @@ def delete_mdxview(tm1_service: TM1Service, mdx_view: MDXView, uri: Optional[str
 # Utility: interface between tm1_git_py and TI processes for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-def _escape_ti(value: str) -> str:
-    if value is None: return ""
+def _escape_ti(value: str | None) -> str:
+    if value is None:
+        return ""
     return str(value).replace("'", "''")
 
 
-def build_mdxview_create_ti(mdx_view: MDXView) -> str:
+def build_mdxview_create_ti(mdx_view: MDXView, uri: Optional[str] = None) -> str:
     """
     Generates TI code to create an MDX View.
-    Uses 'ViewCreateByMDX' (Available in Planning Analytics / TM1 v11+).
+    Notes:
+        Uses 'ViewCreateByMDX' (Available in Planning Analytics / TM1 v11+).
+        AsTemp: 0 = Permanent
     """
 
-    cube_name, _ = _view_context_from_path(mdx_view.source_path)
+    cube_name, _ = _view_context_from_uri(uri)
 
     cube_clean = _escape_ti(cube_name)
     view_clean = _escape_ti(mdx_view.name)
     mdx_clean = _escape_ti(mdx_view.mdx)
 
-    lines = []
-    lines.append(f"# --- Create MDX View: {view_clean} in Cube: {cube_clean} ---")
-
-    # ViewExists(Cube, View) returns 1 if it exists.
-    lines.append(f"IF( ViewExists('{cube_clean}', '{view_clean}') = 0 );")
-
-    # Syntax: ViewCreateByMDX(Cube, ViewName, MDXExpression, AsTemp);
-    # AsTemp: 0 = Permanent, 1 = Temporary
-    lines.append(f"    ViewCreateByMDX('{cube_clean}', '{view_clean}', '{mdx_clean}', 0);")
-
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Create MDX View: {view_clean} in Cube: {cube_clean} ---",
+        f"IF( ViewExists('{cube_clean}', '{view_clean}') = 0 );",
+        f"    ViewCreateByMDX('{cube_clean}', '{view_clean}', '{mdx_clean}', 0);",
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)
 
 
-def build_mdxview_update_ti(mdx_view: MDXView) -> str:
+def build_mdxview_update_ti(mdx_view: MDXView, uri: Optional[str] = None) -> str:
     """
     Generates TI code to update an MDX View.
     Strategy: Delete existing view -> Recreate with new MDX.
     This ensures type safety (converting Static -> MDX if necessary).
     """
-    cube_name, _ = _view_context_from_path(mdx_view.source_path)
+    cube_name, _ = _view_context_from_uri(uri)
 
     cube_clean = _escape_ti(cube_name)
     view_clean = _escape_ti(mdx_view.name)
     mdx_clean = _escape_ti(mdx_view.mdx)
 
-    lines = []
-    lines.append(f"# --- Update MDX View: {view_clean} in Cube: {cube_clean} ---")
-
-    lines.append(f"IF( ViewExists('{cube_clean}', '{view_clean}') = 1 );")
-    lines.append(f"    ViewDestroy('{cube_clean}', '{view_clean}');")
-    lines.append(f"ENDIF;")
-
-    lines.append(f"ViewCreateByMDX('{cube_clean}', '{view_clean}', '{mdx_clean}', 0);")
+    lines = [
+        f"# --- Update MDX View: {view_clean} in Cube: {cube_clean} ---",
+        build_mdxview_delete_ti(mdx_view, uri),
+        build_mdxview_create_ti(mdx_view, uri),
+    ]
 
     return "\r\n".join(lines)
 
 
-def build_mdxview_delete_ti(mdx_view: MDXView) -> str:
+def build_mdxview_delete_ti(mdx_view: MDXView, uri: Optional[str] = None) -> str:
     """
     Generates TI code to delete an MDX View.
     """
 
-    cube_name, _ = _view_context_from_path(mdx_view.source_path)
+    cube_name, _ = _view_context_from_uri(uri)
 
     cube_clean = _escape_ti(cube_name)
     view_clean = _escape_ti(mdx_view.name)
 
-    lines = []
-    lines.append(f"# --- Delete MDX View: {view_clean} in Cube: {cube_clean} ---")
-
-    # ViewExists(Cube, View) returns 1 if it exists.
-    lines.append(f"IF( ViewExists('{cube_clean}', '{view_clean}') = 1 );")
-
-    # Syntax: ViewDestroy(Cube, ViewName);
-    lines.append(f"    ViewDestroy('{cube_clean}', '{view_clean}');")
-
-    lines.append(f"ENDIF;")
+    lines = [
+        f"# --- Delete MDX View: {view_clean} in Cube: {cube_clean} ---",
+        f"IF( ViewExists('{cube_clean}', '{view_clean}') = 1 );",
+        f"    ViewDestroy('{cube_clean}', '{view_clean}');",
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)

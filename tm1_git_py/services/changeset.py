@@ -534,6 +534,26 @@ class Changeset:
             progress_sink=progress_sink,
         )
 
+    def apply_atomic(
+            self,
+            tm1_service,
+            *,
+            status_dir: Optional[Union[str, Path]] = None,
+            execution_id: Optional[str] = None,
+            fail_fast: bool = True,
+            progress_sink: Optional[ProgressSink] = None,
+    ) -> tuple[bool, Union[list, None]]:
+        from tm1_git_py.services.apply import apply_with_atomic_schema as apply_atomic_changeset
+
+        return apply_atomic_changeset(
+            changeset=self,
+            tm1_service=tm1_service,
+            status_dir=status_dir,
+            execution_id=execution_id,
+            fail_fast=fail_fast,
+            progress_sink=progress_sink,
+        )
+
     def __str__(self) -> str:
         preview_limit = 10
         preview_changes = self.query(from_=0, to=preview_limit)

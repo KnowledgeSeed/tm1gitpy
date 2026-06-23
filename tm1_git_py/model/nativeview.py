@@ -54,9 +54,9 @@ class NativeView:
     def __init__(self, name, columns, rows, titles, suppress_empty_columns, suppress_empty_rows, format_string):
         self.type = 'NativeView'
         self.name = name
-        self.columns = [view_axis_selection_to_dict(item) for item in columns]
-        self.rows = [view_axis_selection_to_dict(item) for item in rows]
-        self.titles = [view_title_selection_to_dict(item) for item in titles]
+        self.columns = [view_axis_selection_to_dict(item, subset_name=name) for item in columns]
+        self.rows = [view_axis_selection_to_dict(item, subset_name=name) for item in rows]
+        self.titles = [view_title_selection_to_dict(item, subset_name=name) for item in titles]
         self.suppress_empty_columns = suppress_empty_columns
         self.suppress_empty_rows = suppress_empty_rows
         self.format_string = format_string
@@ -174,7 +174,7 @@ class NativeView:
         return self.uri_for(cube_name, self.name)
 
 
-def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
+def view_axis_selection_to_dict(axis_selection, *, subset_name: Optional[str] = None) -> Dict[str, Any]:
     if isinstance(axis_selection, dict):
         body = dict(axis_selection)
     else:
@@ -184,25 +184,37 @@ def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
     if isinstance(subset, dict):
         subset_dict = dict(subset)
         hierarchy_bind = subset_dict.pop("Hierarchy@odata.bind", None)
+        hierarchy = subset_dict.pop("Hierarchy", None)
 
+        ordered_subset_dict: Dict[str, Any] = {}
         if hierarchy_bind:
-            subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
-        elif isinstance(subset_dict.get("Hierarchy"), dict):
-            hierarchy = subset_dict["Hierarchy"]
-            dimension = hierarchy.get("Dimension")
-            dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
-            hierarchy_name = hierarchy.get("Name")
-            if dimension_name and hierarchy_name:
-                subset_dict["Hierarchy"] = {
-                    "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+            if subset_name:
+                body["Subset"] = {
+                    "@id": f"{hierarchy_bind}/Subsets('{subset_name}')"
                 }
+                return body
+            ordered_subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
+        elif isinstance(hierarchy, dict):
+            if hierarchy.get("@id"):
+                ordered_subset_dict["Hierarchy"] = {"@id": hierarchy["@id"]}
+            else:
+                dimension = hierarchy.get("Dimension")
+                dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
+                hierarchy_name = hierarchy.get("Name")
+                if dimension_name and hierarchy_name:
+                    ordered_subset_dict["Hierarchy"] = {
+                        "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+                    }
 
-        body["Subset"] = subset_dict
+        for key, value in subset_dict.items():
+            ordered_subset_dict[key] = value
+
+        body["Subset"] = ordered_subset_dict
 
     return body
 
 
-def view_title_selection_to_dict(title_selection) -> Dict[str, Any]:
+def view_title_selection_to_dict(title_selection, *, subset_name: Optional[str] = None) -> Dict[str, Any]:
     if isinstance(title_selection, dict):
         body = dict(title_selection)
     else:
@@ -212,20 +224,32 @@ def view_title_selection_to_dict(title_selection) -> Dict[str, Any]:
     if isinstance(subset, dict):
         subset_dict = dict(subset)
         hierarchy_bind = subset_dict.pop("Hierarchy@odata.bind", None)
+        hierarchy = subset_dict.pop("Hierarchy", None)
 
+        ordered_subset_dict: Dict[str, Any] = {}
         if hierarchy_bind:
-            subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
-        elif isinstance(subset_dict.get("Hierarchy"), dict):
-            hierarchy = subset_dict["Hierarchy"]
-            dimension = hierarchy.get("Dimension")
-            dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
-            hierarchy_name = hierarchy.get("Name")
-            if dimension_name and hierarchy_name:
-                subset_dict["Hierarchy"] = {
-                    "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+            if subset_name:
+                body["Subset"] = {
+                    "@id": f"{hierarchy_bind}/Subsets('{subset_name}')"
                 }
+                return body
+            ordered_subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
+        elif isinstance(hierarchy, dict):
+            if hierarchy.get("@id"):
+                ordered_subset_dict["Hierarchy"] = {"@id": hierarchy["@id"]}
+            else:
+                dimension = hierarchy.get("Dimension")
+                dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
+                hierarchy_name = hierarchy.get("Name")
+                if dimension_name and hierarchy_name:
+                    ordered_subset_dict["Hierarchy"] = {
+                        "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
+                    }
 
-        body["Subset"] = subset_dict
+        for key, value in subset_dict.items():
+            ordered_subset_dict[key] = value
+
+        body["Subset"] = ordered_subset_dict
 
     return body
 
@@ -252,11 +276,24 @@ def _to_tm1py_native_view_dict(native_view: NativeView) -> Dict[str, Any]:
     for axis_name in ("Columns", "Rows", "Titles"):
         for axis in payload.get(axis_name, []) or []:
             subset = axis.get("Subset") if isinstance(axis, dict) else None
-            if isinstance(subset, dict):
-                hierarchy = subset.get("Hierarchy")
-                if isinstance(hierarchy, dict) and hierarchy.get("@id"):
-                    subset["Hierarchy@odata.bind"] = hierarchy["@id"]
-                    subset.pop("Hierarchy", None)
+            if not isinstance(subset, dict):
+                continue
+
+            hierarchy = subset.get("Hierarchy")
+            if isinstance(hierarchy, dict) and hierarchy.get("@id"):
+                subset["Hierarchy@odata.bind"] = hierarchy["@id"]
+                subset.pop("Hierarchy", None)
+                continue
+
+            subset_id = subset.get("@id")
+            if isinstance(subset_id, str):
+                match = re.match(
+                    r"^(Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\))/Subsets\('([^']+)'\)$",
+                    subset_id,
+                )
+                if match:
+                    subset["Hierarchy@odata.bind"] = match.group(1)
+                    subset.pop("@id", None)
     return payload
 
 
@@ -265,11 +302,6 @@ def _to_tm1py_native_view_dict(native_view: NativeView) -> Dict[str, Any]:
 # ------------------------------------------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
-
-def _native_view_context_from_path(source_path: str) -> Tuple[str, str]:
-    cube_name = re.search(r'/([^/]+)\.views', source_path).group(1)
-    view_name = re.search(r"/([^/]+)\.json$", source_path).group(1)
-    return cube_name, view_name
 
 
 def create_native_view(tm1_service: TM1Service, native_view: NativeView, uri: Optional[str] = None) -> Response:
@@ -302,17 +334,61 @@ def delete_native_view(tm1_service: TM1Service, native_view: NativeView, uri: Op
 # Utility: interface between tm1_git_py and TI processes for CRUD operations
 # ------------------------------------------------------------------------------------------------------------
 
-def _escape_ti(value: str) -> str:
-    if value is None: return ""
+def _escape_ti(value: str | None) -> str:
+    if value is None:
+        return ""
     return str(value).replace("'", "''")
 
 
-def build_native_view_create_ti(native_view: NativeView) -> str:
+def _native_view_axis_context(axis) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    if hasattr(axis, "dimension_name"):
+        dim_name = axis.dimension_name
+        return dim_name, getattr(axis, "hierarchy_name", dim_name), getattr(axis, "subset_name", None)
+    if isinstance(axis, dict):
+        subset = axis.get("Subset") or {}
+        if isinstance(subset, dict):
+            subset_name = subset.get("Name") or subset.get("name")
+            hierarchy = subset.get("Hierarchy") or {}
+            if isinstance(hierarchy, dict):
+                hierarchy_id = hierarchy.get("@id") or hierarchy.get("@odata.bind") or ""
+                match = re.search(r"Dimensions\('([^']+)'\)/Hierarchies\('([^']+)'\)", hierarchy_id)
+                if match:
+                    dim_name, hier_name = match.groups()
+                    return dim_name, hier_name, subset_name
+    return None, None, None
+
+
+def _native_view_axis_expression(axis) -> Optional[str]:
+    if hasattr(axis, "expression"):
+        return getattr(axis, "expression", None)
+    if isinstance(axis, dict):
+        subset = axis.get("Subset") or {}
+        if isinstance(subset, dict):
+            return subset.get("Expression") or subset.get("expression")
+    return None
+
+
+def _native_view_temp_subset_ti_lines(view_clean: str, dim_name: str, hier_name: str, expression: str) -> list[str]:
+    subset_clean = view_clean
+    dim_clean = _escape_ti(dim_name)
+    hier_clean = _escape_ti(hier_name)
+    expr_clean = _escape_ti(expression)
+    lines = [
+        f"    IF( HierarchySubsetExists('{dim_clean}', '{hier_clean}', '{subset_clean}') = 0 );",
+        f"        HierarchySubsetCreate('{dim_clean}', '{hier_clean}', '{subset_clean}', 0);",
+        f"        HierarchySubsetMDXSet('{dim_clean}', '{hier_clean}', '{subset_clean}', '{expr_clean}');",
+        f"        HierarchySubsetMDXSet('{dim_clean}', '{hier_clean}', '{subset_clean}', '');",
+        "    ENDIF;"
+    ]
+    return lines
+
+
+def build_native_view_create_ti(native_view: NativeView, uri: Optional[str] = None) -> str:
     """
     Generates TI code to create a Native View, assign dimensions to axes,
     and assign subsets.
     """
-    cube_name, _ = _native_view_context_from_path(native_view.source_path)
+    cube_name, _ = _native_view_context_from_uri(uri)
 
     cube_clean = _escape_ti(cube_name)
     view_clean = _escape_ti(native_view.name)
@@ -323,80 +399,118 @@ def build_native_view_create_ti(native_view: NativeView) -> str:
     # 1. Create the base View container (0 = Permanent view)
     lines.append(f"IF( ViewExists('{cube_clean}', '{view_clean}') = 0 );")
     lines.append(f"    ViewCreate('{cube_clean}', '{view_clean}', 0);")
-    lines.append(f"ENDIF;")
 
     # 2. Assign Columns
     # TI Stack Positions are 1-based, so we use enumerate(..., start=1)
     if hasattr(native_view, 'columns') and native_view.columns:
         lines.append(f"# -- Setup Columns --")
         for i, axis in enumerate(native_view.columns, start=1):
-            dim_clean = _escape_ti(axis.dimension_name)
-            lines.append(f"ViewColumnDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}', {i});")
-
-            # Assign subset if specified
-            if hasattr(axis, 'subset_name') and axis.subset_name:
-                sub_clean = _escape_ti(axis.subset_name)
-                lines.append(f"ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+            dim_name, hier_name, subset_name = _native_view_axis_context(axis)
+            expression = _native_view_axis_expression(axis)
+            if not dim_name:
+                continue
+            dim_clean = _escape_ti(dim_name)
+            
+            if subset_name:
+                sub_clean = _escape_ti(subset_name)
+                lines.append(f"    ViewColumnDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}', {i});")
+                lines.append(f"    ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+            
+            elif expression:
+                temp_lines = _native_view_temp_subset_ti_lines(view_clean, dim_name, hier_name, expression)
+                lines.extend(temp_lines)
+                lines.append(f"    ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{view_clean}');")
 
     # 3. Assign Rows
     if hasattr(native_view, 'rows') and native_view.rows:
-        lines.append(f"# -- Setup Rows --")
+        lines.append("    # -- Setup Rows --")
         for i, axis in enumerate(native_view.rows, start=1):
-            dim_clean = _escape_ti(axis.dimension_name)
-            lines.append(f"ViewRowDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}', {i});")
+            dim_name, hier_name, subset_name = _native_view_axis_context(axis)
+            expression = _native_view_axis_expression(axis)
+            if not dim_name:
+                continue
+            dim_clean = _escape_ti(dim_name)
 
-            if hasattr(axis, 'subset_name') and axis.subset_name:
-                sub_clean = _escape_ti(axis.subset_name)
-                lines.append(f"ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+
+            if subset_name:
+                sub_clean = _escape_ti(subset_name)
+                lines.append(f"    ViewRowDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}', {i});")
+                lines.append(f"    ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+
+            elif expression:
+                temp_lines = _native_view_temp_subset_ti_lines(view_clean, dim_name, hier_name, expression)
+                lines.extend(temp_lines)
+                lines.append(f"    ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{view_clean}');")
 
     # 4. Assign Titles (Context/Filters)
     if hasattr(native_view, 'titles') and native_view.titles:
-        lines.append(f"# -- Setup Titles --")
-        for axis in native_view.titles:
-            dim_clean = _escape_ti(axis.dimension_name)
-            # Titles don't have a stack position in the TI function
-            lines.append(f"ViewTitleDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}');")
+        lines.append("    # -- Setup Titles --")
+        for i, axis in enumerate(native_view.titles, start=1):
+            dim_name, hier_name, subset_name = _native_view_axis_context(axis)
+            expression = _native_view_axis_expression(axis)
+            if not dim_name:
+                continue
+            dim_clean = _escape_ti(dim_name)
 
-            if hasattr(axis, 'subset_name') and axis.subset_name:
-                sub_clean = _escape_ti(axis.subset_name)
-                lines.append(f"ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+            if subset_name:
+                sub_clean = _escape_ti(subset_name)
+                lines.append(f"    ViewTitleDimensionSet('{cube_clean}', '{view_clean}', '{dim_clean}');")
+                lines.append(f"    ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{sub_clean}');")
+            elif expression:
+                temp_lines = _native_view_temp_subset_ti_lines(view_clean, dim_name, hier_name, expression)
+                lines.extend(temp_lines)
+                lines.append(f"    ViewSubsetAssign('{cube_clean}', '{view_clean}', '{dim_clean}', '{view_clean}');")
 
     # 5. Optional Properties (Suppress Zeroes, formatting, etc.)
-    # If your model tracks suppress zeroes, you map it here.
-    # TI uses ViewExtractSkipZeroesSet (which historically affects UI in older TM1 clients too)
-    if hasattr(native_view, 'suppress_zeroes'):
-        flag = "1" if native_view.suppress_zeroes else "0"
-        lines.append(f"ViewExtractSkipZeroesSet('{cube_clean}', '{view_clean}', {flag});")
+    # TI uses ViewExtractSkipZeroesSet (which affects rows and columns)
+    lines.append("    # -- Suppress Zeros --")
+    if hasattr(native_view, 'suppress_empty_rows'):
+        flag = "1" if native_view.suppress_empty_rows else "0"
+        lines.append(f"    ViewSuppressZeroesSet('{cube_clean}', '{view_clean}', {flag});")
+
+    # TI uses ViewColumnSuppressZeroesSet (which affects only columns)
+    if hasattr(native_view, 'suppress_empty_columns'):
+        flag = "1" if native_view.suppress_empty_columns else "0"
+        lines.append(f"    ViewColumnSuppressZeroesSet('{cube_clean}', '{view_clean}', {flag});")
+
+    lines.append("ENDIF;")
 
     return "\r\n".join(lines)
 
 
-def build_native_view_update_ti(native_view: NativeView) -> str:
+def build_native_view_update_ti(native_view: NativeView, uri: Optional[str] = None) -> str:
     """
     Generates TI code to update a Native View.
     Strategy: Delete existing view -> Recreate with new definition.
     """
-    lines = []
-    lines.append(build_native_view_delete_ti(native_view))
-    lines.append(build_native_view_create_ti(native_view))
-
-    return "\r\n".join(lines)
-
-
-def build_native_view_delete_ti(native_view: NativeView) -> str:
-    """
-    Generates TI code to safely delete a Native View.
-    """
-    cube_name, _ = _native_view_context_from_path(native_view.source_path)
+    cube_name, _ = _native_view_context_from_uri(uri)
 
     cube_clean = _escape_ti(cube_name)
     view_clean = _escape_ti(native_view.name)
 
-    lines = []
-    lines.append(f"# --- Delete Native View: {view_clean} from Cube: {cube_clean} ---")
+    lines = [
+        f"# --- Update (Recreate) Native View: {view_clean} for Cube: {cube_clean} ---",
+        build_native_view_delete_ti(native_view, uri),
+        build_native_view_create_ti(native_view, uri),
+    ]
 
-    lines.append(f"IF( ViewExists('{cube_clean}', '{view_clean}') = 1 );")
-    lines.append(f"    ViewDestroy('{cube_clean}', '{view_clean}');")
-    lines.append(f"ENDIF;")
+    return "\r\n".join(lines)
+
+
+def build_native_view_delete_ti(native_view: NativeView, uri: Optional[str] = None) -> str:
+    """
+    Generates TI code to safely delete a Native View.
+    """
+    cube_name, _ = _native_view_context_from_uri(uri)
+
+    cube_clean = _escape_ti(cube_name)
+    view_clean = _escape_ti(native_view.name)
+
+    lines = [
+        f"# --- Delete Native View: {view_clean} from Cube: {cube_clean} ---",
+        f"IF( ViewExists('{cube_clean}', '{view_clean}') = 1 );",
+        f"    ViewDestroy('{cube_clean}', '{view_clean}');", 
+        "ENDIF;"
+    ]
 
     return "\r\n".join(lines)
