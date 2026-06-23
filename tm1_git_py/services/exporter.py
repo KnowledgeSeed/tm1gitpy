@@ -47,6 +47,7 @@ from tm1_git_py.tm1_api import (
     _get_edges_page,
     _get_subsets_page,
     get_process_names,
+    get_subsets_identity_etag,
     get_subsets_count,
     get_views,
 )
@@ -54,6 +55,15 @@ from tm1_git_py.tm1_api.dimension_service import get_names as get_dimension_name
 from tm1_git_py.tm1_api.hierarchy_service import get_all_names as get_hierarchy_names
 
 logger = logging.getLogger(__name__)
+
+
+def _can_reuse_content_signature(content_signature: Optional[tuple[int, str]]) -> bool:
+    if content_signature is None:
+        return False
+    row_count, content_hash = content_signature
+    if int(row_count) == 0:
+        return True
+    return content_hash != ModelStore.EMPTY_CONTENT_HASH
 
 
 class _InlineExecutor:
@@ -574,6 +584,7 @@ def dimensions_to_model(
                 )
             else:
                 raise ValueError(f"Row count {row_count} does not match TM1 count {expected_tm1_count} for {page_kind}")
+            return row_count, content_hash
 
         def _make_kind_done_callback(
             page_kind: str,
@@ -596,7 +607,13 @@ def dimensions_to_model(
                     return
                 count = done_hf.tm1_object_counts[page_kind]
                 _compute_and_commit_hash(group_id, page_kind, count)
-                
+                if (
+                    page_kind == "edges"
+                    and hasattr(sequence, "set_cardinality")
+                    and hasattr(sequence, "calculate_edge_cardinality")
+                ):
+                    sequence.set_cardinality(sequence.calculate_edge_cardinality())
+
             return _on_done
 
         def _start_page(fn, tm1_conn, dim_name, hierarchy_name, filter_expr, skip, top, total, mutable_list: MutableSequence) -> None:
@@ -669,22 +686,39 @@ def dimensions_to_model(
                     elements_tm1_filter = filter_rules.to_tm1_element_name_filter(dim_name, hierarchy_name)
                     subsets_tm1_filter = filter_rules.to_tm1_subset_name_filter(dim_name, hierarchy_name)
                     edges_tm1_filter = filter_rules.to_tm1_edge_name_filter(dim_name, hierarchy_name)
+                    incoming_subsets_etag = incoming_hierarchy_etag
 
                     can_reuse_elements = False
                     can_reuse_subsets = False
                     can_reuse_edges = False
                     if incoming_hierarchy_etag is not None:
-                        e_elements_etag, e_elements_rules, e_elements_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="elements")
-                        e_subsets_etag, e_subsets_rules, e_subsets_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="subsets")
-                        e_edges_etag, e_edges_rules, e_edges_content_hash = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="edges")
+                        subsets_id_etag = get_subsets_identity_etag(tm1_conn, dim_name, hierarchy_name, filter=subsets_tm1_filter.filter_expr)
+                        incoming_subsets_etag = f"{incoming_hierarchy_etag}:subsets:{subsets_id_etag}"
+                        e_elements_etag, e_elements_rules, e_elements_content_hash, _ = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="elements")
+                        e_subsets_etag, e_subsets_rules, e_subsets_content_hash, _ = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="subsets")
+                        e_edges_etag, e_edges_rules, e_edges_content_hash, e_edges_cardinality = model_store.get_group_reuse_metadata(model_id=model_id, dimension_name=dim_name, hierarchy_name=hierarchy_name, object_type="edges")
                        
-                        total_hierarchy_count = e_elements_content_hash[0] if e_elements_content_hash is not None else 0 
-                        total_hierarchy_count += e_edges_content_hash[0] if e_edges_content_hash is not None else 0 
-                        total_hierarchy_count += e_subsets_content_hash[0] if e_subsets_content_hash is not None else 0
-                        
-                        can_reuse_elements = (e_elements_etag == incoming_hierarchy_etag and e_elements_rules == elements_tm1_filter.applicable_rules and incoming_cardinality ==  total_hierarchy_count and e_elements_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
-                        can_reuse_subsets = (e_subsets_etag == incoming_hierarchy_etag and e_subsets_rules == subsets_tm1_filter.applicable_rules and incoming_cardinality ==  total_hierarchy_count and e_subsets_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
-                        can_reuse_edges = (e_edges_etag == incoming_hierarchy_etag and e_edges_rules == edges_tm1_filter.applicable_rules and incoming_cardinality ==  total_hierarchy_count and e_edges_content_hash[1] != ModelStore.EMPTY_CONTENT_HASH)
+                        total_hierarchy_count = e_elements_content_hash[0] if e_elements_content_hash is not None else 0
+                        if e_edges_cardinality is not None:
+                            total_hierarchy_count += e_edges_cardinality
+
+                        can_reuse_elements = (
+                            e_elements_etag == incoming_hierarchy_etag
+                            and e_elements_rules == elements_tm1_filter.applicable_rules
+                            and incoming_cardinality == total_hierarchy_count
+                            and _can_reuse_content_signature(e_elements_content_hash)
+                        )
+                        can_reuse_subsets = (
+                            e_subsets_etag == incoming_subsets_etag
+                            and e_subsets_rules == subsets_tm1_filter.applicable_rules
+                            and _can_reuse_content_signature(e_subsets_content_hash)
+                        )
+                        can_reuse_edges = (
+                            e_edges_etag == incoming_hierarchy_etag
+                            and e_edges_rules == edges_tm1_filter.applicable_rules
+                            and incoming_cardinality == total_hierarchy_count
+                            and _can_reuse_content_signature(e_edges_content_hash)
+                        )
 
                     hierarchy = Hierarchy(
                         name=hierarchy_name,
@@ -748,7 +782,7 @@ def dimensions_to_model(
                             subsets_tm1_filter,
                             can_reuse_subsets,
                             hierarchy.subsets,
-                            lambda h: h.persist_subsets_etag(),
+                            lambda h, _etag=incoming_subsets_etag: h.subsets.set_etag(_etag) if hasattr(h.subsets, "set_etag") else None,
                             HierarchyFuture.add_subset_done_callback,
                         ),
                     )
