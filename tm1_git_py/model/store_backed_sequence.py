@@ -287,3 +287,12 @@ class StoreBackedSequence(MutableSequence[T], Generic[T]):
 
     def sort_metadata(self) -> dict[str, str]:
         return self._active_store().group_sort_metadata(self.group_id)
+
+    def set_cardinality(self, cardinality: Optional[int]) -> None:
+        self._active_store().set_group_cardinality(self.group_id, cardinality)
+
+    def cardinality(self) -> Optional[int]:
+        return self._active_store().group_cardinality(self.group_id)
+
+    def calculate_edge_cardinality(self) -> int:
+        return self._active_store().calculate_edge_cardinality(self.group_id)

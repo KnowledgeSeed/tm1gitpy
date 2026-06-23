@@ -4,7 +4,7 @@
 586,"TestDimMultiHier"
 585,"TestDimMultiHier"
 564,
-565,"edRVIa?3P9\vC@u^0wpI=Owsp8q>iZvr7]1r<TTZaZgF0BvFLO:88M4=NAw_J85YSMG?JgbpMfRWPR;y28UmIdHGQN?LVQp[g6VZC_tQ=EI3X=KQv66Q=d4ILypUdwA[o[[xpIljm4]cKK4c^95BFFVTTfmVE]Qid8iOhG?7JuHSf4;aqfQbnW5HZnhs7Pd0h5sHkFVX"
+565,"wH<f?G6`Z1HxM8W2xFDyg83a4z1oL;srF4<9F1O0\uqz`SoeZVMHZuSmS[=H\PGdIGpJlEH<apE<R^1IH^I9gL0Dxm2^9njnk\B4xWe_`WPyMcKh^g>aR5H98h0Uq4x8mXs17n2QsmdO1KV0tPGXl6hQTZ^q9\[6OHswgb:MCwwl^zC5tX2IKui<CshzaI^UjnkD?`ne"
 559,1
 928,0
 593,
@@ -36,12 +36,23 @@
 581,0
 582,0
 603,0
-572,5
+572,16
 #****Begin: Generated Statements***
 #****End: Generated Statements****
 
 Source = 'intranet_production';
 ODBCOpen(Source, 'user', 'password');
+
+If( 1 = 0 );
+    ExecuteProcess('myprocess');
+EndIf;
+
+
+DataSourceType='Subset';
+DatasourceNameForServer='TestDimMultiHier';
+DatasourceDimensionSubset= 'TestDimMultiHierDynamicSubset';
+
+
 573,2
 #****Begin: Generated Statements***
 #****End: Generated Statements****

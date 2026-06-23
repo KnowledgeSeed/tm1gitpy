@@ -1,5 +1,7 @@
 """Subset-related utilities using TM1py, including paginated subset retrieval."""
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, List, MutableSequence, Optional
 
@@ -197,3 +199,66 @@ def get_subsets_count(
         url = f"{url}?$filter={filter}"
     response = tm1_conn.connection.GET(url, **kwargs, async_requests_mode=True)
     return int(response.text.strip())
+
+
+def get_subsets_identity_etag(
+    tm1_conn: "TM1Service",
+    dimension_name: str,
+    hierarchy_name: Optional[str] = None,
+    *,
+    filter: Optional[str] = None,
+    private: bool = False,
+    page_size: int = 100000,
+    **kwargs,
+) -> str:
+    """Return a stable ETag-like digest for subset identities in a hierarchy."""
+    hierarchy_name = hierarchy_name if hierarchy_name else dimension_name
+    subsets_resource = "PrivateSubsets" if private else "Subsets"
+    identities: list[tuple[str, str]] = []
+    skip = 0
+    total_count: Optional[int] = None
+
+    while total_count is None or skip < total_count:
+        base_url = format_url(
+            "/Dimensions('{}')/Hierarchies('{}')/{}?$select=Name",
+            dimension_name,
+            hierarchy_name,
+            subsets_resource,
+        )
+        params: List[str] = []
+        if filter:
+            params.append(f"$filter={filter}")
+        if skip > 0:
+            params.append(f"$skip={skip}")
+        if page_size > 0:
+            params.append(f"$top={page_size}")
+        if skip == 0:
+            params.append("$count=true")
+
+        url = base_url
+        if params:
+            url = f"{base_url}&{'&'.join(params)}"
+
+        request_kwargs = dict(kwargs)
+        request_headers = dict(request_kwargs.get("headers") or {})
+        request_headers["Accept"] = "application/json;odata.metadata=minimal"
+        request_kwargs["headers"] = request_headers
+
+        response = tm1_conn.connection.GET(url, **request_kwargs, async_requests_mode=True)
+        data = response.json()
+        rows = list(data.get("value", []))
+        if total_count is None:
+            count_value = data.get("@odata.count")
+            total_count = int(count_value) if count_value is not None else len(rows)
+
+        for row in rows:
+            name = row.get("Name")
+            if name is not None:
+                identities.append((str(name), str(row.get("@odata.etag") or "")))
+
+        if not rows:
+            break
+        skip += len(rows)
+
+    payload = json.dumps(sorted(identities), separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()

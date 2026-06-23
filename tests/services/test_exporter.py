@@ -248,6 +248,75 @@ class TestExporter:
             "ComponentsSortType": "ByName",
         }
 
+    def test_dimensions_to_model_reuse_includes_cached_edge_cardinality(self, monkeypatch):
+        import uuid
+
+        model_id = f"export_edge_cardinality_{uuid.uuid4().hex}"
+        tm1_conn = mock.Mock()
+        hierarchy_identity = types.SimpleNamespace(
+            name="Products",
+            etag="W/etag-products",
+            cardinality=3,
+        )
+        calls = {"elements_page": 0, "edges_page": 0}
+
+        def _elements_page(*args, **kwargs):
+            calls["elements_page"] += 1
+            return types.SimpleNamespace(
+                objects=[object(), object()],
+                raw_rows=[
+                    {"Name": "Leaf", "Type": "Numeric"},
+                    {"Name": "Single", "Type": "Numeric"},
+                ],
+            )
+
+        def _edges_page(*args, **kwargs):
+            calls["edges_page"] += 1
+            return types.SimpleNamespace(
+                objects=[object(), object(), object()],
+                raw_rows=[
+                    {"ParentName": "A", "ComponentName": "Leaf", "Weight": 1},
+                    {"ParentName": "B", "ComponentName": "Leaf", "Weight": 1},
+                    {"ParentName": "A", "ComponentName": "Single", "Weight": 1},
+                ],
+            )
+
+        monkeypatch.setattr(exporter_module, "get_dimension_names", lambda *args, **kwargs: ["Products"])
+        monkeypatch.setattr(exporter_module, "get_hierarchy_names", lambda *args, **kwargs: [hierarchy_identity])
+        monkeypatch.setattr(exporter_module, "get_hierarchy_sort_metadata", lambda *args, **kwargs: {})
+        monkeypatch.setattr(exporter_module, "get_subsets_identity_etag", lambda *args, **kwargs: "subsets-id")
+        monkeypatch.setattr(exporter_module, "get_elements_count", lambda *args, **kwargs: 2)
+        monkeypatch.setattr(exporter_module, "get_edges_count", lambda *args, **kwargs: 3)
+        monkeypatch.setattr(exporter_module, "get_subsets_count", lambda *args, **kwargs: 0)
+        monkeypatch.setattr(exporter_module, "_get_elements_page", _elements_page)
+        monkeypatch.setattr(exporter_module, "_get_edges_page", _edges_page)
+
+        first_dimensions, first_errors = exporter_module.dimensions_to_model(
+            tm1_conn,
+            model_id=model_id,
+            filter_rules=FilterRules([]),
+            progress_sink=exporter_module.NoopProgressSink(),
+            worker_counts=exporter_module.resolve_worker_counts(1),
+        )
+        assert first_errors == {}
+        first_hierarchy = first_dimensions["Products"].hierarchies[0]
+        assert first_hierarchy.edges.cardinality() == 1
+
+        second_dimensions, second_errors = exporter_module.dimensions_to_model(
+            tm1_conn,
+            model_id=model_id,
+            filter_rules=FilterRules([]),
+            progress_sink=exporter_module.NoopProgressSink(),
+            worker_counts=exporter_module.resolve_worker_counts(1),
+        )
+
+        assert second_errors == {}
+        assert calls == {"elements_page": 1, "edges_page": 1}
+        second_hierarchy = second_dimensions["Products"].hierarchies[0]
+        assert len(second_hierarchy.elements) == 2
+        assert len(second_hierarchy.edges) == 3
+        assert second_hierarchy.edges.cardinality() == 1
+
     def test_export_no_longer_accepts_serialize(self):
         import inspect
 
@@ -342,6 +411,32 @@ class TestExporter:
         )
 
         assert result == ["P1", "P2"]
+
+    def test_edge_service_page_result_has_no_page_local_cardinality(self, mocker):
+        from tm1_git_py.tm1_api import edge_service
+
+        tm1_conn = mocker.Mock()
+        response = mocker.Mock()
+        response.json.return_value = {
+            "value": [
+                {"ParentName": "A", "ComponentName": "Leaf", "Weight": 1},
+                {"ParentName": "B", "ComponentName": "Leaf", "Weight": 1},
+            ],
+            "@odata.count": 2,
+        }
+        tm1_conn.connection.GET.return_value = response
+
+        result = edge_service._get_edges_page(
+            tm1_conn,
+            "Products",
+            "Products",
+            count=True,
+        )
+
+        assert result.count == 2
+        assert len(result.objects) == 2
+        assert result.raw_rows == response.json.return_value["value"]
+        assert not hasattr(result, "cardinality")
 
     def test_procs_to_model_uses_process_service_names(self, mocker):
         from tm1_git_py.services.exporter import procs_to_model

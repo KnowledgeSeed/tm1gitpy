@@ -12,6 +12,6 @@
 #endregion
 #region Epilog
 #****Begin: Generated Statements***
-RETURNVIEWHANDLE('TestCube3WithView','TestCube3WithView_view2');
+RETURNVIEWHANDLE('TestCube3WithView','testcube3withview_view2');
 #****End: Generated Statements****
 #endregion

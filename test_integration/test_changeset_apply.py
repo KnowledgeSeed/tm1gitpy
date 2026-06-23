@@ -455,7 +455,7 @@ class TestChangesetApply:
             self, model_id=self._fixture_model_id_no_meta
         )
         cube_name = "TestCube3WithView"
-        view_name = "TestCube3WithView_view2"
+        view_name = "testcube3withview_view2"
 
         changeset = Changeset("modify_nativeview_case")
         changeset.changes = [
@@ -1040,7 +1040,7 @@ class TestChangesetApply:
         process_name = "myprocess2"
         cube_name = "TestCube3WithView"
         view_name = "testcube3withview_view1"
-        native_view_name = "TestCube3WithView_view2"
+        native_view_name = "testcube3withview_view2"
         rule_cube_name = "TestCube2WithRule"
         extra_element_name = "zz_mixed_element"
 
