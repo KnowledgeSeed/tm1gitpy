@@ -273,7 +273,7 @@ def build_subset_create_ti(subset: Subset, uri: Optional[str] = None) -> str:
         subset_elements = _static_subset_element_names(subset, dimension_name, hierarchy_name)
         for i, element in enumerate(subset_elements):
             element = _escape_ti(element)
-            lines.append(f"HierarchySubsetElementInsert('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{element}'), {i};")
+            lines.append(f"HierarchySubsetElementInsert('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{element}', {i+1});")
 
     return "\r\n".join(lines)
 
@@ -303,16 +303,23 @@ def build_subset_update_ti(subset: Subset, uri: Optional[str] = None) -> str:
     elif subset.is_static:
         subset_elements = _static_subset_element_names(subset, dimension_name, hierarchy_name)
         subset_elements = [_escape_ti(elem) for elem in subset_elements]
-        subset_elements_as_string = ", ".join(f"'{elem}'" for elem in subset_elements)
-        lines.append(f"    pElements = [ {subset_elements_as_string} ];")
+        subset_elements_as_string = "|".join(f"{elem}" for elem in subset_elements)
+        lines.append(f"    pElements = '{subset_elements_as_string}';")
+        lines += [
+            f"    i = HierarchySubsetGetSize('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}');",
+            "    WHILE (i >= 1);",
+            f"        sElem = HierarchySubsetGetElementName('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', i);",
+            "        IF( SCAN( '|' | sElem | '|', pElements ) = 0);",
+            f"            HierarchySubsetElementDelete('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', i);",
+            "        ENDIF;",
+            "        i = i - 1;",
+            "    END;",
+        ]
+
         for i, element in enumerate(subset_elements):
             elem_lines = [
-                f"    sElem = HierarchySubsetGetElementName('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{i}');",
-                "    IF( SCAN(sElem, pElements) = 0);",
-                f"        HierarchySubsetElementDelete('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{i}');",
-                "    ENDIF;",
                 f"    IF( HierarchySubsetElementExists('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{element}') = 0 );",
-                f"        HierarchySubsetElementInsert('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{element}', '{i}');",
+                f"        HierarchySubsetElementInsert('{dim_name_clean}', '{hier_name_clean}', '{sub_name_clean}', '{element}', {i+1});",
                 "    ENDIF;",
             ]
             lines.extend(elem_lines)

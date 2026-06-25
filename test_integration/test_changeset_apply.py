@@ -335,20 +335,12 @@ class TestChangesetApply:
         check_no_diff(fixture_dir, test_model)
 
     def test_apply_add_nativeview(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
-            self, model_id=self._fixture_model_id_no_meta
-        )
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, model_id=self._fixture_model_id_no_meta)
         cube_name = "TestCube3WithView"
-        fixture_cube = next(
-            cube for cube in fixture_model.cubes if cube.name == cube_name
-        )
-        fixture_native = next(
-            view for view in fixture_cube.views if isinstance(view, NativeView)
-        )
+        fixture_cube = next(cube for cube in fixture_model.cubes if cube.name == cube_name)
+        fixture_native = next(view for view in fixture_cube.views if isinstance(view, NativeView))
 
-        self.tm1_service.views.delete(
-            cube_name=cube_name, view_name=fixture_native.name
-        )
+        self.tm1_service.views.delete(cube_name=cube_name, view_name=fixture_native.name)
         test_model = export_check_no_errors(self)
 
         changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
@@ -804,9 +796,6 @@ class TestChangesetApply:
             hierarchy_name="TestDim1",
         )
 
-        # clean-up
-        self.tm1_service.hierarchies.delete("}Subsets_TestDim1", "}Subsets_TestDim1")
-        self.tm1_service.dimensions.delete("}Subsets_TestDim1")
         test_model = export_check_no_errors(self, self._f_with_meta)
         check_no_diff(fixture_dir, test_model)
 
@@ -842,26 +831,23 @@ class TestChangesetApply:
     # -----------------------------------------------------------------------
 
     def test_create_hierarchy_no_meta_objects(self):
-        """Changeset should re-create a hierarchy that was deleted from the server."""
-        # given
         fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
             self, model_id=self._fixture_model_id_no_meta
         )
         dimension_name = "TestDimMultiHier"
         hierarchy_name = "Hier2"
 
-        # Delete an existing fixture hierarchy so it is missing on the server
         self.tm1_service.hierarchies.delete(
             dimension_name=dimension_name, hierarchy_name=hierarchy_name
         )
         test_model = export_check_no_errors(self, self._f_no_meta)
 
-        # when
-        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        changeset = self.compare(
+            test_model, fixture_model, filter_rules=self._f_no_meta
+        )
         self.apply(changeset)
         test_model = export_check_no_errors(self, self._f_with_meta)
 
-        # then
         added_hierarchies = self._changes_by(changeset, ChangeType.ADD, "Hierarchy")
         assert len(added_hierarchies) >= 1
         assert any(h.name == hierarchy_name for h in added_hierarchies)
@@ -871,55 +857,36 @@ class TestChangesetApply:
         check_no_diff(fixture_dir, test_model)
 
     def test_delete_hierarchy_no_meta_objects(self):
-        """Changeset should remove an extra hierarchy that does not exist in the fixture."""
-        # given
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
-            self, model_id=self._fixture_model_id_no_meta
-        )
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, model_id=self._fixture_model_id_no_meta)
         dimension_name = "TestDim1"
         hierarchy_name = "AltHierarchy"
 
-        # Add an alternate hierarchy to an existing fixture dimension
         alt_hierarchy = Hierarchy(dimension_name=dimension_name, name=hierarchy_name)
         alt_hierarchy.add_element("AltElement1", "Numeric")
         self.tm1_service.hierarchies.create(alt_hierarchy)
         test_model = export_check_no_errors(self)
 
-        # when
         changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
         test_model = export_check_no_errors(self, self._f_with_meta)
 
-        # then
-        removed_hierarchies = self._changes_by(
-            changeset, ChangeType.REMOVE, "Hierarchy"
-        )
+        removed_hierarchies = self._changes_by(changeset, ChangeType.REMOVE, "Hierarchy")
         assert len(removed_hierarchies) >= 1
         assert any(h.name == hierarchy_name for h in removed_hierarchies)
-        assert not self.tm1_service.hierarchies.exists(
-            dimension_name=dimension_name, hierarchy_name=hierarchy_name
-        )
+        assert not self.tm1_service.hierarchies.exists(dimension_name=dimension_name, hierarchy_name=hierarchy_name)
         check_no_diff(fixture_dir, test_model)
 
     def test_compare_child_only_hierarchy_change_does_not_modify_dimension(self):
-        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
-            self, model_id=self._fixture_model_id_no_meta
-        )
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(self, model_id=self._fixture_model_id_no_meta)
 
-        alt_hierarchy = Hierarchy(
-            dimension_name="TestDim1", name="AltHierarchyNoParentModify"
-        )
+        alt_hierarchy = Hierarchy(dimension_name="TestDim1", name="AltHierarchyNoParentModify")
         alt_hierarchy.add_element("AltElem", "Numeric")
         self.tm1_service.hierarchies.create(alt_hierarchy)
         model = export_check_no_errors(self)
 
         changeset = self.compare(model, fixture_model, filter_rules=self._f_no_meta)
-        removed_hierarchies = self._changes_by(
-            changeset, ChangeType.REMOVE, "Hierarchy"
-        )
-        modified_dimensions = self._changes_by(
-            changeset, ChangeType.MODIFY, "Dimension"
-        )
+        removed_hierarchies = self._changes_by(changeset, ChangeType.REMOVE, "Hierarchy")
+        modified_dimensions = self._changes_by(changeset, ChangeType.MODIFY, "Dimension")
 
         assert any(h.name == "AltHierarchyNoParentModify" for h in removed_hierarchies)
         assert not modified_dimensions

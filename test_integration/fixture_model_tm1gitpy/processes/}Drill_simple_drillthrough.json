@@ -8,7 +8,7 @@
 		"Type":"TM1CubeView",
 		"dataSourceNameForClient":"TestCube3WithView",
 		"dataSourceNameForServer":"TestCube3WithView",
-		"view":"TestCube3WithView_view2"
+		"view":"testcube3withview_view2"
 	},
 	"Parameters":
 	[

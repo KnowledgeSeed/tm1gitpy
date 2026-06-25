@@ -1,0 +1,12 @@
+{
+	"@type":"Dimension",
+	"Name":"}Subsets_TestDim1",
+	"Hierarchies@Code.links":
+	[
+		"}Subsets_TestDim1.hierarchies/}Subsets_testdim1.json"
+	],
+	"DefaultHierarchy":
+	{
+		"@id":"Dimensions('}Subsets_TestDim1')/Hierarchies('}Subsets_testdim1')"
+	}
+}

@@ -1,0 +1,5 @@
+{
+	"@type":"Subset",
+	"Name":"testcube3withview_view2",
+	"Expression":"{[TestDim1].[TestDim1].Members}"
+}

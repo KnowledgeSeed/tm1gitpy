@@ -1,0 +1,14 @@
+{
+	"@type":"Cube",
+	"Name":"}CubeProperties",
+	"Dimensions":
+	[
+		{
+			"@id":"Dimensions('}Cubes')"
+		},
+		{
+			"@id":"Dimensions('}CubeProperties')"
+		}
+	],
+	"Views@Code.links":[]
+}

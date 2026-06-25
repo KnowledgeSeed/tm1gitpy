@@ -522,7 +522,7 @@ def apply_atomic(changeset: Changeset, tm1_service: TM1Service) -> bool:
 
     # 1. Generate the Code
     master_ti_code = build_master_changeset_ti(changeset)
-    print(master_ti_code)
+    logger.debug(f"Master TI code:\n{master_ti_code}")
 
     # 2. Create Ephemeral Process
     process_name = f"}}git_atomic_{uuid.uuid4().hex}"

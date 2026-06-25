@@ -44,6 +44,10 @@
 			"Type":"Numeric"
 		},
 		{
+			"Name":"}CubeProperties",
+			"Type":"Numeric"
+		},
+		{
 			"Name":"}CubeSecurityProperties",
 			"Type":"Numeric"
 		},
@@ -141,6 +145,11 @@
 		{
 			"ParentName":"Cubes Total",
 			"ComponentName":"}CubeDrill_TestCube2WithRule",
+			"Weight":1
+		},
+		{
+			"ParentName":"Cubes Total",
+			"ComponentName":"}CubeProperties",
 			"Weight":1
 		},
 		{

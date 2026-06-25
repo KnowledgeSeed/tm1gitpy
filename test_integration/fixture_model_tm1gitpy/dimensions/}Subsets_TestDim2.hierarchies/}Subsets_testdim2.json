@@ -1,13 +1,9 @@
 {
 	"@type":"Hierarchy",
-	"Name":"}Views_testcube3withview",
+	"Name":"}Subsets_testdim2",
 	"ElementsSortType":"ByName",
 	"Elements":
 	[
-		{
-			"Name":"testcube3withview_view1",
-			"Type":"String"
-		},
 		{
 			"Name":"testcube3withview_view2",
 			"Type":"String"

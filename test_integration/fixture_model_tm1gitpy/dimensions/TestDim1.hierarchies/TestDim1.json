@@ -8,5 +8,8 @@
 			"Type":"Numeric"
 		}
 	],
-	"Subsets@Code.links":[]
+	"Subsets@Code.links":
+	[
+		"TestDim1.subsets/testcube3withview_view2.json"
+	]
 }

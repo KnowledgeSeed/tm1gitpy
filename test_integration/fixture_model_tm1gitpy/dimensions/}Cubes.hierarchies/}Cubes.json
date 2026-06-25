@@ -41,6 +41,10 @@
 			"Type":"String"
 		},
 		{
+			"Name":"}CubeProperties",
+			"Type":"String"
+		},
+		{
 			"Name":"}CubeSecurityProperties",
 			"Type":"String"
 		},
