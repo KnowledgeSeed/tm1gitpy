@@ -21,8 +21,14 @@ venv/
 # IDE settings
 .idea/
 
+# Agentic
+.codex
+.agents
+.codex
+.cursor
+
 # Other data and test files
-developer_test_files/
+developer_files/
 example/main.py
 
 # Build artifacts
@@ -39,13 +45,14 @@ logs
 # Tests
 tests/*.png
 tests/config.ini
+tests/model_test_export/test_model_base/.dimensions
+tests/model_test_export/test_model_diff/.dimensions
 .env
 dist/
 
 **/License.xml
 .internal
 
-test_integration/test_create_and_delete.json
 test_integration/test_create_and_delete.json
 tests/test_create_and_delete.json
 changeset.yml

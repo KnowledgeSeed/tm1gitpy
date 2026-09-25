@@ -3,27 +3,13 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 
+from tm1_git_py.db._fs import unlink_sqlite_artifacts
 from tm1_git_py.db._worker_db import WorkerDBRegistry
 from tm1_git_py.db.changeset_store import ChangesetStore
 from tm1_git_py.db.model_store import ModelStore
-
-
-def _unlink_sqlite_artifacts(db_path: str) -> None:
-    """Remove the main db file and WAL journal sidecars if present."""
-    path = Path(db_path)
-    for candidate in (
-        path,
-        path.with_name(path.name + "-wal"),
-        path.with_name(path.name + "-shm"),
-    ):
-        try:
-            candidate.unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def _snapshot_registered_store_paths() -> list[str]:
@@ -60,4 +46,4 @@ def _close_sqlite_workers_per_test():
         finally:
             WorkerDBRegistry.close_all()
     for db_path in paths:
-        _unlink_sqlite_artifacts(db_path)
+        unlink_sqlite_artifacts(db_path)

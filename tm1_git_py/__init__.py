@@ -7,6 +7,8 @@ from typing import Any, TYPE_CHECKING
 __version__ = "1.2.0-rc1"
 
 if TYPE_CHECKING:
+    from tm1_git_py.db.cache_lifecycle import purge_changeset_cache, purge_model_cache
+    from tm1_git_py.db.exceptions import CacheInUseError
     from tm1_git_py.seeder_hotpromote.hot_promote_filters import (
         derive_filter_rules_from_changeset,
         load_changeset,
@@ -69,10 +71,14 @@ __all__ = [
     "load_changeset",
     "serialize_model",
     "export",
+    "purge_changeset_cache",
+    "purge_model_cache",
+    "CacheInUseError",
 ]
 
 _LAZY_IMPORTS = {
     "apply_selection_to_changes": ("tm1_git_py.seeder_hotpromote.hot_promote_selection", "apply_selection_to_changes"),
+    "CacheInUseError": ("tm1_git_py.db.exceptions", "CacheInUseError"),
     "Changeset": ("tm1_git_py.services.changeset", "Changeset"),
     "Comparator": ("tm1_git_py.services.comparator", "Comparator"),
     "derive_filter_rules_from_changeset": ("tm1_git_py.seeder_hotpromote.hot_promote_filters", "derive_filter_rules_from_changeset"),
@@ -91,6 +97,8 @@ _LAZY_IMPORTS = {
     "PaginatedElementsResult": ("tm1_git_py.tm1_api.element_service", "PaginatedElementsResult"),
     "PaginatedSubsetsResult": ("tm1_git_py.tm1_api.subset_service", "PaginatedSubsetsResult"),
     "parse_navigation_path": ("tm1_git_py.seeder_hotpromote.hot_promote_navigation", "parse_navigation_path"),
+    "purge_changeset_cache": ("tm1_git_py.db.cache_lifecycle", "purge_changeset_cache"),
+    "purge_model_cache": ("tm1_git_py.db.cache_lifecycle", "purge_model_cache"),
     "resolve_selection_categories": ("tm1_git_py.seeder_hotpromote.hot_promote_selection", "resolve_selection_categories"),
     "serialize_model": ("tm1_git_py.services.serializer", "serialize_model"),
     "should_exclude_path": ("tm1_git_py.services.filter", "should_exclude_path"),

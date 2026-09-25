@@ -184,6 +184,31 @@ Existing local SQLite cache files are not
 migrated automatically; they are temporary files and can be removed when they
 are no longer needed.
 
+### Cache lifecycle (long-running embedding processes)
+
+Each CLI invocation is a fresh, short-lived process, so its SQLite cache
+files are naturally bounded by the process lifetime. A long-running embedder
+(a web service, a scheduled job) that creates many changesets or model
+caches over time needs an explicit way to close and remove them. Use
+`purge_changeset_cache` / `purge_model_cache`:
+
+```python
+from tm1_git_py import purge_changeset_cache, purge_model_cache, CacheInUseError
+
+# Close any open connection to this changeset's cache, then delete its
+# sqlite file (and -wal/-shm sidecars). Missing files are not an error.
+purge_changeset_cache("202608030001", base_dir=str(cache_dir))
+
+purge_model_cache("my-model-id")
+```
+
+By default, `purge_*` refuses with `CacheInUseError` if another part of the
+same process still holds an open connection to that cache (e.g. an
+in-flight compare/apply). Pass `force=True` to close and delete regardless
+— only do this once you know from your own application state (not from
+tm1gitpy) that the cache is safe to discard, such as during crash-recovery
+cleanup of a changeset your application knows to be abandoned.
+
 ## Usage
 
 ### Export TM1 Model

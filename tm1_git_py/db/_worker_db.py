@@ -143,6 +143,15 @@ class WorkerDBRegistry:
             entry.last_used = time.monotonic()
 
     @classmethod
+    def is_busy(cls, file_name: str, *, profile: str = "rw") -> bool:
+        """Return True if a live, non-closed entry for this path has refcount > 0."""
+        abs_path = os.path.abspath(file_name)
+        key = (abs_path, str(profile or "rw"))
+        with cls._lock:
+            entry = cls._entries.get(key)
+            return entry is not None and not entry.closed and entry.refcount > 0
+
+    @classmethod
     def force_close(cls, file_name: str, *, profile: Optional[str] = None) -> None:
         abs_path = os.path.abspath(file_name)
         with cls._lock:

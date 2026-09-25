@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 import orjson
 
+from tm1_git_py.db._fs import unlink_sqlite_artifacts
 from tm1_git_py.db._worker_db import WorkerDBLease, WorkerDBRegistry
+from tm1_git_py.db.exceptions import CacheInUseError
 
 
 DEFAULT_BULK_INSERT_BATCH_SIZE = 10_000
@@ -140,11 +142,46 @@ class ModelStore:
             return row[index]
 
     @classmethod
-    def _db_path_for_model_id(cls, model_id: str) -> str:
+    def path_for(cls, *, model_id: str) -> Path:
+        """Resolve a model_id to its cache path. Pure/side-effect-free: no connection opened."""
         normalized_model_id = re.sub(r"[^A-Za-z0-9._-]+", "_", (model_id or "").strip())
         if not normalized_model_id:
             raise ValueError("model_id must not be empty")
-        return str(Path.cwd().resolve() / ".tm1gitpy" / ".cache" / f"{normalized_model_id}.sqlite")
+        return Path.cwd().resolve() / ".tm1gitpy" / ".cache" / f"{normalized_model_id}.sqlite"
+
+    @classmethod
+    def _db_path_for_model_id(cls, model_id: str) -> str:
+        return str(cls.path_for(model_id=model_id))
+
+    @classmethod
+    def is_busy(cls, *, model_id: Optional[str] = None, db_path: Optional[str] = None) -> bool:
+        """Return True if the cache at model_id (or db_path) has a live (refcount > 0) worker."""
+        if db_path is None:
+            if model_id is None:
+                raise ValueError("Either model_id or db_path must be provided")
+            db_path = str(cls.path_for(model_id=model_id))
+        return WorkerDBRegistry.is_busy(db_path)
+
+    @classmethod
+    def purge_for_model_id(cls, model_id: str, *, force: bool = False) -> bool:
+        """Close then delete this model's sqlite file(s). Returns True if any file was removed."""
+        return cls.purge_for_db_path(str(cls.path_for(model_id=model_id)), force=force)
+
+    @classmethod
+    def purge_for_db_path(cls, db_path: str, *, force: bool = False) -> bool:
+        """Close then delete the sqlite file(s) at db_path. Returns True if any file was removed.
+
+        Raises CacheInUseError if the cache is busy (refcount > 0) and force is False.
+        """
+        abs_path = os.path.abspath(db_path)
+        if not force and WorkerDBRegistry.is_busy(abs_path):
+            raise CacheInUseError(f"cache at '{abs_path}' is in use")
+        with cls._instances_lock:
+            store = cls._instances.pop(abs_path, None)
+        if store is not None:
+            store.close()
+        WorkerDBRegistry.force_close(abs_path)
+        return unlink_sqlite_artifacts(abs_path)
 
     @classmethod
     def for_model_id(cls, model_id: str) -> "ModelStore":

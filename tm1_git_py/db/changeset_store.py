@@ -3,7 +3,9 @@ import os
 import threading
 from typing import Any, Iterable, Iterator, Optional
 
+from tm1_git_py.db._fs import unlink_sqlite_artifacts
 from tm1_git_py.db._worker_db import WorkerDBLease, WorkerDBRegistry
+from tm1_git_py.db.exceptions import CacheInUseError
 
 
 _QUERY_COLUMNS = (
@@ -54,6 +56,28 @@ class ChangesetStore:
         )
         return root / f"changeset-{changeset_id}.sqlite"
 
+    @classmethod
+    def is_busy(cls, *, changeset_id: str, base_dir: Optional[str] = None) -> bool:
+        """Return True if this changeset's cache has a live (refcount > 0) worker."""
+        db_path = cls.path_for(changeset_id=changeset_id, base_dir=base_dir)
+        return WorkerDBRegistry.is_busy(str(db_path))
+
+    @classmethod
+    def purge(cls, *, changeset_id: str, base_dir: Optional[str] = None, force: bool = False) -> bool:
+        """Close then delete this changeset's sqlite file(s). Returns True if any file was removed.
+
+        Raises CacheInUseError if the cache is busy (refcount > 0) and force is False.
+        """
+        db_path = cls.path_for(changeset_id=changeset_id, base_dir=base_dir)
+        abs_path = os.path.abspath(str(db_path))
+        if not force and WorkerDBRegistry.is_busy(abs_path):
+            raise CacheInUseError(f"cache at '{abs_path}' is in use")
+        with cls._instances_lock:
+            store = cls._instances.pop(abs_path, None)
+        if store is not None:
+            store.close()
+        WorkerDBRegistry.force_close(abs_path)
+        return unlink_sqlite_artifacts(abs_path)
 
     @classmethod
     def for_changeset_id(
