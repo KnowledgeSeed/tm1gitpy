@@ -411,14 +411,24 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     apply_progress_sink: ProgressSink = (
         apply_sinks[0] if len(apply_sinks) == 1 else CompositeProgressSink(apply_sinks)
     )
+    apply_kwargs = dict(
+        tm1_service=tm1_service,
+        status_dir=status_dir,
+        execution_id=args.execution_id,
+        fail_fast=not args.no_fail_fast,
+        progress_sink=apply_progress_sink,
+    )
     try:
-        ok, errors = changeset.apply(
-            tm1_service,
-            status_dir=status_dir,
-            execution_id=args.execution_id,
-            fail_fast=not args.no_fail_fast,
-            progress_sink=apply_progress_sink,
-        )
+        apply_mode = getattr(args, "apply_mode", "auto")
+        if apply_mode == "atomic":
+            ok, errors = changeset.apply_atomic(**apply_kwargs)
+        elif apply_mode == "simple":
+            ok, errors = changeset.apply(**apply_kwargs)
+        else:
+            max_atomic_body_kb = getattr(args, "max_atomic_body_kb", None)
+            if max_atomic_body_kb is not None:
+                apply_kwargs["max_body_bytes"] = max_atomic_body_kb * 1024
+            ok, errors = changeset.apply_auto(**apply_kwargs)
     finally:
         apply_progress_sink.close()
         changeset.close()
@@ -568,6 +578,29 @@ def main():
         "--no-fail-fast",
         action="store_true",
         help="Continue applying after a failed change",
+    )
+    p_apply.add_argument(
+        "--apply-mode",
+        type=str,
+        choices=["auto", "atomic", "simple"],
+        default="auto",
+        help=(
+            "auto: automatically choose atomic or simple based on the estimated atomic-path "
+            "payload size (default); atomic: force a single master-TI apply for schema changes "
+            "(process/chore changes still apply per-object); simple: force the regular "
+            "per-object apply"
+        ),
+    )
+    p_apply.add_argument(
+        "--max-atomic-body-kb",
+        type=int,
+        default=None,
+        help=(
+            "Override the atomic-path body size threshold (KB) used by --apply-mode auto. "
+            "Defaults to TM1's out-of-the-box HTTPRequestEntityMaxSizeInKB (32 KB); raise this "
+            "if the target server's HTTPRequestEntityMaxSizeInKB has been increased "
+            "(max 1024 KB)."
+        ),
     )
     p_apply.set_defaults(handler=_cmd_apply)
 

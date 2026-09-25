@@ -37,7 +37,7 @@ A detailed technical comparison between **TM1git** and **TM1gitpy**, categorized
 | | **Rule Markups** | ❌ | 🟠 Upcoming release |
 | **Changeset Management** | **Changeset as a file** | ❌ (requires Git PR to review changes) | ✅ |
 | | **Changeset Post-filtering** | ❌ | ✅ |
-| | **Transactional Changeset apply** | ✅ | 🟠 Upcoming release |
+| | **Transactional Changeset apply** | ✅ | ✅ (new) |
 | | **Progress Tracking** | ❌ | ✅ |
 | **DevOps & Extensibility** | **Pre/Post Pull/Push** | ✅ (via TI processes) | 🟠 Upcoming release (via TI processes or Python hooks) |
 | | **No-Git Preview Mode** | ❌ | ✅ |
@@ -309,11 +309,52 @@ apply:
   --status-dir PATH
   --execution-id ID
   --no-fail-fast
+  --apply-mode {auto,atomic,simple}  (default: auto)
+  --max-atomic-body-kb KB            override the atomic-path body size threshold (auto mode only)
 
 changset-filter / changeset-filter:
   --changeset-path PATH
   --filter-rules RULES_OR_FILE
 ```
+
+### Atomic vs. simple apply
+
+`apply` has three modes, selected with `--apply-mode`:
+
+- **`auto`** (default): compiles the schema portion of the changeset (dimensions,
+  hierarchies, elements, edges, subsets, cubes, views, rules) into a single
+  master TurboIntegrator script, estimates the size of the resulting request,
+  and compares it against two thresholds:
+  - **body size** — defaults to TM1's out-of-the-box `HTTPRequestEntityMaxSizeInKB`
+    (32 KB). Raise it with `--max-atomic-body-kb` if the target server's
+    `HTTPRequestEntityMaxSizeInKB` has been increased (up to TM1's 1024 KB hard
+    ceiling).
+  - **TI line count** — 15,000, a safety margin below TM1's ~16,000
+    lines-per-procedure limit.
+
+  If the schema payload fits under both thresholds, it is applied atomically
+  (one TI execution, all-or-nothing for schema changes); process and chore
+  changes are still applied individually afterward, as with `--apply-mode
+  atomic`. If it doesn't fit, the **whole** changeset (not just the oversized
+  part) falls back to the regular per-object flow, the same as `--apply-mode
+  simple` — there is no mode that splits an oversized changeset into several
+  smaller atomic batches. Either way, the decision (chosen strategy, measured
+  body bytes/line count, and the thresholds used) is logged at `INFO`, so it's
+  visible without `--debug`.
+- **`atomic`**: always applies schema changes as a single master TI, regardless
+  of size. Fails if the request exceeds TM1's limits — use this when you want
+  atomicity guaranteed and know the changeset fits.
+- **`simple`**: always applies every change individually through the TM1py/REST
+  flow, matching TM1 Git's behavior. No atomicity across changes, but no size
+  ceiling either.
+
+`--max-atomic-body-kb` only affects `--apply-mode auto`; it's ignored for
+`atomic`/`simple`, which bypass the size decision entirely.
+
+The same three flows are available from the Python API: `Changeset.apply_auto(...)`,
+`Changeset.apply_atomic(...)`, and `Changeset.apply(...)` (or their
+`tm1_git_py.services.apply` module-level equivalents: `apply_auto`,
+`apply_with_atomic_schema`, `apply`).
 
 Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment. Pass `--debug` to set the log level to `DEBUG` for that run.
 

@@ -316,23 +316,54 @@ class TestTICRUDIntegration:
         )
         cube_name = "TestCube3WithView"
         view_name = "testcube3withview_view2"
-        view = self.tm1_service.views.get(cube_name=cube_name, view_name=view_name)
-        view.suppress_empty_columns = True
-        self.tm1_service.views.update(view)
-        test_model = export_check_no_errors(self)
 
-        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
-
+        changeset = Changeset("modify_nativeview_case")
+        changeset.changes = [
+            Change(
+                change_type=ChangeType.MODIFY,
+                object_type=ObjectType.NATIVE_VIEW,
+                uri=NativeView.uri_for(cube_name, view_name),
+                body=NativeView(
+                    name=view_name,
+                    columns=[
+                        {
+                            "Subset": {
+                                "Expression": "{[TestDim2].[TestDim2].Members}",
+                                "Hierarchy": {
+                                    "@id": "Dimensions('TestDim2')/Hierarchies('TestDim2')"
+                                },
+                            }
+                        }
+                    ],
+                    rows=[
+                        {
+                            "Subset": {
+                                "Expression": "{[TestDim1].[TestDim1].[TestDim1Elem1]}",
+                                "Hierarchy": {
+                                    "@id": "Dimensions('TestDim1')/Hierarchies('TestDim1')"
+                                },
+                            }
+                        }
+                    ],
+                    titles=[],
+                    suppress_empty_columns=True,
+                    suppress_empty_rows=False,
+                    format_string="0.#########",
+                ),
+            )
+        ]
         self.apply_atomic(changeset)
+        updated = self.tm1_service.views.get_native_view(
+            cube_name=cube_name, view_name=view_name
+        )
+        assert updated.suppress_empty_rows is False
 
-        updated = self.tm1_service.views.get_native_view(cube_name=cube_name, view_name=view_name)
-        assert updated.suppress_empty_columns is False
-
+        # clean-up
         test_model = export_check_no_errors(self)
         changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply_atomic(changeset)
-        restored_model = export_check_no_errors(self, self._f_with_meta)
-        check_no_diff(fixture_dir, restored_model)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
 
 
     # -----------------------------------------------------------------------

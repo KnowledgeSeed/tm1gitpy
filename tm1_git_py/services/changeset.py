@@ -554,6 +554,40 @@ class Changeset:
             progress_sink=progress_sink,
         )
 
+    def apply_auto(
+            self,
+            tm1_service,
+            *,
+            status_dir: Optional[Union[str, Path]] = None,
+            execution_id: Optional[str] = None,
+            fail_fast: bool = True,
+            progress_sink: Optional[ProgressSink] = None,
+            max_body_bytes: Optional[int] = None,
+            max_ti_lines: Optional[int] = None,
+    ) -> tuple[bool, Union[list, None]]:
+        """
+        Apply this changeset, automatically choosing between the atomic
+        (master-TI) and simple (per-object) flows based on the estimated
+        atomic-path payload size. See `services.apply.apply_auto` for the
+        full decision rationale and defaults.
+        """
+        from tm1_git_py.services.apply import (
+            DEFAULT_MAX_ATOMIC_BODY_BYTES,
+            DEFAULT_MAX_TI_LINES,
+            apply_auto as apply_auto_changeset,
+        )
+
+        return apply_auto_changeset(
+            changeset=self,
+            tm1_service=tm1_service,
+            status_dir=status_dir,
+            execution_id=execution_id,
+            fail_fast=fail_fast,
+            progress_sink=progress_sink,
+            max_body_bytes=max_body_bytes if max_body_bytes is not None else DEFAULT_MAX_ATOMIC_BODY_BYTES,
+            max_ti_lines=max_ti_lines if max_ti_lines is not None else DEFAULT_MAX_TI_LINES,
+        )
+
     def __str__(self) -> str:
         preview_limit = 10
         preview_changes = self.query(from_=0, to=preview_limit)

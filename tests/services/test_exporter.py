@@ -749,7 +749,10 @@ class TestExporter:
         native_view = NativeView.from_tm1py(tm1py_view)
 
         assert native_view.titles[0]["Selected"] is None
-        assert native_view.titles[0]["Subset"]["Hierarchy"] == {
+        # No Expression on the raw Subset (only Elements), so
+        # view_title_selection_to_dict collapses the whole Subset to a bare
+        # hierarchy reference rather than nesting it under "Hierarchy".
+        assert native_view.titles[0]["Subset"] == {
             "@id": "Dimensions('D1')/Hierarchies('H1')"
         }
 

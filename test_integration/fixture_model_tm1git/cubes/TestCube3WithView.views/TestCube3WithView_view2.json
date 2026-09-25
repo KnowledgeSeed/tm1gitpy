@@ -1,34 +1,20 @@
 {
 	"@type":"NativeView",
-	"Name":"TestCube3WithView_view2",
+	"Name":"testcube3withview_view2",
 	"Columns":
 	[
 		{
-			"Subset":
-			{
-				"Hierarchy":
-				{
-					"@id":"Dimensions('TestDim2')/Hierarchies('TestDim2')"
-				},
-				"Expression":"{[TestDim2].[TestDim2].Members}"
-			}
+			"Subset@odata.bind":"Dimensions('TestDim2')/Hierarchies('TestDim2')/Subsets('testcube3withview_view2')"
 		}
 	],
 	"Rows":
 	[
 		{
-			"Subset":
-			{
-				"Hierarchy":
-				{
-					"@id":"Dimensions('TestDim1')/Hierarchies('TestDim1')"
-				},
-				"Expression":"{[TestDim1].[TestDim1].Members}"
-			}
+			"Subset@odata.bind":"Dimensions('TestDim1')/Hierarchies('TestDim1')/Subsets('testcube3withview_view2')"
 		}
 	],
 	"Titles":[],
-	"SuppressEmptyColumns":true,
-	"SuppressEmptyRows":true,
-	"FormatString":"0.#########"
+	"SuppressEmptyColumns":false,
+	"SuppressEmptyRows":false,
+	"FormatString":"0.00"
 }

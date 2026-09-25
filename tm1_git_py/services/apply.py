@@ -2,8 +2,9 @@ import importlib
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Union, TypeVar
+from typing import Iterable, Literal, Optional, Union, TypeVar
 
 import TM1py
 from TM1py import TM1Service
@@ -516,27 +517,135 @@ def build_master_changeset_ti(changeset: Changeset) -> str:
     return "\r\n".join(ti_lines)
 
 
-def apply_atomic(changeset: Changeset, tm1_service: TM1Service) -> bool:
+def build_master_process(changeset: Changeset, master_ti_code: Optional[str] = None) -> TM1py.Process:
+    """
+    Build the ephemeral TM1py.Process that `apply_atomic` deploys and executes,
+    without talking to TM1. `master_ti_code` can be passed in to avoid
+    recompiling it when the caller already built it (e.g. via
+    `estimate_atomic_apply_size`).
+    """
+    if master_ti_code is None:
+        master_ti_code = build_master_changeset_ti(changeset)
+    process_name = f"}}git_atomic_{uuid.uuid4().hex}"
+    return TM1py.Process(
+        name=process_name,
+        prolog_procedure=master_ti_code,
+        has_security_access=True,
+    )
+
+
+@dataclass(frozen=True)
+class AtomicApplySizeEstimate:
+    """Pre-flight sizing for the atomic (master-TI) apply path."""
+    process: TM1py.Process
+    master_ti_code: str
+    body_bytes: int
+    ti_line_count: int
+
+
+def estimate_atomic_apply_size(changeset: Changeset) -> AtomicApplySizeEstimate:
+    """
+    Build the same master TI / TM1py.Process that `apply_atomic` would send to
+    TM1, and measure what TM1 will actually see: the serialized JSON request
+    body size in bytes, and the raw TI line count.
+
+    Does not talk to TM1. Pass the returned `process` into
+    `apply_atomic(..., process=...)` to reuse it and avoid building the
+    master TI twice when the atomic path ends up being used.
+    """
+    master_ti_code = build_master_changeset_ti(changeset)
+    process = build_master_process(changeset, master_ti_code=master_ti_code)
+    body_bytes = len(process.body.encode("utf-8"))
+    # TM1py.Process always prepends a 2-line "Generated Statements" marker to
+    # prolog_procedure, so count lines on the wrapped value TM1 actually
+    # receives, not the pre-wrap master_ti_code.
+    ti_line_count = len(process.prolog_procedure.splitlines())
+    return AtomicApplySizeEstimate(
+        process=process,
+        master_ti_code=master_ti_code,
+        body_bytes=body_bytes,
+        ti_line_count=ti_line_count,
+    )
+
+
+# Thresholds for choose_apply_strategy/apply_auto's atomic-vs-simple decision.
+# See README.md for the rationale.
+
+# TM1's out-of-the-box `HTTPRequestEntityMaxSizeInKB` (32 KB). Operators who
+# have raised this server-side (up to the 1024 KB hard ceiling) should pass a
+# larger `max_body_bytes` explicitly rather than relying on this default.
+DEFAULT_MAX_ATOMIC_BODY_BYTES = 32 * 1024
+
+# Safety margin below TM1py's `Process.MAX_STATEMENTS` (16_380, pre-11.8.015
+# servers) to leave room for the fixed TI preamble/comments emitted by
+# `build_master_changeset_ti` and the 2-line generated-statements wrapper.
+DEFAULT_MAX_TI_LINES = 15_000
+
+ApplyStrategy = Literal["atomic", "simple"]
+
+
+@dataclass(frozen=True)
+class ApplyStrategyDecision:
+    """Result of `choose_apply_strategy`: which flow to use and why."""
+    strategy: ApplyStrategy
+    estimate: AtomicApplySizeEstimate
+    max_body_bytes: int
+    max_ti_lines: int
+
+
+def choose_apply_strategy(
+        changeset: Changeset,
+        *,
+        max_body_bytes: int = DEFAULT_MAX_ATOMIC_BODY_BYTES,
+        max_ti_lines: int = DEFAULT_MAX_TI_LINES,
+) -> ApplyStrategyDecision:
+    """
+    Decide whether `changeset` should be applied atomically (single master-TI
+    process) or through the regular per-object flow, based on the estimated
+    atomic-path payload size and TI line count.
+
+    Pure: does not talk to TM1 and has no side effects. `changeset` should
+    already be filtered down to the atomic-eligible schema changes (see
+    `ATOMIC_SCHEMA_OBJECT_TYPES`) when the caller intends to route through
+    `apply_with_atomic_schema`, since that's the payload that actually gets
+    sent as the master TI. The returned `estimate.process` can be reused by
+    the caller (e.g. `apply_atomic(..., process=...)`) to avoid a second
+    master-TI build.
+    """
+    estimate = estimate_atomic_apply_size(changeset)
+    if estimate.body_bytes > max_body_bytes or estimate.ti_line_count > max_ti_lines:
+        strategy: ApplyStrategy = "simple"
+    else:
+        strategy = "atomic"
+    return ApplyStrategyDecision(
+        strategy=strategy,
+        estimate=estimate,
+        max_body_bytes=max_body_bytes,
+        max_ti_lines=max_ti_lines,
+    )
+
+
+def apply_atomic(
+        changeset: Changeset,
+        tm1_service: TM1Service,
+        *,
+        process: Optional[TM1py.Process] = None,
+) -> bool:
     if not changeset.has_changes():
         return True
 
-    # 1. Generate the Code
-    master_ti_code = build_master_changeset_ti(changeset)
-    logger.debug(f"Master TI code:\n{master_ti_code}")
-
-    # 2. Create Ephemeral Process
-    process_name = f"}}git_atomic_{uuid.uuid4().hex}"
-    process = TM1py.Process(
-        name=process_name,
-        prolog_procedure=master_ti_code,
-        has_security_access=True
-    )
+    # 1. Generate the Code, unless a pre-built process was supplied (e.g. by
+    #    estimate_atomic_apply_size) to avoid building the master TI twice.
+    if process is None:
+        process = build_master_process(changeset)
+    process_name = process.name
+    logger.debug(f"Master TI code:\n{process.prolog_procedure}")
 
     try:
-        # 3. Deploy
+        # 2. Deploy
         tm1_service.processes.create(process)
 
-        # 4. Execute (The Atomic Moment)
+        # 3. Execute (The Atomic Moment)
         tm1_service.processes.execute(process_name)
         return True
 
@@ -545,7 +654,7 @@ def apply_atomic(changeset: Changeset, tm1_service: TM1Service) -> bool:
         raise e
 
     finally:
-        # 5. Cleanup
+        # 4. Cleanup
         if tm1_service.processes.exists(process_name):
             tm1_service.processes.delete(process_name)
 
@@ -558,9 +667,15 @@ def apply_with_atomic_schema(
         execution_id: Optional[str] = None,
         fail_fast: bool = True,
         progress_sink: Optional[ProgressSink] = None,
+        process: Optional[TM1py.Process] = None,
 ) -> tuple[bool, Union[list, None]]:
     """
     Apply schema changes atomically, then apply process and chore changes via the regular TM1py flow.
+
+    `process` can be a pre-built master-TI `TM1py.Process` for the schema
+    portion of `changeset` (e.g. from `choose_apply_strategy`'s
+    `estimate.process`), to avoid rebuilding the master TI when the caller
+    already computed it.
     """
     logger.info(
         "Starting atomic-schema apply execution_id=%s fail_fast=%s changes=%d",
@@ -579,7 +694,7 @@ def apply_with_atomic_schema(
 
     if schema_changeset.has_changes():
         logger.info("Applying %d schema change(s) atomically", len(schema_changeset.changes))
-        ok = apply_atomic(schema_changeset, tm1_service)
+        ok = apply_atomic(schema_changeset, tm1_service, process=process)
         if not ok:
             return False, None
         applied_changes.extend(
@@ -604,3 +719,74 @@ def apply_with_atomic_schema(
         return ok, applied_changes or None
 
     return True, applied_changes or None
+
+
+def apply_auto(
+        changeset: Changeset,
+        tm1_service: TM1Service,
+        *,
+        status_dir: Optional[Union[str, Path]] = None,
+        execution_id: Optional[str] = None,
+        fail_fast: bool = True,
+        progress_sink: Optional[ProgressSink] = None,
+        max_body_bytes: int = DEFAULT_MAX_ATOMIC_BODY_BYTES,
+        max_ti_lines: int = DEFAULT_MAX_TI_LINES,
+) -> tuple[bool, Union[list, None]]:
+    """
+    Apply `changeset`, automatically choosing between the atomic (master-TI)
+    and simple (per-object) flows based on the estimated atomic-path payload
+    size, so callers don't have to guess which flow fits.
+
+    The decision is made on the schema-eligible subset of `changeset` (the
+    part that would actually be sent as the master TI via
+    `apply_with_atomic_schema`), using `choose_apply_strategy`. When the
+    atomic path wouldn't fit under `max_body_bytes`/`max_ti_lines`, the
+    *whole* changeset falls back to the regular per-object `apply()` flow
+    (no partial/chunked atomic batches) — see
+    README.md for the design decisions
+    behind this fallback granularity and the default thresholds.
+    """
+    logger.info(
+        "Starting auto apply execution_id=%s fail_fast=%s changes=%d",
+        execution_id,
+        fail_fast,
+        len(changeset.changes),
+    )
+    if not changeset.has_changes():
+        logger.info("No changes to apply.")
+        return True, None
+
+    schema_changeset = _filter_changeset(changeset, ATOMIC_SCHEMA_OBJECT_TYPES)
+    decision = choose_apply_strategy(
+        schema_changeset,
+        max_body_bytes=max_body_bytes,
+        max_ti_lines=max_ti_lines,
+    )
+    logger.info(
+        "apply_auto strategy=%s body_bytes=%d (max=%d) ti_lines=%d (max=%d)",
+        decision.strategy,
+        decision.estimate.body_bytes,
+        decision.max_body_bytes,
+        decision.estimate.ti_line_count,
+        decision.max_ti_lines,
+    )
+
+    if decision.strategy == "simple":
+        return apply(
+            changeset=changeset,
+            tm1_service=tm1_service,
+            status_dir=status_dir,
+            execution_id=execution_id,
+            fail_fast=fail_fast,
+            progress_sink=progress_sink,
+        )
+
+    return apply_with_atomic_schema(
+        changeset=changeset,
+        tm1_service=tm1_service,
+        status_dir=status_dir,
+        execution_id=execution_id,
+        fail_fast=fail_fast,
+        progress_sink=progress_sink,
+        process=decision.estimate.process,
+    )
