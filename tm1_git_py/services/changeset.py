@@ -460,60 +460,6 @@ class Changeset:
     def has_changes(self) -> bool:
         return len(self.changes) > 0
 
-    def unify_rule_changes(self, cube_rule_texts: Optional[dict[str, str]] = None) -> None:
-        """Collapse per-cube Rule add/remove/modify entries into one modify Rule entry.
-
-        The unified Rule entry uses:
-        - name: "default"
-        - change_type: "modify"
-        - uri: Cubes('<cube>')/Rules('default')
-        - full_statement: full unified rule text for the cube
-        """
-        cube_rule_texts = cube_rule_texts or {}
-        before_count = len(self.changes)
-        grouped_rule_changes: dict[str, list[Change]] = {}
-        non_rule_changes: list[Change] = []
-
-        for change in self.changes:
-            if change.object_type != ObjectType.RULE:
-                non_rule_changes.append(change)
-                continue
-
-            cube_name = Rule.cube_name_from_uri(change.uri)
-            if not cube_name:
-                non_rule_changes.append(change)
-                continue
-            grouped_rule_changes.setdefault(cube_name, []).append(change)
-
-        unified_rule_changes: list[Change] = []
-        for cube_name in sorted(grouped_rule_changes.keys()):
-            unified_text = cube_rule_texts.get(cube_name)
-            if unified_text is None:
-                unified_text = _compose_rule_text_from_changes(grouped_rule_changes[cube_name])
-
-            rule_uri = Rule.uri_for(cube_name)
-            unified_rule_changes.append(
-                Change(
-                    change_type=ChangeType.MODIFY,
-                    object_type=ObjectType.RULE,
-                    uri=rule_uri,
-                    body=Rule(
-                        name="default",
-                        area="[default]",
-                        full_statement=unified_text,
-                        comment="",
-                    ),
-                )
-            )
-
-        self.changes = non_rule_changes + unified_rule_changes
-        logger.debug(
-            "Unified rule changes (before=%d after=%d cubes=%d)",
-            before_count,
-            len(self.changes),
-            len(unified_rule_changes),
-        )
-
     def apply(
             self,
             tm1_service,
