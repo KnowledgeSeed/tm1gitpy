@@ -362,7 +362,7 @@ class TestChangeset:
         ]
 
         # For updates, precedence is:
-        # subsets -> mdx_views -> unified rules -> processes -> chores
+        # subsets -> mdx_views -> rules -> processes -> chores
         assert updated_types == [Subset, MDXView, Rule, Process, Chore]
 
     def test_apply_orders_static_subset_add_after_referenced_element_add(self, mocker):
@@ -1138,6 +1138,56 @@ class TestChangeset:
         assert imported._changeset_id == "20260413000005"
         assert len(imported.changes) == 1
         assert imported.changes[0].apply is False
+
+    @staticmethod
+    def _rule_region_changes():
+        region_text = "\r\n#region B\r\n['products@location']=N:DB('O''Brien', !Version);\r\n#endregion\r\n"
+        return [
+            Change(
+                change_type=ChangeType.MODIFY,
+                object_type=ObjectType.RULE,
+                uri="Cubes('Sales')/Rules('region_0002')",
+                body=Rule(area="[region_0002]", full_statement=region_text, name="region_0002"),
+            ),
+            Change(
+                change_type=ChangeType.REMOVE,
+                object_type=ObjectType.RULE,
+                uri="Cubes('Sales')/Rules('region_0003')",
+                body=Rule(area="[region_0003]", full_statement="#region C\r\n#endregion\r\n", name="region_0003"),
+            ),
+        ]
+
+    @pytest.mark.parametrize("file_name", ["rule_regions.yaml", "rule_regions.json"])
+    def test_export_import_rule_region_changes(self, tmp_path, file_name):
+        changeset = Changeset(changeset_id="20260929000101")
+        changeset.changes = self._rule_region_changes()
+        export_path = tmp_path / file_name
+
+        changeset.export(export_path)
+        imported = {change.uri: change for change in import_changeset(str(export_path)).changes}
+
+        modified = imported["Cubes('Sales')/Rules('region_0002')"]
+        assert modified.change_type == ChangeType.MODIFY
+        assert modified.body.name == "region_0002"
+        assert modified.body.full_statement == self._rule_region_changes()[0].body.full_statement
+
+        removed = imported["Cubes('Sales')/Rules('region_0003')"]
+        assert removed.change_type == ChangeType.REMOVE
+        assert removed.body.name == "region_0003"
+        assert removed.body.full_statement == ""
+
+    def test_changeset_filter_selects_one_rule_region(self):
+        changeset = Changeset(changeset_id="20260929000102")
+        changeset.changes = self._rule_region_changes()
+
+        updated = changeset.filter(["Cubes('Sales')/Rules('region_0003')"])
+
+        assert updated == 1
+        apply_by_uri = {change.uri: change.apply for change in changeset.query(from_=0, to=10)}
+        assert apply_by_uri == {
+            "Cubes('Sales')/Rules('region_0002')": True,
+            "Cubes('Sales')/Rules('region_0003')": False,
+        }
 
     def test_export_remove_edge_body_uses_parent_component_weight(self, tmp_path):
         changeset = Changeset(changeset_id="20260416000003")

@@ -711,20 +711,6 @@ def _rule_name_from_area(area: str) -> str:
     return "default"
 
 
-def _compose_rule_text_from_changes(changes: list[Change]) -> str:
-    """Fallback when full target cube rule text is not provided."""
-    parts: list[str] = []
-    for change in changes:
-        if change.change_type == ChangeType.REMOVE:
-            continue
-        body = change.body
-        if isinstance(body, Rule):
-            if body.comment:
-                parts.append(body.comment)
-            parts.append(body.full_statement)
-    return "\n\n".join(parts)
-
-
 def _cube_dimension_name(value: Any) -> str:
     return str(getattr(value, "name", value))
 

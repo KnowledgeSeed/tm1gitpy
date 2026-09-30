@@ -299,6 +299,127 @@ class TestComparator:
         assert modified_rule_changes[0].uri == "Cubes('Sales')/DrillthroughRules('default')"
         assert modified_rule_changes[0].body.full_statement == "[]=s:'new_drill';"
 
+    def test_comparator_rule_regions_are_separate_changes(self):
+        from tm1_git_py.model.rule import parse_rules
+
+        old_text = (
+            "SKIPCHECK;\n"
+            "#region A\n['a']=N:1;\n#endregion\n"
+            "#region B\n['b']=N:1;\n#endregion\n"
+            "#region C\n['c']=N:1;\n#endregion\n"
+            "FEEDERS;\n"
+        )
+        new_text = (
+            "SKIPCHECK;\n"
+            "#region A\n['a']=N:2;\n#endregion\n"
+            "#region B\n['b']=N:1;\n#endregion\n"
+            "FEEDERS;\n['x']=>['y'];\n"
+        )
+
+        def _model(rule_text):
+            cube_obj = Cube(
+                name="Sales",
+                dimensions=["Versions"],
+                rules=parse_rules(rule_text, "Sales"),
+                views=[],
+            )
+            return Model(cubes=[cube_obj], dimensions=[], processes=[], chores=[])
+
+        changeset = Comparator().compare(_model(old_text), _model(new_text), mode="full")
+        rule_changes = {
+            (c.change_type, c.uri)
+            for c in changeset.changes
+            if c.object_type == ObjectType.RULE
+        }
+
+        assert rule_changes == {
+            (ChangeType.MODIFY, "Cubes('Sales')/Rules('region_0001')"),
+            (ChangeType.REMOVE, "Cubes('Sales')/Rules('region_0003')"),
+            (ChangeType.MODIFY, "Cubes('Sales')/Rules('trailer')"),
+        }
+        assert not self._changes_by_type(changeset, ChangeType.ADD)
+
+    @staticmethod
+    def _rule_region_model(rule_text, dimensions=("Versions",)):
+        from tm1_git_py.model.rule import parse_rules
+
+        cube_obj = Cube(
+            name="Sales",
+            dimensions=list(dimensions),
+            rules=parse_rules(rule_text, "Sales"),
+            views=[],
+        )
+        return Model(cubes=[cube_obj], dimensions=[], processes=[], chores=[])
+
+    @staticmethod
+    def _rule_change_keys(changeset):
+        return {
+            (c.change_type, c.object_type, c.uri)
+            for c in changeset.changes
+        }
+
+    def test_comparator_rule_region_and_preamble_added(self):
+        old_text = "#region A\n['a']=N:1;\n#endregion\n"
+        new_text = "SKIPCHECK;\n#region A\n['a']=N:1;\n#endregion\n#region B\n['b']=N:1;\n#endregion\n"
+
+        changeset = Comparator().compare(
+            self._rule_region_model(old_text), self._rule_region_model(new_text), mode="full"
+        )
+
+        assert self._rule_change_keys(changeset) == {
+            (ChangeType.ADD, ObjectType.RULE, "Cubes('Sales')/Rules('preamble')"),
+            (ChangeType.ADD, ObjectType.RULE, "Cubes('Sales')/Rules('region_0002')"),
+        }
+
+    def test_comparator_preamble_removed_and_trailer_added(self):
+        old_text = "SKIPCHECK;\n#region A\n['a']=N:1;\n#endregion\n"
+        new_text = "#region A\n['a']=N:1;\n#endregion\nFEEDERS;\n"
+
+        changeset = Comparator().compare(
+            self._rule_region_model(old_text), self._rule_region_model(new_text), mode="full"
+        )
+
+        assert self._rule_change_keys(changeset) == {
+            (ChangeType.REMOVE, ObjectType.RULE, "Cubes('Sales')/Rules('preamble')"),
+            (ChangeType.ADD, ObjectType.RULE, "Cubes('Sales')/Rules('trailer')"),
+        }
+
+    def test_comparator_unchanged_rule_regions_create_no_change(self):
+        text = "SKIPCHECK;\r\n#region A\r\n['a']=N:1;\r\n#endregion\r\nFEEDERS;\r\n"
+
+        changeset = Comparator().compare(
+            self._rule_region_model(text), self._rule_region_model(text), mode="full"
+        )
+
+        assert not changeset.has_changes()
+
+    def test_comparator_rule_only_difference_creates_no_cube_modify(self):
+        old_text = "#region A\n['a']=N:1;\n#endregion\n"
+        new_text = "#region A\n['a']=N:2;\n#endregion\n"
+
+        changeset = Comparator().compare(
+            self._rule_region_model(old_text), self._rule_region_model(new_text), mode="full"
+        )
+
+        assert self._rule_change_keys(changeset) == {
+            (ChangeType.MODIFY, ObjectType.RULE, "Cubes('Sales')/Rules('region_0001')"),
+        }
+
+    def test_comparator_filter_excludes_one_rule_region(self):
+        old_text = "#region A\n['a']=N:1;\n#endregion\n#region B\n['b']=N:1;\n#endregion\n"
+        new_text = "#region A\n['a']=N:2;\n#endregion\n#region B\n['b']=N:2;\n#endregion\n"
+
+        changeset = Comparator().compare(
+            self._rule_region_model(old_text),
+            self._rule_region_model(new_text),
+            mode="full",
+            filter_rules=FilterRules(["Cubes('Sales')/Rules('region_0002')"]),
+        )
+
+        assert self._rule_change_keys(changeset) == {
+            (ChangeType.MODIFY, ObjectType.RULE, "Cubes('Sales')/Rules('region_0001')"),
+        }
+
     def test_comparator_unchanged_drillthrough_rule_creates_no_change(self):
         drillthrough_rule = Rule(
             area="[default]",

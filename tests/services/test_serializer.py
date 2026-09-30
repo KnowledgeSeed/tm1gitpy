@@ -652,6 +652,59 @@ class TestSerializer:
             cube_dir / "Sales.drillthrough.rules"
         ).read_text(encoding="utf-8") == "[]=s:'simple_drillthrough';"
 
+    def test_drillthrough_rules_round_trip(self, tmp_path):
+        from tm1_git_py.services.deserializer import deserialize_cubes
+
+        drillthrough_text = "[]=s:'simple_drillthrough';\r\n"
+        cube = Cube(
+            name="Sales",
+            dimensions=[],
+            rules=[],
+            views=[],
+            drillthrough_rules=[
+                Rule(area="[default]", full_statement=drillthrough_text, name="default")
+            ],
+        )
+        model = Model(cubes=[cube], dimensions=[], processes=[], chores=[])
+
+        serialize_model(model, str(tmp_path), max_workers=1)
+        cubes, errors = deserialize_cubes(cubes_dir=tmp_path / "cubes", _dimensions={})
+
+        assert errors == {}
+        assert cubes["Sales"].drillthrough_rules == cube.drillthrough_rules
+
+    def test_rule_regions_round_trip_byte_for_byte(self, tmp_path):
+        from tm1_git_py.services.deserializer import deserialize_cubes
+
+        rule_bytes = (
+            "#SEEDER;\r\nSKIPCHECK;\r\n"
+            "#region A\r\n['a']=N:1;\r\n#endregion\r\n"
+            "\r\n"
+            "#region\n['products@location']=N:DB('O''Brien', !Version);\n#endregion\n"
+            "FEEDERS;\r\n['a']=>['b'];"
+        ).encode("utf-8")
+        source_dir = tmp_path / "source" / "cubes"
+        source_dir.mkdir(parents=True)
+        (source_dir / "Sales.json").write_text(
+            json.dumps({
+                "@type": "Cube",
+                "Name": "Sales",
+                "Dimensions": [{"@id": "Dimensions('Versions')"}],
+                "Rules@Code.link": "Sales.rules",
+                "Views@Code.links": [],
+            }),
+            encoding="utf-8",
+        )
+        (source_dir / "Sales.rules").write_bytes(rule_bytes)
+        cubes, errors = deserialize_cubes(cubes_dir=source_dir, _dimensions={})
+        assert errors == {}
+        assert len(cubes["Sales"].rules) == 4
+
+        model = Model(cubes=list(cubes.values()), dimensions=[], processes=[], chores=[])
+        serialize_model(model, str(tmp_path / "target"), max_workers=1)
+
+        assert (tmp_path / "target" / "cubes" / "Sales.rules").read_bytes() == rule_bytes
+
     def test_serialize_cubes_process_pool_ignores_unpicklable_cube_state(self, tmp_path):
         import tm1_git_py.services.serializer as serializer_module
 

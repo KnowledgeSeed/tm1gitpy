@@ -44,6 +44,25 @@ class TestChangesetApply:
             and change.body.__class__.__name__ == class_name
         ]
 
+    @staticmethod
+    def _rule_changes(changeset: Changeset, cube_name: str):
+        return {
+            (change.change_type, change.uri)
+            for change in changeset.changes
+            if change.object_type == ObjectType.RULE
+            and change.uri.startswith(f"Cubes('{cube_name}')/Rules(")
+        }
+
+    @staticmethod
+    def _unmarked_to_fixture_rule_changes(cube_name: str):
+        """Unmarked server rule ('default') replaced by the fixture's preamble and regions."""
+        return {
+            (ChangeType.ADD, Rule.uri_for(cube_name, "preamble")),
+            (ChangeType.ADD, Rule.uri_for(cube_name, "region_0001")),
+            (ChangeType.ADD, Rule.uri_for(cube_name, "region_0002")),
+            (ChangeType.REMOVE, Rule.uri_for(cube_name, "default")),
+        }
+
     def test_create_cube_full_no_meta_objects(self):
 
         # given
@@ -1000,7 +1019,6 @@ class TestChangesetApply:
         cube_name = "TestCube2WithRule"
         expected_rule_text = self.tm1_service.cubes.get(cube_name).rules.text
 
-        # Remove rule from TestCube2WithRule to create the expected diff against fixture.
         cube_object = self.tm1_service.cubes.get("TestCube2WithRule")
         cube_object.rules = TM1py.Rules("SKIPCHECK;")
         self.tm1_service.cubes.update(cube_object)
@@ -1010,14 +1028,51 @@ class TestChangesetApply:
         changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
         self.apply(changeset)
 
-        # then — rule changes are unified into one modify Rule change per cube
+        # "SKIPCHECK;" has no region markers, so it is the 'default' rule and
+        # shares no rule name with the fixture's preamble / region_000N rules
+        assert self._rule_changes(changeset, cube_name) == self._unmarked_to_fixture_rule_changes(cube_name)
+
+        # Verify the full fixture rule is present on the server
+        cube_final = self.tm1_service.cubes.get(cube_name)
+        assert cube_final.rules is not None
+        assert cube_final.rules.text == expected_rule_text
+
+        # clean-up
+        test_model = export_check_no_errors(self)
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+        test_model = export_check_no_errors(self, self._f_with_meta)
+        check_no_diff(fixture_dir, test_model)
+
+
+    def test_modify_rule_no_meta_objects(self):
+        """Changeset should update a rule that exists in the fixture but differs on the server."""
+        fixture_dir, fixture_model = load_fixture_model_tm1gitpy(
+            self, model_id=self._fixture_model_id_no_meta
+        )
+        cube_name = "TestCube2WithRule"
+        expected_rule_text = self.tm1_service.cubes.get(cube_name).rules.text
+
+        cube_object = self.tm1_service.cubes.get("TestCube2WithRule")
+        rule_text = (
+            "#region\nSKIPCHECK;\n\n[''TestDim1Elem1''] = 0;\n#endregion\n"
+            "\n#region\n['TestDim2Elem1'] = 1;\n#endregion"
+        )
+        cube_object.rules = TM1py.Rules(rule_text)
+        self.tm1_service.cubes.update(cube_object)
+        test_model = export_check_no_errors(self)
+
+        # when
+        changeset = self.compare(test_model, fixture_model, filter_rules=self._f_no_meta)
+        self.apply(changeset)
+
         modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
         target_rules = [
-            rule for rule in modified_rules if rule.full_statement == expected_rule_text
+            rule for rule in modified_rules if rule.full_statement in expected_rule_text
         ]
         assert len(target_rules) == 1
-        assert target_rules[0].name == "default"
-        assert target_rules[0].full_statement == expected_rule_text
+        assert target_rules[0].name == "region_0001"
+        assert target_rules[0].full_statement not in rule_text
 
         # Verify the rule is present on the server
         cube_final = self.tm1_service.cubes.get("TestCube2WithRule")
@@ -1122,7 +1177,6 @@ class TestChangesetApply:
             changeset, ChangeType.REMOVE, "Hierarchy"
         )
         modified_mdx_views = self._changes_by(changeset, ChangeType.MODIFY, "MDXView")
-        modified_rules = self._changes_by(changeset, ChangeType.MODIFY, "Rule")
         added_native_views = self._changes_by(changeset, ChangeType.ADD, "NativeView")
         added_processes = self._changes_by(changeset, ChangeType.ADD, "Process")
 
@@ -1135,7 +1189,7 @@ class TestChangesetApply:
             hierarchy.name == temp_hierarchy_name for hierarchy in removed_hierarchies
         )
         assert any(view.name == view_name for view in modified_mdx_views)
-        assert any(rule.name == "default" for rule in modified_rules)
+        assert self._rule_changes(changeset, rule_cube_name) == self._unmarked_to_fixture_rule_changes(rule_cube_name)
         assert any(view.name == native_view_name for view in added_native_views)
         assert any(process.name == process_name for process in added_processes)
 

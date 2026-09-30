@@ -23,7 +23,7 @@ from tm1_git_py.model.mdxview import MDXView
 from tm1_git_py.model.model import Model
 from tm1_git_py.model.nativeview import NativeView
 from tm1_git_py.model.process import Process
-from tm1_git_py.model.rule import Rule
+from tm1_git_py.model.rule import Rule, RuleRegionError, extract_cube_rule_text, parse_rules
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
 from tm1_git_py.reporting.progress_reporting import (
@@ -405,15 +405,18 @@ def cubes_to_model(
 
             cube = tm1_conn.cubes.get(cube_name=cube_name)
 
-            rule_text = _extract_cube_rule_text(cube)
+            rule_text = extract_cube_rule_text(cube)
 
-            # rules_list = _parse_rules(rule_text)
-            rules_list = []
-            if rule_text:
+            try:
+                rules_list = parse_rules(rule_text, cube_name, source=Cube.uri_for(cube_name))
+            except RuleRegionError as e:
+                # keep the cube and its full rule text; dropping it would look like a removal
+                logger.error("%s; keeping rules as a single 'default' rule", e)
+                _errors[Rule.uri_for(cube_name)] = str(e)
                 rules_list = [Rule(area="[default]", full_statement=rule_text, comment="", name="default")]
             filtered_rules_list = []
             for rule in rules_list:
-                rule_path = f"{Rule.uri_for(cube_name)}|{normalize_for_path(rule.area)}"
+                rule_path = f"{rule.uri(cube_name)}|{normalize_for_path(rule.area)}"
                 if filter_rules.should_exclude(rule_path):
                     logger.debug("Skipping rule by filter: %s", rule_path)
                     skipped_rules += 1
@@ -480,17 +483,6 @@ def cubes_to_model(
     return _cubes, _errors
 
 
-def _extract_cube_rule_text(cube: Any) -> str:
-    if not getattr(cube, "has_rules", False):
-        return ""
-    raw_body = getattr(getattr(cube, "rules", None), "body", "")
-    try:
-        rule_data = json.loads(raw_body)
-        return rule_data.get("Rules", "")
-    except (json.JSONDecodeError, AttributeError, TypeError):
-        return raw_body if isinstance(raw_body, str) else ""
-
-
 def _drillthrough_rule_uri(cube_name: str) -> str:
     return f"Cubes('{cube_name}')/DrillthroughRules('default')"
 
@@ -514,7 +506,7 @@ def _extract_drillthrough_rules(
         )
         return []
 
-    drillthrough_rule_text = _extract_cube_rule_text(drill_cube)
+    drillthrough_rule_text = extract_cube_rule_text(drill_cube)
     if not drillthrough_rule_text:
         return []
 
@@ -868,49 +860,6 @@ def dimensions_to_model(
                     _errors[key] = str(e)
 
     return _dimensions, _errors
-
-
-def _parse_rules(rule_text: str) -> List[Rule]:
-    if not rule_text: return []
-    rules = []
-    seen_names: dict[str, int] = {}
-
-    def _unique_rule_name(area: str) -> str:
-        base = Rule.name_from_area(area)
-        seen_names[base] = seen_names.get(base, 0) + 1
-        if seen_names[base] == 1:
-            return base
-        return f"{base}_{seen_names[base]}"
-
-    pattern = re.compile(r"(?P<comment>(?:#.*(?:\r\n|\n|$)\s*)*)?(?P<statement>\[.*?\][^;]*;)", re.DOTALL)
-    header_match = re.match(r'^(.*?)(?=\[|#|$)', rule_text, re.DOTALL)
-    last_pos = 0
-    if header_match:
-        header_text = header_match.group(1).strip()
-        if header_text:
-            rules.append(
-                Rule(
-                    name=_unique_rule_name("[HEADER]"),
-                    area="[HEADER]",
-                    full_statement=header_text,
-                    comment="",
-                )
-            )
-        last_pos = header_match.end()
-    for match in pattern.finditer(rule_text, last_pos):
-        comment = (match.group('comment') or "").strip()
-        statement_text = match.group('statement').strip()
-        area_match = re.search(r'(\[.*?\])', statement_text)
-        area = area_match.group(1) if area_match else "[UNKNOWN]"
-        rules.append(
-            Rule(
-                name=_unique_rule_name(area),
-                area=area,
-                full_statement=statement_text,
-                comment=comment,
-            )
-        )
-    return rules
 
 
 def server_configs_to_model(tm1_conn: TM1Service) -> Dict:

@@ -1,8 +1,10 @@
+import copy
 import importlib
 import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Iterable, Optional, Union, TypeVar, Literal
@@ -23,6 +25,7 @@ from tm1_git_py.model import (
     Edge,
     Rule,
 )
+from tm1_git_py.model.rule import DEFAULT_RULE_NAME, _rule_segment_sort_key
 from tm1_git_py.reporting.progress_reporting import (
     NoopProgressSink,
     ProgressEvent,
@@ -31,7 +34,7 @@ from tm1_git_py.reporting.progress_reporting import (
     ProgressSink,
     ProgressUnit,
 )
-from tm1_git_py.services.changeset import ChangeType, Change
+from tm1_git_py.services.changeset import ChangeType, Change, ObjectType
 from tm1_git_py.services.changeset_status import ChangeSetStatusStore
 from tm1_git_py.services.filter import (
     DEFAULT_TM1_TECHNICAL_OBJECTS,
@@ -128,6 +131,143 @@ def _is_duplicate_create_exception(exc: Exception) -> bool:
     return "already exists" in normalized_text and status_code in {400, 409}
 
 
+def _build_skipped_rule_response(uri: Optional[str], reason: str) -> Response:
+    response = Response()
+    response.status_code = 208
+    response.url = uri or ""
+    response._content = f"Skipped rule change: {reason}.".encode("utf-8")
+    response.encoding = "utf-8"
+    return response
+
+
+@dataclass
+class _RuleFold:
+    """How the rule changes of each cube are unified, keyed by execution index.
+
+    TM1 keeps one rule text per cube, so the selected Rule changes of a cube
+    with rule regions are folded into one cube write. That write runs at the
+    first execution row of the cube (its Cube change or one of its Rule
+    changes); the cube's other rows record the same result, so status rows and
+    progress stay one per change.
+    """
+
+    run_by_index: dict[int, Change] = field(default_factory=dict)
+    result_from_index: dict[int, int] = field(default_factory=dict)
+    skipped_by_index: dict[int, str] = field(default_factory=dict)
+    failed_by_index: dict[int, str] = field(default_factory=dict)
+
+
+def _copy_cube_change(change: Change, rules: list[Rule]) -> Change:
+    body = copy.copy(change.body)
+    body.rules = rules
+    return replace(change, body=body)
+
+
+def _rule_delta(rule_changes: list[Change]) -> list[Rule]:
+    delta = []
+    for change in rule_changes:
+        rule = change.body
+        if change.change_type == ChangeType.REMOVE:
+            rule = Rule(area=rule.area, full_statement="", comment="", name=rule.name)
+        delta.append(rule)
+    return delta
+
+
+def _fold_rule_changes(
+    execution_changes: list[Change], deselected_cube_adds: set[str]
+) -> _RuleFold:
+    """Unify the selected Rule changes of each cube into its Cube CRUD step.
+
+    - Rule changes of a removed cube are skipped.
+    - A created cube with rule regions gets exactly the selected Rule ADD
+      bodies; a created cube with an unmarked ``default`` rule keeps its full
+      rule text and its Rule changes are skipped.
+    - For any other cube with at least one region change, the selected Rule
+      changes become a delta (REMOVE -> empty text) that ``update_cube`` merges
+      onto the target's current rules. The delta rides on a copy of the Cube
+      MODIFY, or on a synthetic Cube MODIFY when the changeset has none.
+    - A Cube MODIFY without region changes gets no rules, so it never rewrites
+      the rules. Cubes with only ``default`` Rule changes and drillthrough rules
+      keep the per-change path.
+
+    The incoming Change objects and their bodies are never modified.
+    """
+    fold = _RuleFold()
+    cube_index_by_name: dict[str, int] = {}
+    rule_indexes_by_cube: dict[str, list[int]] = {}
+    for index, change in enumerate(execution_changes):
+        if change.object_type == ObjectType.CUBE:
+            cube_index_by_name[change.body.name] = index
+        elif change.object_type == ObjectType.RULE:
+            cube_name = Rule.cube_name_from_uri(change.uri)
+            if cube_name:
+                rule_indexes_by_cube.setdefault(cube_name, []).append(index)
+
+    for cube_name in cube_index_by_name.keys() | rule_indexes_by_cube.keys():
+        cube_index = cube_index_by_name.get(cube_name)
+        cube_change = execution_changes[cube_index] if cube_index is not None else None
+        rule_indexes = rule_indexes_by_cube.get(cube_name, [])
+        rule_changes = [execution_changes[i] for i in rule_indexes]
+        has_regions = any(change.body.name != DEFAULT_RULE_NAME for change in rule_changes)
+
+        if cube_change is None and cube_name in deselected_cube_adds:
+            for index in rule_indexes:
+                fold.failed_by_index[index] = (
+                    f"Cannot apply rule change {execution_changes[index].uri}: "
+                    f"cube '{cube_name}' does not exist on the target because its "
+                    f"create is not selected"
+                )
+            continue
+
+        if cube_change is not None and cube_change.change_type == ChangeType.REMOVE:
+            for index in rule_indexes:
+                fold.skipped_by_index[index] = f"cube '{cube_name}' is removed in the same changeset"
+            continue
+
+        if cube_change is not None and cube_change.change_type == ChangeType.ADD:
+            body_rules = getattr(cube_change.body, "rules", None) or []
+            if not has_regions and all(rule.name == DEFAULT_RULE_NAME for rule in body_rules):
+                for index in rule_indexes:
+                    fold.skipped_by_index[index] = (
+                        f"cube '{cube_name}' is created with its full rule text in the same changeset"
+                    )
+                continue
+            selected_rules = sorted(
+                (change.body for change in rule_changes if change.change_type == ChangeType.ADD),
+                key=lambda rule: _rule_segment_sort_key(rule.name),
+            )
+            fold.run_by_index[cube_index] = _copy_cube_change(cube_change, selected_rules)
+            for index in rule_indexes:
+                fold.result_from_index[index] = cube_index
+            continue
+
+        if not has_regions:
+            if cube_change is not None:
+                fold.run_by_index[cube_index] = _copy_cube_change(cube_change, [])
+            continue
+
+        delta = _rule_delta(rule_changes)
+        if cube_change is not None:
+            cube_write = _copy_cube_change(cube_change, delta)
+        else:
+            cube_write = Change(
+                change_type=ChangeType.MODIFY,
+                object_type=ObjectType.CUBE,
+                uri=Cube.uri_for(cube_name),
+                body=Cube(name=cube_name, dimensions=[], rules=delta, views=[]),
+            )
+        group_indexes = sorted(rule_indexes + ([cube_index] if cube_index is not None else []))
+        writer_index = group_indexes[0]
+        fold.run_by_index[writer_index] = cube_write
+        for index in group_indexes[1:]:
+            fold.result_from_index[index] = writer_index
+        logger.info(
+            "Folded %d rule change(s) of cube '%s' into one rules write",
+            len(rule_changes), cube_name,
+        )
+    return fold
+
+
 def apply(
     changeset: Changeset,
     tm1_service: TM1Service,
@@ -149,7 +289,7 @@ def apply(
         logger.info("No changes to apply.")
         return True, None
 
-    execution_changes = _prepare_execution_changes(changeset.changes)
+    execution_changes, rule_fold = _prepare_execution_changes(changeset.changes)
     logger.info("Prepared %d execution change(s)", len(execution_changes))
     if not execution_changes:
         logger.info("No executable changes after apply flag filtering.")
@@ -190,6 +330,8 @@ def apply(
         )
 
     ok_all = True
+    folded_writer_indexes = set(rule_fold.result_from_index.values())
+    folded_results: dict[int, Response] = {}
 
     for i, change in enumerate(execution_changes, start=1):
         obj = change.body
@@ -217,26 +359,37 @@ def apply(
             store.begin_operation(i, action_name, obj_type, obj_name, change.uri)
 
         try:
-            if action == ChangeType.ADD:
+            index = i - 1
+            run = rule_fold.run_by_index.get(index, change)
+            run_action = ChangeType.from_raw(run.change_type)
+            run_obj_type = run.object_type.value
+            if index in rule_fold.skipped_by_index:
+                resp = _build_skipped_rule_response(change.uri, rule_fold.skipped_by_index[index])
+            elif index in rule_fold.failed_by_index:
+                raise ValueError(rule_fold.failed_by_index[index])
+            elif index in rule_fold.result_from_index:
+                # the cube's rules were written once, at an earlier row of the cube
+                resp = folded_results[rule_fold.result_from_index[index]]
+            elif run_action == ChangeType.ADD:
                 resp = create_object(
                     tm1_service=tm1_service,
-                    object_instance=obj,
-                    object_type=obj_type,
-                    uri=change.uri,
+                    object_instance=run.body,
+                    object_type=run_obj_type,
+                    uri=run.uri,
                 )
-            elif action == ChangeType.MODIFY:
+            elif run_action == ChangeType.MODIFY:
                 resp = update_object(
                     tm1_service=tm1_service,
-                    object_instance=obj,
-                    object_type=obj_type,
-                    uri=change.uri,
+                    object_instance=run.body,
+                    object_type=run_obj_type,
+                    uri=run.uri,
                 )
-            elif action == ChangeType.REMOVE:
+            elif run_action == ChangeType.REMOVE:
                 resp = delete_object(
                     tm1_service=tm1_service,
-                    object_instance=obj,
-                    object_type=obj_type,
-                    uri=change.uri,
+                    object_instance=run.body,
+                    object_type=run_obj_type,
+                    uri=run.uri,
                 )
             else:
                 raise ValueError(f"Unknown action: {action_name}")
@@ -248,6 +401,8 @@ def apply(
                 obj_name=obj_name,
                 obj_path=obj_path,
             )
+            if index in folded_writer_indexes:
+                folded_results[index] = resp
             changes.append(resp.url)
 
             logger.info(
@@ -461,7 +616,7 @@ def update_object(
         return update(tm1_service, object_instance)
 
 
-def _prepare_execution_changes(changes: Iterable[Change]) -> list[Change]:
+def _prepare_execution_changes(changes: Iterable[Change]) -> tuple[list[Change], _RuleFold]:
     incoming = list(changes)
     executable_changes = [
         change for change in incoming if getattr(change, "apply", True)
@@ -476,12 +631,20 @@ def _prepare_execution_changes(changes: Iterable[Change]) -> list[Change]:
     temp = Changeset()
     temp.changes = execution_changes
     sorted_execution_changes = list(temp.changes)
+    deselected_cube_adds = {
+        change.body.name
+        for change in incoming
+        if not getattr(change, "apply", True)
+        and change.object_type == ObjectType.CUBE
+        and change.change_type == ChangeType.ADD
+    }
+    rule_fold = _fold_rule_changes(sorted_execution_changes, deselected_cube_adds)
     logger.debug(
         "Prepared execution changes count=%d (from executable=%d)",
         len(sorted_execution_changes),
         len(executable_changes),
     )
-    return sorted_execution_changes
+    return sorted_execution_changes, rule_fold
 
 
 # --------------------------------------------------------------------------------

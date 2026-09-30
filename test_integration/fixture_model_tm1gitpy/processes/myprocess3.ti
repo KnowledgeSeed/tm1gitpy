@@ -4,6 +4,16 @@
 
 Source = 'intranet_production';
 ODBCOpen(Source, 'user', 'password');
+
+If( 1 = 0 );
+    ExecuteProcess('myprocess');
+EndIf;
+
+
+DataSourceType='Subset';
+DatasourceNameForServer='TestDimMultiHier';
+DatasourceDimensionSubset= 'TestDimMultiHierDynamicSubset';
+
 #endregion
 #region Metadata
 #****Begin: Generated Statements***

@@ -791,7 +791,7 @@ def _serialize_cube(cube_job: dict[str, Any], cubes_dir: str, progress_sink: Pro
     progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Serializing cube {cube_name}"))
     rule_text = cube_job.get("rule_text")
     if rule_text:
-        with open(os.path.join(cubes_dir, cube_name + '.rules'), 'w', encoding='utf-8') as rule_file:
+        with open(os.path.join(cubes_dir, cube_name + '.rules'), 'w', encoding='utf-8', newline='') as rule_file:
             rule_file.write(str(rule_text))
 
     drillthrough_rule_text = cube_job.get("drillthrough_rule_text")

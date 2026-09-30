@@ -1438,7 +1438,7 @@ class TestDeserializer:
         assert errors == {}
         assert cubes["Organization Units Settings"].dimensions == ["Versions", "Organization Units"]
 
-    def test_deserialize_cubes_loads_drillthrough_rules_from_technical_rule_file(self, tmp_path):
+    def test_deserialize_cubes_loads_drillthrough_rules_from_linked_rule_file(self, tmp_path):
         cubes_dir = tmp_path / "cubes"
         cubes_dir.mkdir()
         (cubes_dir / "Sales.json").write_text(
@@ -1455,7 +1455,7 @@ class TestDeserializer:
             encoding="utf-8",
         )
         (cubes_dir / "Sales.rules").write_text("[] = N: 1;", encoding="utf-8")
-        (cubes_dir / "}CubeDrill_Sales.rules").write_text(
+        (cubes_dir / "Sales.drillthrough.rules").write_text(
             "[]=s:'simple_drillthrough';",
             encoding="utf-8",
         )
@@ -1467,7 +1467,76 @@ class TestDeserializer:
         assert cube.get_rule_text() == "[] = N: 1;"
         assert cube.get_drillthrough_rule_text() == "[]=s:'simple_drillthrough';"
 
-    def test_deserialize_cubes_without_technical_drillthrough_rule_file_is_backward_compatible(self, tmp_path):
+    def test_deserialize_cubes_ignores_control_cube_drillthrough_rule_file(self, tmp_path):
+        cubes_dir = tmp_path / "cubes"
+        cubes_dir.mkdir()
+        (cubes_dir / "Sales.json").write_text(
+            json.dumps({
+                "@type": "Cube",
+                "Name": "Sales",
+                "Dimensions": [],
+                "Views@Code.links": [],
+            }),
+            encoding="utf-8",
+        )
+        (cubes_dir / "}CubeDrill_Sales.rules").write_text(
+            "[]=s:'simple_drillthrough';",
+            encoding="utf-8",
+        )
+
+        cubes, _ = deserialize_cubes(cubes_dir=cubes_dir, _dimensions={})
+
+        assert cubes["Sales"].drillthrough_rules == []
+
+    @staticmethod
+    def _write_cube_with_rule_file(tmp_path, rule_bytes: bytes):
+        cubes_dir = tmp_path / "cubes"
+        cubes_dir.mkdir()
+        (cubes_dir / "Sales.json").write_text(
+            json.dumps({
+                "@type": "Cube",
+                "Name": "Sales",
+                "Dimensions": [{"@id": "Dimensions('Versions')"}],
+                "Rules@Code.link": "Sales.rules",
+                "Views@Code.links": [],
+            }),
+            encoding="utf-8",
+        )
+        (cubes_dir / "Sales.rules").write_bytes(rule_bytes)
+        return cubes_dir
+
+    def test_deserialize_cubes_splits_rule_regions_keeping_crlf(self, tmp_path):
+        rule_text = "SKIPCHECK;\r\n#region A\r\n['a']=N:1;\r\n#endregion\r\nFEEDERS;\r\n"
+        cubes_dir = self._write_cube_with_rule_file(tmp_path, rule_text.encode("utf-8"))
+
+        cubes, errors = deserialize_cubes(cubes_dir=cubes_dir, _dimensions={})
+
+        assert errors == {}
+        cube = cubes["Sales"]
+        assert [rule.name for rule in cube.rules] == ["preamble", "region_0001", "trailer"]
+        assert cube.get_rule_text() == rule_text
+
+    def test_deserialize_cubes_keeps_rule_file_without_regions_as_default(self, tmp_path):
+        cubes_dir = self._write_cube_with_rule_file(tmp_path, b"SKIPCHECK;\n['a']=N:1;\n")
+
+        cubes, errors = deserialize_cubes(cubes_dir=cubes_dir, _dimensions={})
+
+        assert errors == {}
+        assert [rule.name for rule in cubes["Sales"].rules] == ["default"]
+
+    def test_deserialize_cubes_reports_malformed_rule_file_and_keeps_text(self, tmp_path):
+        rule_text = "SKIPCHECK;\n#endregion\n"
+        cubes_dir = self._write_cube_with_rule_file(tmp_path, rule_text.encode("utf-8"))
+
+        cubes, errors = deserialize_cubes(cubes_dir=cubes_dir, _dimensions={})
+
+        error = errors["Cubes('Sales')/Rules('default')"]
+        assert "Sales.rules:2" in error
+        assert "without an open region" in error
+        assert [rule.name for rule in cubes["Sales"].rules] == ["default"]
+        assert cubes["Sales"].get_rule_text() == rule_text
+
+    def test_deserialize_cubes_with_missing_drillthrough_rule_file_has_no_drillthrough_rules(self, tmp_path):
         cubes_dir = tmp_path / "cubes"
         cubes_dir.mkdir()
         (cubes_dir / "Sales.json").write_text(

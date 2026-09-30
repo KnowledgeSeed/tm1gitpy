@@ -753,6 +753,23 @@ class TestExporter:
             "@id": "Dimensions('D1')/Hierarchies('H1')"
         }
 
+    def test_native_view_subset_hierarchy_precedes_expression(self):
+        from TM1py.Objects.Axis import ViewAxisSelection
+        from TM1py.Objects.NativeView import NativeView as TM1pyNativeView
+        from TM1py.Objects.Subset import AnonymousSubset
+
+        tm1py_view = TM1pyNativeView(cube_name="TestCube3WithView", view_name="TestCube3WithView_view2")
+        tm1py_view.add_column(
+            dimension_name="TestDim2",
+            subset=AnonymousSubset("TestDim2", "TestDim2", expression="{[TestDim2].[TestDim2].Members}"),
+        )
+
+        native_view = NativeView.from_tm1py(tm1py_view)
+
+        assert list(native_view.columns[0]["Subset"]) == ["Hierarchy", "Expression"]
+        text = native_view.as_json()
+        assert text.index('"Hierarchy"') < text.index('"Expression"')
+
     def test_cubes_to_model_uses_view_service(self, mocker):
         from tm1_git_py.services.exporter import cubes_to_model
 
@@ -843,6 +860,75 @@ class TestExporter:
         cube_json = json.loads(cube.as_json())
         assert cube_json["Rules@Code.link"] == "Sales.rules"
         assert cube_json["DrillthroughRules@Code.link"] == "Sales.drillthrough.rules"
+
+    @staticmethod
+    def _export_cube_with_rule_text(mocker, rule_text: str):
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Sales"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.exists.return_value = False
+        tm1_conn.cubes.get.return_value = types.SimpleNamespace(
+            dimensions=["Versions"],
+            has_rules=True,
+            rules=types.SimpleNamespace(body=rule_text),
+        )
+        return cubes_to_model(tm1_conn, _dimensions={}, filter_rules=FilterRules([]))
+
+    def test_cubes_to_model_splits_rule_regions(self, mocker):
+        rule_text = (
+            "SKIPCHECK;\r\n"
+            "#region A\r\n['a']=N:1;\r\n#endregion\r\n"
+            "FEEDERS;\r\n"
+        )
+
+        cubes, errors = self._export_cube_with_rule_text(mocker, rule_text)
+
+        assert errors == {}
+        cube = cubes["Sales"]
+        assert [rule.name for rule in cube.rules] == ["preamble", "region_0001", "trailer"]
+        assert cube.get_rule_text() == rule_text
+
+    def test_cubes_to_model_keeps_rules_without_regions_as_default(self, mocker):
+        cubes, errors = self._export_cube_with_rule_text(mocker, "SKIPCHECK;\r\n['a']=N:1;\r\n")
+
+        assert errors == {}
+        assert [rule.name for rule in cubes["Sales"].rules] == ["default"]
+        assert cubes["Sales"].get_rule_text() == "SKIPCHECK;\r\n['a']=N:1;\r\n"
+
+    def test_cubes_to_model_reports_malformed_regions_and_keeps_rule_text(self, mocker):
+        rule_text = "#region A\n['a']=N:1;\n"
+
+        cubes, errors = self._export_cube_with_rule_text(mocker, rule_text)
+
+        assert "is not closed" in errors["Cubes('Sales')/Rules('default')"]
+        assert [rule.name for rule in cubes["Sales"].rules] == ["default"]
+        assert cubes["Sales"].get_rule_text() == rule_text
+
+    def test_cubes_to_model_filters_one_rule_region(self, mocker):
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Sales"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.exists.return_value = False
+        tm1_conn.cubes.get.return_value = types.SimpleNamespace(
+            dimensions=["Versions"],
+            has_rules=True,
+            rules=types.SimpleNamespace(
+                body="#region A\n['a']=N:1;\n#endregion\n#region B\n['b']=N:1;\n#endregion\n"
+            ),
+        )
+
+        cubes, errors = cubes_to_model(
+            tm1_conn,
+            _dimensions={},
+            filter_rules=FilterRules(["Cubes('Sales')/Rules('region_0002')"]),
+        )
+
+        assert errors == {}
+        assert [rule.name for rule in cubes["Sales"].rules] == ["region_0001"]
 
     def test_cubes_to_model_omits_drillthrough_rules_without_technical_cube(self, mocker):
         from tm1_git_py.services.exporter import cubes_to_model

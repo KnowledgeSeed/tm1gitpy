@@ -21,7 +21,7 @@ from tm1_git_py.model.model import Model
 from tm1_git_py.db.model_store import ModelStore
 from tm1_git_py.model.store_backed_sequence import StoreBackedSequence
 from tm1_git_py.model.process import Process
-from tm1_git_py.model.rule import Rule
+from tm1_git_py.model.rule import Rule, RuleRegionError, parse_rules
 from tm1_git_py.model.subset import Subset
 from tm1_git_py.model.task import Task
 from tm1_git_py.model.ti import TI
@@ -542,6 +542,9 @@ def deserialize_model(
 ) -> tuple[Model, dict[str, str]]:
 
     dir = _handle_long_path(dir)
+    if not dir:
+        raise ValueError("Directory does not exist")
+
     resolved_model_id = (model_id or Path(dir).resolve().name).strip()
     if not resolved_model_id:
         raise ValueError("model_id must not be empty")
@@ -984,18 +987,23 @@ def deserialize_cubes(
             rule_file_path = os.path.join(cubes_dir, file_name_base + '.rules')
             if os.path.exists(rule_file_path):
                 _progress_start(progress, rule_file_path, "reading cube rules")
-                with open(rule_file_path, 'r', encoding='utf-8') as file:
+                # newline='' keeps line endings verbatim so rule regions round-trip exactly
+                with open(rule_file_path, 'r', encoding='utf-8', newline='') as file:
                     rule_text = file.read()
                     _progress_mark(progress, rule_file_path)
-                    # rules_list = _parse_rules(rule_text, cube_name=file_name_base)
-                    if rule_text:
+                    try:
+                        rules_list = parse_rules(rule_text, file_name_base, source=rule_file_path)
+                    except RuleRegionError as e:
+                        # keep the cube and its full rule text; dropping it would look like a removal
+                        logger.error("%s; keeping rules as a single 'default' rule", e)
+                        cube_errors[Rule.uri_for(file_name_base)] = str(e)
                         rules_list = [Rule(area="[default]", full_statement=rule_text, comment="", name="default")]
 
             drillthrough_rules_list = []
-            drillthrough_rule_file_path = os.path.join(cubes_dir, f"}}CubeDrill_{file_name_base}.rules")
+            drillthrough_rule_file_path = os.path.join(cubes_dir, file_name_base + '.drillthrough.rules')
             if os.path.exists(drillthrough_rule_file_path):
                 _progress_start(progress, drillthrough_rule_file_path, "reading cube drillthrough rules")
-                with open(drillthrough_rule_file_path, 'r', encoding='utf-8') as file:
+                with open(drillthrough_rule_file_path, 'r', encoding='utf-8', newline='') as file:
                     drillthrough_rule_text = file.read()
                     _progress_mark(progress, drillthrough_rule_file_path)
                     if drillthrough_rule_text:
@@ -1111,49 +1119,6 @@ def deserialize_cubes(
         if count_callback is not None:
             count_callback(1 + len(_cube.rules) + len(_cube.drillthrough_rules) + len(_cube.views))
     return cubes, cube_errors
-
-
-def _parse_rules(rule_text: str, cube_name: str) -> List[Rule]:
-    if not rule_text: return []
-    rules = []
-    seen_names: dict[str, int] = {}
-
-    def _unique_rule_name(area: str) -> str:
-        base = Rule.name_from_area(area)
-        seen_names[base] = seen_names.get(base, 0) + 1
-        if seen_names[base] == 1:
-            return base
-        return f"{base}_{seen_names[base]}"
-
-    pattern = re.compile(r"(?P<comment>(?:#.*(?:\r\n|\n|$)\s*)*)?(?P<statement>\[.*?\][^;]*;)", re.DOTALL)
-    header_match = re.match(r'^(.*?)(?=\[|#|$)', rule_text, re.DOTALL)
-    last_pos = 0
-    if header_match:
-        header_text = header_match.group(1).strip()
-        if header_text:
-            rules.append(
-                Rule(
-                    name=_unique_rule_name("[HEADER]"),
-                    area="[HEADER]",
-                    full_statement=header_text,
-                    comment="",
-                )
-            )
-        last_pos = header_match.end()
-    for match in pattern.finditer(rule_text, last_pos):
-        comment = (match.group('comment') or "").strip()
-        statement_text = match.group('statement').strip()
-        area_match = re.search(r'(\[.*?\])', statement_text)
-        area = area_match.group(1) if area_match else "[UNKNOWN]"
-        rules.append(
-            Rule(
-                name=_unique_rule_name(area),
-                area=area,
-                full_statement=statement_text,
-                comment=comment,
-            )
-        )
-    return rules
 
 
 def directory_to_dict(path):

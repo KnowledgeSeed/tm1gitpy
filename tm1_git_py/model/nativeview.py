@@ -174,6 +174,36 @@ class NativeView:
         return self.uri_for(cube_name, self.name)
 
 
+def _subset_with_hierarchy_reference(subset: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace the subset's hierarchy with a ``{"@id": ...}`` reference, keeping its key position.
+
+    TM1py emits ``Hierarchy@odata.bind`` before ``Expression``, which is the tm1git order.
+    """
+    hierarchy_bind = subset.get("Hierarchy@odata.bind")
+    subset_dict: Dict[str, Any] = {}
+    for key, value in subset.items():
+        if key == "Hierarchy@odata.bind":
+            if hierarchy_bind:
+                subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
+        elif key == "Hierarchy":
+            if not hierarchy_bind:
+                subset_dict["Hierarchy"] = _hierarchy_reference(value)
+        else:
+            subset_dict[key] = value
+    return subset_dict
+
+
+def _hierarchy_reference(hierarchy: Any) -> Any:
+    if not isinstance(hierarchy, dict):
+        return hierarchy
+    dimension = hierarchy.get("Dimension")
+    dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
+    hierarchy_name = hierarchy.get("Name")
+    if dimension_name and hierarchy_name:
+        return {"@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"}
+    return hierarchy
+
+
 def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
     if isinstance(axis_selection, dict):
         body = dict(axis_selection)
@@ -182,22 +212,7 @@ def view_axis_selection_to_dict(axis_selection) -> Dict[str, Any]:
     subset = body.get("Subset")
 
     if isinstance(subset, dict):
-        subset_dict = dict(subset)
-        hierarchy_bind = subset_dict.pop("Hierarchy@odata.bind", None)
-
-        if hierarchy_bind:
-            subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
-        elif isinstance(subset_dict.get("Hierarchy"), dict):
-            hierarchy = subset_dict["Hierarchy"]
-            dimension = hierarchy.get("Dimension")
-            dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
-            hierarchy_name = hierarchy.get("Name")
-            if dimension_name and hierarchy_name:
-                subset_dict["Hierarchy"] = {
-                    "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
-                }
-
-        body["Subset"] = subset_dict
+        body["Subset"] = _subset_with_hierarchy_reference(subset)
 
     return body
 
@@ -210,22 +225,7 @@ def view_title_selection_to_dict(title_selection) -> Dict[str, Any]:
     subset = body.get("Subset")
 
     if isinstance(subset, dict):
-        subset_dict = dict(subset)
-        hierarchy_bind = subset_dict.pop("Hierarchy@odata.bind", None)
-
-        if hierarchy_bind:
-            subset_dict["Hierarchy"] = {"@id": hierarchy_bind}
-        elif isinstance(subset_dict.get("Hierarchy"), dict):
-            hierarchy = subset_dict["Hierarchy"]
-            dimension = hierarchy.get("Dimension")
-            dimension_name = dimension.get("Name") if isinstance(dimension, dict) else None
-            hierarchy_name = hierarchy.get("Name")
-            if dimension_name and hierarchy_name:
-                subset_dict["Hierarchy"] = {
-                    "@id": f"Dimensions('{dimension_name}')/Hierarchies('{hierarchy_name}')"
-                }
-
-        body["Subset"] = subset_dict
+        body["Subset"] = _subset_with_hierarchy_reference(subset)
 
     return body
 

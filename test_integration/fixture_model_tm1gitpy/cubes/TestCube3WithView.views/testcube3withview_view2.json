@@ -6,11 +6,11 @@
 		{
 			"Subset":
 			{
-				"Expression":"{[TestDim2].[TestDim2].Members}",
 				"Hierarchy":
 				{
 					"@id":"Dimensions('TestDim2')/Hierarchies('TestDim2')"
-				}
+				},
+				"Expression":"{[TestDim2].[TestDim2].Members}"
 			}
 		}
 	],
@@ -19,16 +19,16 @@
 		{
 			"Subset":
 			{
-				"Expression":"{[TestDim1].[TestDim1].Members}",
 				"Hierarchy":
 				{
 					"@id":"Dimensions('TestDim1')/Hierarchies('TestDim1')"
-				}
+				},
+				"Expression":"{[TestDim1].[TestDim1].Members}"
 			}
 		}
 	],
 	"Titles":[],
-	"SuppressEmptyColumns":true,
-	"SuppressEmptyRows":true,
+	"SuppressEmptyColumns":false,
+	"SuppressEmptyRows":false,
 	"FormatString":"0.#########"
 }

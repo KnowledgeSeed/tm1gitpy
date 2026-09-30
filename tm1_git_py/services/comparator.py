@@ -283,10 +283,9 @@ def _object_identity(obj: Any, context: Optional[dict[str, str]] = None) -> str:
     obj_type = obj.__class__.__name__
     if isinstance(obj, Rule):
         object_uri = _uri_from_object(obj, context=context)
-        area = getattr(obj, "area", "")
         if object_uri:
-            return f"{obj_type}:{object_uri}|{area}"
-        return f"{obj_type}:{getattr(obj, 'name', '')}:{area}"
+            return f"{obj_type}:{object_uri}"
+        return f"{obj_type}:{getattr(obj, 'name', '')}"
 
     if isinstance(obj, Element):
         object_uri = _uri_from_object(obj, context=context)
@@ -497,8 +496,6 @@ class Comparator:
                 logger.debug("Comparing object type: %s", object_type_name)
                 self._compare_with_children(old_rows, new_rows, parent_cls, changeset, mode)
 
-            # cube_rule_texts = {cube.name: cube.get_rule_text() for cube in model2.cubes}
-            # changeset.unify_rule_changes(cube_rule_texts=cube_rule_texts)
             # summary = {"add": 0, "remove": 0, "modify": 0}
             # for change in changeset.changes:
             #     key = change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type)
