@@ -1,5 +1,6 @@
 import re
 import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ from tm1_git_py.services.apply import (
 
 TM1_DATA_DIR = "/docker-entrypoint-initdb.d/tm1models/24Retail"
 TM1_CONTAINER_CANDIDATES = ("test_integration-tm1-1", "tm1-rocky9")
+TM1_SERVER_LOG_TIMEOUT_SECONDS = 5
 
 
 def _tm1_container_name() -> str:
@@ -174,7 +176,6 @@ class TestApplyDeploymentHookOperationsIntegration:
                 line,
             )
 
-        tm1server_log = _read_tm1_file_since(tm1server_log_path, tm1server_log_size)
         expected_log_lines = [
             'Process "tm1_git_py_prepull_localhost_abc123" executed by user "Admin"',
             'Process "my_migration" run from process '
@@ -189,6 +190,20 @@ class TestApplyDeploymentHookOperationsIntegration:
             'Process "tm1_git_py_postpull_localhost_abc123":  '
             "finished executing normally",
         ]
+        # tm1server.log is flushed asynchronously (about once per second),
+        # so wait for the last expected line instead of reading it once.
+        deadline = time.monotonic() + TM1_SERVER_LOG_TIMEOUT_SECONDS
+        while True:
+            tm1server_log = _read_tm1_file_since(
+                tm1server_log_path, tm1server_log_size
+            )
+            if (
+                expected_log_lines[-1] in tm1server_log
+                or time.monotonic() > deadline
+            ):
+                break
+            time.sleep(0.25)
+
         search_from = 0
         for expected_line in expected_log_lines:
             found_at = tm1server_log.find(expected_line, search_from)
