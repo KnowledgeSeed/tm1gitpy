@@ -1,0 +1,12 @@
+{
+	"@type":"Process",
+	"Name":"my_migration",
+	"HasSecurityAccess":false,
+	"Code@Code.link":"my_migration.ti",
+	"DataSource":
+	{
+		"Type":"None"
+	},
+	"Parameters":[],
+	"Variables":[]
+}

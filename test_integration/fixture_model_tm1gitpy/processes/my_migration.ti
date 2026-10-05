@@ -1,19 +1,9 @@
 #region Prolog
 #****Begin: Generated Statements***
 #****End: Generated Statements****
-
-Source = 'intranet_production';
-ODBCOpen(Source, 'user', 'password');
-
-If( 1 = 0 );
-    ExecuteProcess('myprocess');
-EndIf;
-
-
-DataSourceType='Subset';
-DatasourceNameForServer='TestDimMultiHier';
-DatasourceDimensionSubset= 'TestDimMultiHierDynamicSubset';
-
+sFilePath = '/docker-entrypoint-initdb.d/tm1models/24Retail/MigrationTest.log';
+sCommand = 'bash -lc "echo $(date +%Y-%m-%d) Migration Process is running. >> ' | sFilePath | '"';
+ExecuteCommand(sCommand, 1);
 #endregion
 #region Metadata
 #****Begin: Generated Statements***

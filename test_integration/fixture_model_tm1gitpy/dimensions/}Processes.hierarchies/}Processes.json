@@ -5,6 +5,10 @@
 	"Elements":
 	[
 		{
+			"Name":"my_migration",
+			"Type":"String"
+		},
+		{
 			"Name":"myprocess",
 			"Type":"String"
 		},
