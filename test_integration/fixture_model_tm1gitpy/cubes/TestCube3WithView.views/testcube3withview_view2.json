@@ -28,7 +28,7 @@
 		}
 	],
 	"Titles":[],
-	"SuppressEmptyColumns":true,
-	"SuppressEmptyRows":true,
+	"SuppressEmptyColumns":false,
+	"SuppressEmptyRows":false,
 	"FormatString":"0.#########"
 }

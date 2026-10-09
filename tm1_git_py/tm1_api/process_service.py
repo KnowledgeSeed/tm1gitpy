@@ -1,7 +1,9 @@
 """Process-related utilities extending TM1py ProcessService behavior."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from TM1py.Utils import format_url
 
 from tm1_git_py.tm1_api._paginator import paginate_by_pages
 
@@ -113,3 +115,41 @@ def get_all_names(
         **kwargs,
     )
     return all_names
+
+
+_PROCESS_DATASOURCE_FIELDS = (
+    "dataSourceNameForServer",
+    "dataSourceNameForClient",
+    "asciiDecimalSeparator",
+    "asciiDelimiterChar",
+    "asciiDelimiterType",
+    "asciiHeaderRecords",
+    "asciiQuoteCharacter",
+    "asciiThousandSeparator",
+    "view",
+    "query",
+    "userName",
+    "password",
+    "usesUnicode",
+    "subset",
+    "jsonRootPointer",
+    "jsonVariableMapping",
+)
+
+
+def get_raw(tm1_conn: "TM1Service", process_name: str, **kwargs) -> Dict[str, Any]:
+    """Get one process as the server returns it.
+
+    TM1py's ProcessService.get selects the same fields but builds a
+    TM1py.Process from them, which rewrites part of the definition: it adds a
+    generated-statements header to a procedure whose own header it does not
+    recognise, and it replaces dataSourceNameForClient with
+    dataSourceNameForServer for cube view, subset and JSON data sources.
+    """
+    select = ",".join(
+        ["*", "UIData", "VariablesUIData"]
+        + [f"DataSource/{field}" for field in _PROCESS_DATASOURCE_FIELDS]
+    )
+    url = format_url("/Processes('{}')?$select=" + select, process_name)
+    response = tm1_conn.connection.GET(url, **kwargs)
+    return response.json()

@@ -1,0 +1,7 @@
+﻿389,100
+390,"TestCube3WithView_view1"
+370,0
+391,137
+SELECT NON EMPTY {[TestDim2].[TestDim2].Members} ON COLUMNS , NON EMPTY {[TestDim1].[TestDim1].Members} ON ROWS FROM [TestCube3WithView] 
+32,101
+{""FormatString"":""0.#########"",""Meta"":{""Aliases"":{},""ContextSets"":{},""ExpandAboves"":{}}}\n

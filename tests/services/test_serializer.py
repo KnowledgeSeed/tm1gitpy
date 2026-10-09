@@ -751,3 +751,20 @@ class TestSerializer:
 
         for path in [dim_path, cube_path, view_json_path, process_json_path]:
             assert path.exists(), f"Serialized file missing: {path}"
+
+    def test_subset_payload_json_decodes_percent_encoded_element_references(self):
+        from tm1_git_py.services.serializer import _payload_json_from_payload
+
+        text = _payload_json_from_payload(
+            "subsets",
+            {
+                "Name": "Static",
+                "Expression": None,
+                "Elements": [
+                    {"@odata.id": "Dimensions('My%20Dim')/Hierarchies('My%20Dim')/Elements('A%20B')"}
+                ],
+            },
+        )
+
+        assert "\"@id\":\"Dimensions('My Dim')/Hierarchies('My Dim')/Elements('A B')\"" in text
+        assert "%20" not in text

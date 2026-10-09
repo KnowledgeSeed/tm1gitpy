@@ -1392,6 +1392,32 @@ class TestDeserializer:
         assert subsets[0] == Subset(name="Dynamic", expression="{[Product].[Product].Members}")
         assert subsets[1] == Subset(name="Static", element_ids=[first_element_id, second_element_id])
 
+    def test_store_backed_sequence_subset_payloads_decode_percent_encoded_element_references(self, tmp_path):
+        encoded = (
+            "Dimensions('zSYS%20Maintenance%20Parameter')/"
+            "Hierarchies('zSYS%20Maintenance%20Parameter')/Elements('ActualMonth')"
+        )
+        decoded = (
+            "Dimensions('zSYS Maintenance Parameter')/"
+            "Hierarchies('zSYS Maintenance Parameter')/Elements('ActualMonth')"
+        )
+        store = ModelStore.for_model_id(tmp_path.name + "_subset_encoded_payloads")
+        subsets = StoreBackedSequence.for_subsets_sink(
+            store=store,
+            dimension_name="zSYS Maintenance Parameter",
+            hierarchy_name="zSYS Maintenance Parameter",
+        )
+        subsets.replace_with_payloads(())
+
+        subsets.extend_payloads(
+            [{"Name": "Static", "Expression": None, "Elements": [{"@odata.id": encoded}]}]
+        )
+
+        assert list(subsets.iter_payloads(ordered_by_identity=True)) == [
+            {"name": "Static", "Elements": [{"@id": decoded}]},
+        ]
+        assert subsets[0] == Subset(name="Static", element_ids=[decoded])
+
     def test_store_backed_sequence_subset_extend_keeps_static_element_ids(self, tmp_path):
         element_id = "Dimensions('Product')/Hierarchies('Product')/Elements('Bike')"
         store = ModelStore.for_model_id(tmp_path.name + "_subset_items")

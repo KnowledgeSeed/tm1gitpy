@@ -16,6 +16,7 @@ from tm1_git_py.internal.process_pool import (
     process_pool_executor_kwargs,
 )
 from tm1_git_py.internal.worker_config import resolve_worker_counts
+from tm1_git_py.internal.element_reference import element_reference_id_from_payload
 from tm1_git_py.model.chore import Chore
 from tm1_git_py.model.tm1git_json import dumps_tm1git
 from tm1_git_py.model.cube import Cube
@@ -531,10 +532,7 @@ def _payload_json_from_payload(object_type: str, payload: dict[str, Any]) -> str
                 payload.get("Name"),
                 payload.get("Expression"),
                 json.dumps(
-                    [
-                        item if isinstance(item, str) else item.get("@id") or item.get("@odata.id")
-                        for item in elements or []
-                    ],
+                    [element_reference_id_from_payload(item) for item in elements or []],
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ),
