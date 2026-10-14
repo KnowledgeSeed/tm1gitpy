@@ -1,9 +1,12 @@
 #region Prolog
 #****Begin: Generated Statements***
 #****End: Generated Statements****
-sFilePath = '/docker-entrypoint-initdb.d/tm1models/24Retail/MigrationTest.log';
-sCommand = 'bash -lc "echo $(date +%Y-%m-%d) Migration Process is running. >> ' | sFilePath | '"';
-ExecuteCommand(sCommand, 1);
+if(pRun <> 1);
+  LogOutput('ERROR', 'Start process with flag = 1 to run.');
+  ProcessQuit;
+endif;
+
+LogOutput('INFO', 'tm1gitpy_it guarded ran ' | pMarker);
 #endregion
 #region Metadata
 #****Begin: Generated Statements***

@@ -4,7 +4,7 @@
 586,
 585,
 564,
-565,"t8Kz7W:SUecRW^RX>Rz7aHN3^Qr[FlWkYX<:3zMirHyh>Wfgy`Q>ya=7Fx\X\JJAI>X^jipk>]g\nJ>XUijnHE@08d7hC\:g2KX<NqK[7cLsm;qu=9:ZbmhBzyE5`72Z55:11s?s\ne7FM;tqWDGHjN\jOwm]WGaomRTgbDCLlQYs32b8PkSM1[7UQrytj0ABMa[1cQh"
+565,"k0q0WPHY7o2af?`RuPn9a36bdD4N7@H?mzyd=wGo;Od@s5vFAtvgN]5\rfRjPZ0^47gtJ9TTU@C]bKJrP\xYT;4y4slvRw^yjJgyPOMXdNHB41zb>N^`Eoi9t3;<0<6op5[_zn1lm5ti=KH1]yAZ^A<a<c>s`q_^@1cOa8^IryG7>E>I8@^k:V:Alfox7l\\<Z7rB?[G"
 559,1
 928,0
 593,
@@ -25,10 +25,18 @@
 569,0
 592,0
 599,1000
-560,0
-561,0
-590,0
-637,0
+560,2
+pRun
+pMarker
+561,2
+1
+2
+590,2
+pRun,0
+pMarker,""
+637,2
+pRun,"REQUIRED: only runs with value 1"
+pMarker,""
 577,0
 578,0
 579,0
@@ -36,12 +44,15 @@
 581,0
 582,0
 603,0
-572,5
+572,9
 #****Begin: Generated Statements***
 #****End: Generated Statements****
-sFilePath = '/docker-entrypoint-initdb.d/tm1models/24Retail/MigrationTest.log';
-sCommand = 'bash -lc "echo $(date +%Y-%m-%d) Migration Process is running. >> ' | sFilePath | '"';
-ExecuteCommand(sCommand, 1);
+if(pRun <> 1);
+  LogOutput('ERROR', 'Start process with flag = 1 to run.');
+  ProcessQuit;
+endif;
+
+LogOutput('INFO', 'tm1gitpy_it guarded ran ' | pMarker);
 
 573,2
 #****Begin: Generated Statements***

@@ -3,7 +3,10 @@
     "Files": [],
     "Tasks": {
         "Proc_1": {
-            "Process": "Processes('my_migration')"
+            "Process": "Processes('my_migration')",
+            "Parameters": [
+                { "Name": "pRun", "Value": "1" }
+            ]
         }
     },
     "Ignore": [

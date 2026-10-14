@@ -7,6 +7,20 @@
 	{
 		"Type":"None"
 	},
-	"Parameters":[],
+	"Parameters":
+	[
+		{
+			"Name":"pRun",
+			"Prompt":"REQUIRED: only runs with value 1",
+			"Value":0,
+			"Type":"Numeric"
+		},
+		{
+			"Name":"pMarker",
+			"Prompt":"",
+			"Value":"",
+			"Type":"String"
+		}
+	],
 	"Variables":[]
 }

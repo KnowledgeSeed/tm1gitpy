@@ -165,8 +165,8 @@ def tm1_service(request: pytest.FixtureRequest):
     force_container_start = os.getenv("FORCE_CONTAINER_START", "False").lower() in ("true", "1", "t")
     
     compose: Optional[DockerCompose] = None
-    
-    port=5360
+
+    port = int(os.getenv("TM1_PORT", "5360"))
     if force_container_start or not is_tm1_running(port):
         os.environ["TM1MODELS_DIR"] = resolve_test_model_dir(request)
         port = find_free_port()

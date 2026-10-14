@@ -270,6 +270,28 @@ For those flags:
 - Inline comma-separated rules:
   `Dimensions('}*'),!Dimensions('BW*')`
 
+### Running Project Tasks
+
+`run-hook` runs the `tm1project.json` tasks of one phase (`--deployment pre|post` for `PrePull`/`PostPull`, `--source-control pre|post` for `PrePush`/`PostPush`) in one temporary TI process.
+
+Task parameters come from a `Parameters` list of `Name`/`Value` entries on the task. `-p, --parameter TASK.NAME=VALUE` overrides one for a single run; `TASK` is the task name, not the process name, and the option can be repeated:
+
+```bash
+tm1gitpy run-hook --server prod --tm1project tm1project.json --environment prod --deployment pre \
+  -p PrePullCleanCubes.pRun=0
+```
+
+```json
+"PrePullCleanCubes": {
+    "Process": "Processes('zSYS Maintenance Clear All Cube Data')",
+    "Parameters": [ { "Name": "pRun", "Value": "1" } ]
+}
+```
+
+A value from `-p` wins over `tm1project.json`, which wins over the process default. Values are converted to the parameter type the process declares. An undeclared parameter or a non-numeric value for a numeric parameter stops the command before any task runs.
+
+Exit codes: `0` success, `1` a task logged an `ERROR` to the TM1 server log or hit a TI error (a `ProcessQuit` alone is not a failure), `2` invalid command line.
+
 ### Command-Line Arguments
 
 ```
@@ -281,6 +303,7 @@ Commands:
   apply            Apply a changeset file to a TM1 server
   changset-filter  Toggle apply flags in a changeset using filter rules
                    (alias: changeset-filter)
+  run-hook         Run the tm1project.json tasks of one hook phase
 
 Shared options (all commands):
   --log-file PATH  Optional log file path (or directory for timestamped logs)
@@ -313,6 +336,13 @@ apply:
 changset-filter / changeset-filter:
   --changeset-path PATH
   --filter-rules RULES_OR_FILE
+  
+run-hook:
+    --server SERVER
+    --tm1project PATH               (path to tm1project.json)
+    --environment ENV               (env defined in tm1project.json)
+    (--deployment pre|post | --source-control pre|post)
+    -p, --parameter TASK.NAME=VALUE (repeatable; overrides a task parameter)
 ```
 
 Logging defaults to `INFO`. You can also set `TM1GITPY_LOG_LEVEL` in the environment. Pass `--debug` to set the log level to `DEBUG` for that run.

@@ -2,12 +2,16 @@ import importlib
 import json
 import logging
 import re
+import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
-from typing import Iterable, Optional, Union, TypeVar, Literal
+from decimal import Decimal
+from typing import Iterable, Mapping, Optional, Union, TypeVar, Literal
 
 from TM1py import TM1Service, Process as TM1pyProcess
+from TM1py.Exceptions import TM1pyRestException
 from requests import Response
 
 from tm1_git_py import Changeset
@@ -528,29 +532,210 @@ def _build_unified_deployment_hook_process(
     )
 
 
-def _build_execute_process_statement(process_name: object, parameters: object) -> str:
+def _ti_numeric_literal(value: object) -> str:
+    if isinstance(value, bool):
+        raise ValueError("not a number")
+    if isinstance(value, int):
+        return str(value)
+    number = float(value)
+    if number != number or number in (float("inf"), float("-inf")):
+        raise ValueError("not a finite number")
+    if number.is_integer():
+        return str(int(number))
+    # Plain decimal notation: repr() switches to an exponent for small values.
+    return format(Decimal(repr(number)), "f")
+
+
+def _build_execute_process_statement(
+    process_name: object,
+    parameters: Iterable[tuple[str, object, str]],
+) -> str:
+    """Build one ``ExecuteProcess`` call from ``(name, value, declared type)`` triples."""
     args = [_ti_string_literal(process_name)]
-    if isinstance(parameters, list):
+    for param_name, param_value, param_type in parameters or ():
+        args.append(_ti_string_literal(param_name))
+        if param_type == "Numeric":
+            args.append(_ti_numeric_literal(param_value))
+        else:
+            args.append(_ti_string_literal(param_value))
+    return f"ExecuteProcess({', '.join(args)});"
+
+
+def _normalise_task_parameters(task_name: object, parameters: object) -> dict[str, object]:
+    """Return a task's parameters as an ordered ``{name: value}`` mapping.
+
+    Accepts the tm1project.json list form (``Name``/``Value`` or
+    ``name``/``value`` entries) and an already normalised mapping.
+    """
+    if not parameters:
+        return {}
+    if isinstance(parameters, Mapping):
+        entries = list(parameters.items())
+    elif isinstance(parameters, list):
+        entries = []
         for parameter in parameters:
             if not isinstance(parameter, dict):
-                continue
+                raise ValueError(
+                    f"Task '{task_name}': each Parameters entry must be an object "
+                    "with Name and Value"
+                )
             param_name = parameter.get("Name") or parameter.get("name")
             if not param_name:
-                continue
+                raise ValueError(
+                    f"Task '{task_name}': a Parameters entry has no Name"
+                )
             param_value = (
                 parameter.get("Value")
                 if "Value" in parameter
                 else parameter.get("value", "")
             )
-            args.append(_ti_string_literal(param_name))
-            args.append(_ti_string_literal("" if param_value is None else param_value))
-    return f"ExecuteProcess({', '.join(args)});"
+            entries.append((param_name, param_value))
+    else:
+        raise ValueError(f"Task '{task_name}': Parameters must be a list")
+
+    normalised: dict[str, object] = {}
+    seen: set[str] = set()
+    for param_name, param_value in entries:
+        param_name = str(param_name)
+        # TI variable names are case-insensitive.
+        if param_name.casefold() in seen:
+            raise ValueError(
+                f"Task '{task_name}': parameter '{param_name}' is given more than once"
+            )
+        seen.add(param_name.casefold())
+        if param_value is None:
+            param_value = ""
+        if isinstance(param_value, bool) or not isinstance(
+            param_value, (str, int, float)
+        ):
+            raise ValueError(
+                f"Task '{task_name}': value of parameter '{param_name}' must be "
+                "a string or a number"
+            )
+        normalised[param_name] = param_value
+    return normalised
+
+
+def _merge_parameter_overrides(
+    process_specs: list[dict[str, object]],
+    parameter_overrides: Optional[Mapping[str, Mapping[str, object]]] = None,
+) -> list[dict[str, object]]:
+    """Normalise each spec's parameters and apply run-time overrides on top.
+
+    Overrides are keyed by task name. An override replaces the tm1project.json
+    value of the same parameter (names match case-insensitively) or is added
+    after the project file's parameters.
+    """
+    parameter_overrides = parameter_overrides or {}
+    known_tasks = {spec.get("task_name") for spec in process_specs}
+    unknown_tasks = [task for task in parameter_overrides if task not in known_tasks]
+    if unknown_tasks:
+        raise ValueError(
+            "Parameter overrides name task(s) that are not part of this hook: "
+            + ", ".join(repr(str(task)) for task in unknown_tasks)
+        )
+
+    merged_specs: list[dict[str, object]] = []
+    for spec in process_specs:
+        task_name = spec.get("task_name")
+        parameters = _normalise_task_parameters(task_name, spec.get("parameters"))
+        overrides = _normalise_task_parameters(
+            task_name, parameter_overrides.get(task_name)
+        )
+        file_names = {name.casefold(): name for name in parameters}
+        for override_name, override_value in overrides.items():
+            file_name = file_names.get(override_name.casefold())
+            if file_name is None:
+                parameters[override_name] = override_value
+                continue
+            # Names only: parameter values can be credentials.
+            logger.info(
+                "Task '%s': run-time value of parameter '%s' replaces the "
+                "tm1project.json value.",
+                task_name,
+                file_name,
+            )
+            parameters[file_name] = override_value
+        merged_specs.append({**spec, "parameters": parameters})
+    return merged_specs
+
+
+def _resolve_declared_parameters(
+    tm1_service: TM1Service,
+    process_specs: list[dict[str, object]],
+) -> dict[str, dict[str, tuple[str, str]]]:
+    """Read the declared parameters of every process the specs reference.
+
+    Returns ``{process_name: {casefolded name: (declared name, type)}}``.
+    """
+    declared: dict[str, dict[str, tuple[str, str]]] = {}
+    for spec in process_specs:
+        process_name = str(spec["process_name"])
+        if process_name in declared:
+            continue
+        try:
+            process = tm1_service.processes.get(process_name)
+        except TM1pyRestException as exc:
+            if exc.status_code == 404:
+                raise ValueError(
+                    f"Task '{spec.get('task_name', process_name)}' references "
+                    f"process '{process_name}', which does not exist on the server"
+                ) from exc
+            raise
+        declared[process_name] = {}
+        for parameter in process.parameters:
+            param_name = str(parameter["Name"])
+            # Type was introduced with TM1 11; older servers only give the value.
+            param_type = parameter.get("Type") or (
+                "String" if isinstance(parameter.get("Value"), str) else "Numeric"
+            )
+            declared[process_name][param_name.casefold()] = (param_name, param_type)
+    return declared
+
+
+def _apply_declared_parameter_types(
+    process_specs: list[dict[str, object]],
+    declared_parameters: dict[str, dict[str, tuple[str, str]]],
+) -> list[dict[str, object]]:
+    """Return specs whose parameters are ``(declared name, value, type)`` triples.
+
+    Raises ``ValueError`` for a parameter the process does not declare and for
+    a value that does not fit the declared type.
+    """
+    typed_specs: list[dict[str, object]] = []
+    for spec in process_specs:
+        process_name = str(spec["process_name"])
+        task_name = spec.get("task_name", process_name)
+        declared = declared_parameters[process_name]
+        typed_parameters: list[tuple[str, object, str]] = []
+        for param_name, param_value in _normalise_task_parameters(
+            task_name, spec.get("parameters")
+        ).items():
+            if param_name.casefold() not in declared:
+                raise ValueError(
+                    f"Task '{task_name}': process '{process_name}' has no "
+                    f"parameter '{param_name}'"
+                )
+            declared_name, param_type = declared[param_name.casefold()]
+            if param_type == "Numeric":
+                try:
+                    _ti_numeric_literal(param_value)
+                except ValueError:
+                    # The value is left out: it can be a credential.
+                    raise ValueError(
+                        f"Task '{task_name}': parameter '{declared_name}' of "
+                        f"process '{process_name}' is Numeric, but the given "
+                        "value is not a number"
+                    ) from None
+            typed_parameters.append((declared_name, param_value, param_type))
+        typed_specs.append({**spec, "parameters": typed_parameters})
+    return typed_specs
 
 
 def _parse_tasks_from_project_file(
     task_refs: list,
     tasks: dict,
-    operation: Literal["PrePull", "PostPull"],
+    operation: Literal["PrePull", "PostPull", "PrePush", "PostPush"],
 ) -> list[dict[str, object]]:
     process_specs: list[dict[str, object]] = []
     for task_ref in task_refs:
@@ -569,6 +754,7 @@ def _parse_tasks_from_project_file(
 
         process_specs.append(
             {
+                "task_name": task_name,
                 "process_name": process_name,
                 "parameters": task_def.get("Parameters")
                 or task_def.get("parameters")
@@ -594,6 +780,7 @@ def _resolve_operation_process_specs(
     environment: str,
     operation: Literal["PrePull", "PostPull", "PrePush", "PostPush"],
     project_path: Optional[Path] = None,
+    parameter_overrides: Optional[Mapping[str, Mapping[str, object]]] = None,
 ) -> list[dict[str, object]]:
     deployment = project_json.get("Deployment") or {}
     if not isinstance(deployment, dict):
@@ -613,7 +800,7 @@ def _resolve_operation_process_specs(
             environment,
             project_path,
         )
-        return []
+        return _merge_parameter_overrides([], parameter_overrides)
 
     tasks = project_json.get("Tasks") or {}
     if not isinstance(tasks, dict):
@@ -631,7 +818,7 @@ def _resolve_operation_process_specs(
             environment,
             project_path,
         )
-    return process_specs
+    return _merge_parameter_overrides(process_specs, parameter_overrides)
 
 
 def _cleanup_temp_process(
@@ -645,6 +832,185 @@ def _cleanup_temp_process(
         logger.exception("Failed to delete temp %s process %s", operation, process_name)
 
 
+class DeploymentHookError(RuntimeError):
+    """A hook phase ran, and the TI code of at least one task logged an error.
+
+    ``failures`` holds one mapping per ``ERROR`` entry of the run with the
+    keys ``task_name``, ``process_name``, ``message``, ``logger`` and
+    ``timestamp``. ``response`` is the response of the wrapper execution.
+    """
+
+    def __init__(
+        self,
+        operation: str,
+        environment: str,
+        failures: list[dict[str, object]],
+        response: Optional[Response] = None,
+    ):
+        self.operation = operation
+        self.environment = environment
+        self.failures = failures
+        self.response = response
+        super().__init__(
+            f"{operation} tasks for environment '{environment}' logged "
+            f"{len(failures)} error(s): "
+            + "; ".join(_format_hook_failure(failure) for failure in failures)
+        )
+
+
+def _format_hook_failure(failure: Mapping[str, object]) -> str:
+    if failure.get("task_name") is None:
+        return str(failure.get("message"))
+    return (
+        f"task '{failure['task_name']}' (process '{failure['process_name']}'): "
+        f"{failure.get('message')}"
+    )
+
+
+# The server writes the wrapper's closing line shortly after the execute call
+# returns, so the log is read again a few times until that line is there.
+_HOOK_LOG_READ_ATTEMPTS = 5
+_HOOK_LOG_READ_INTERVAL_SECONDS = 0.5
+_HOOK_LOG_CLOCK_MARGIN = timedelta(seconds=60)
+_HOOK_TASK_START_PATTERN = re.compile(
+    r'^Process "(?P<process>.*)" run from process "(?P<parent>.*)" by user '
+)
+_PROCESS_QUIT_MESSAGE = "Execution was aborted by ProcessQuit Function"
+
+
+def _hook_log_start_time(tm1_service: TM1Service) -> datetime:
+    """Return a server-side time that lies before the hook run.
+
+    The timestamp of the newest log entry is on the server's clock, so the
+    client clock only matters when the log is empty or unreadable.
+    """
+    fallback = datetime.now(timezone.utc) - _HOOK_LOG_CLOCK_MARGIN
+    try:
+        entries = tm1_service.server.get_message_log_entries(reverse=True, top=1)
+        timestamp = str(entries[0]["TimeStamp"])
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except Exception:
+        logger.debug("No usable message log entry before the hook run", exc_info=True)
+        return fallback
+
+
+def _select_hook_run_entries(
+    entries: Iterable[Mapping[str, object]],
+    wrapper_process_name: str,
+) -> tuple[Optional[list[Mapping[str, object]]], bool]:
+    """Return the log entries of one wrapper run and whether the run is closed.
+
+    A run is one block on one thread, from the wrapper's "executed by user"
+    line to its "finished executing" line. The thread alone does not identify
+    a run, because the server reuses it. The entries are ``None`` when the
+    opening line is not in the log.
+    """
+    start_prefix = f'Process "{wrapper_process_name}" executed by user'
+    finish_prefix = f'Process "{wrapper_process_name}":'
+    run_entries: Optional[list[Mapping[str, object]]] = None
+    thread_id: object = None
+
+    for entry in entries:
+        message = str(entry.get("Message", ""))
+        if run_entries is None:
+            if message.startswith(start_prefix):
+                run_entries = [entry]
+                thread_id = entry.get("ThreadID")
+            continue
+        if entry.get("ThreadID") != thread_id:
+            continue
+        run_entries.append(entry)
+        if message.startswith(finish_prefix) and "finished executing" in message:
+            return run_entries, True
+
+    return run_entries, False
+
+
+def _find_hook_failures(
+    run_entries: Iterable[Mapping[str, object]],
+    wrapper_process_name: str,
+    process_specs: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Return the ``ERROR`` entries of a hook run that count as a failure.
+
+    A ``ProcessQuit`` is not a failure by itself, so the line the server writes
+    for every quit is skipped, and so is the wrapper's own closing line. What
+    remains is what the TI code logged as ``ERROR`` and real TI errors.
+    """
+    wrapper_finish_prefix = f'Process "{wrapper_process_name}":'
+    failures: list[dict[str, object]] = []
+    task_index = -1
+    current_spec: Mapping[str, object] = {}
+
+    for entry in run_entries:
+        message = str(entry.get("Message", ""))
+        task_start = _HOOK_TASK_START_PATTERN.match(message)
+        # Only a process started by the wrapper is a task. A process that a
+        # task starts itself stays attributed to that task.
+        if task_start and task_start.group("parent") == wrapper_process_name:
+            task_index += 1
+            current_spec = (
+                process_specs[task_index] if task_index < len(process_specs) else {}
+            )
+            if not current_spec:
+                current_spec = {"process_name": task_start.group("process")}
+            continue
+
+        if str(entry.get("Level", "")).upper() != "ERROR":
+            continue
+        if _PROCESS_QUIT_MESSAGE in message:
+            continue
+        if message.startswith(wrapper_finish_prefix) and "finished executing" in message:
+            continue
+
+        failures.append(
+            {
+                "task_name": current_spec.get("task_name"),
+                "process_name": current_spec.get("process_name"),
+                "message": message,
+                "logger": entry.get("Logger"),
+                "timestamp": entry.get("TimeStamp"),
+            }
+        )
+
+    return failures
+
+
+def _collect_hook_failures(
+    tm1_service: TM1Service,
+    wrapper_process_name: str,
+    process_specs: list[dict[str, object]],
+    since: datetime,
+) -> list[dict[str, object]]:
+    """Read the server message log and return the failures of one hook run."""
+    run_entries: Optional[list[Mapping[str, object]]] = None
+    for attempt in range(_HOOK_LOG_READ_ATTEMPTS):
+        if attempt:
+            time.sleep(_HOOK_LOG_READ_INTERVAL_SECONDS)
+        entries = tm1_service.server.get_message_log_entries(
+            reverse=False, since=since
+        )
+        run_entries, finished = _select_hook_run_entries(entries, wrapper_process_name)
+        if finished:
+            break
+    else:
+        logger.warning(
+            "The server message log holds no closing entry for process %s; "
+            "the error check covers the entries found so far",
+            wrapper_process_name,
+        )
+
+    if run_entries is None:
+        logger.warning(
+            "The server message log holds no entry for process %s; "
+            "errors logged by its tasks cannot be detected",
+            wrapper_process_name,
+        )
+        return []
+
+    return _find_hook_failures(run_entries, wrapper_process_name, process_specs)
+
+
 def _create_and_run_temp_process(
     tm1_service: TM1Service,
     process_specs: list[dict[str, object]],
@@ -652,31 +1018,62 @@ def _create_and_run_temp_process(
     operation: Literal["PrePull", "PostPull", "PrePush", "PostPush"],
     **kwargs,
 ) -> Optional[Response]:
+    """Run the tasks through one temporary wrapper process.
+
+    Raises ``DeploymentHookError`` when the TI code of a task logged an
+    ``ERROR`` during the run. All tasks run before that is reported.
+    """
     if not process_specs:
         return None
 
     unified_process_name = (
         f"tm1_git_py_{str(operation).lower()}_{environment}_{uuid.uuid4().hex}"
     )
+    # Parameters are checked against the server before anything is created,
+    # so a bad name or value never leaves a half-run hook behind.
+    typed_process_specs = _apply_declared_parameter_types(
+        process_specs,
+        _resolve_declared_parameters(tm1_service, process_specs),
+    )
     unified_process = _build_unified_deployment_hook_process(
-        process_specs, unified_process_name
+        typed_process_specs, unified_process_name
     )
 
+    log_start_time = _hook_log_start_time(tm1_service)
+    failures: list[dict[str, object]] = []
     tm1_service.processes.create(unified_process)
     try:
-        return tm1_service.processes.execute(
+        response = tm1_service.processes.execute(
             process_name=unified_process_name,
             parameters={},
             **kwargs,
         )
+        try:
+            failures = _collect_hook_failures(
+                tm1_service, unified_process_name, process_specs, log_start_time
+            )
+        except Exception:
+            # The tasks have run. A failed log read must not turn that into a
+            # failed hook, but it must not pass silently either.
+            logger.warning(
+                "Could not read the server message log after the %s tasks; "
+                "errors logged by the tasks were not checked",
+                operation,
+                exc_info=True,
+            )
     finally:
         _cleanup_temp_process(tm1_service, unified_process_name, operation)
+
+    if failures:
+        raise DeploymentHookError(operation, environment, failures, response)
+    return response
 
 
 def _get_deployment_hook_operations(
     project_file_path: Path | str,
     environment: str,
     operation: Literal["PrePull", "PostPull", "PrePush", "PostPush"],
+    parameter_overrides: Optional[Mapping[str, Mapping[str, object]]] = None,
 ) -> list[dict[str, object]]:
     project_path, project_json = _load_tm1project_json(project_file_path)
 
@@ -685,6 +1082,7 @@ def _get_deployment_hook_operations(
         environment=environment,
         operation=operation,
         project_path=project_path,
+        parameter_overrides=parameter_overrides,
     )
 
 
@@ -694,8 +1092,15 @@ def _apply_deployment_hook_operations(
     operation: Literal["PrePull", "PostPull", "PrePush", "PostPush"],
     project_file_path: Optional[Path | str] = None,
     project_json: Optional[dict] = None,
+    parameter_overrides: Optional[Mapping[str, Mapping[str, object]]] = None,
     **kwargs
 ) -> Optional[Response]:
+    """Run the tasks configured for one hook phase of an environment.
+
+    ``parameter_overrides`` maps a task name to ``{parameter name: value}`` and
+    takes precedence over the task's ``Parameters`` in tm1project.json. It is
+    an explicit keyword because ``kwargs`` is forwarded to ``processes.execute``.
+    """
     if project_json is None and project_file_path is None:
         raise ValueError(
             "Pass either project_file_path for a valid tm1project.json file "
@@ -712,6 +1117,7 @@ def _apply_deployment_hook_operations(
             project_file_path=project_file_path,
             environment=environment,
             operation=operation,
+            parameter_overrides=parameter_overrides,
         )
     else:
         if not isinstance(project_json, dict):
@@ -720,7 +1126,8 @@ def _apply_deployment_hook_operations(
         process_specs = _resolve_operation_process_specs(
             project_json=project_json,
             environment=environment,
-            operation=operation
+            operation=operation,
+            parameter_overrides=parameter_overrides,
         )
 
     return _create_and_run_temp_process(

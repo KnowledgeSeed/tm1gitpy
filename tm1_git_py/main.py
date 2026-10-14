@@ -34,6 +34,7 @@ from tm1_git_py.reporting.progress_reporting import (
 )
 from tm1_git_py.services.changeset import import_changeset
 from tm1_git_py.services.apply import (
+    DeploymentHookError,
     apply_post_pull_operations,
     apply_post_push_operations,
     apply_pre_pull_operations,
@@ -462,6 +463,37 @@ def _cmd_changeset_filter(args: argparse.Namespace) -> None:
     )
 
 
+def _parse_hook_parameters(values: list[str]) -> dict[str, dict[str, str]]:
+    """Parse repeated ``TASK.NAME=VALUE`` options into ``{task: {name: value}}``."""
+    overrides: dict[str, dict[str, str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for raw in values:
+        target, separator, value = raw.partition("=")
+        if not separator:
+            raise ValueError(f"invalid parameter '{raw}': expected TASK.NAME=VALUE")
+        # TI parameter names cannot contain a dot, so the last dot ends the task name.
+        task_name, dot, parameter_name = target.rpartition(".")
+        task_name = task_name.strip()
+        parameter_name = parameter_name.strip()
+        if not dot or not task_name:
+            raise ValueError(
+                f"invalid parameter '{target}': name the task, as in TASK.NAME=VALUE"
+            )
+        if not parameter_name:
+            raise ValueError(
+                f"invalid parameter '{target}': parameter name is empty"
+            )
+        # TI variable names are case-insensitive.
+        key = (task_name, parameter_name.casefold())
+        if key in seen:
+            raise ValueError(
+                f"parameter '{parameter_name}' is given more than once for task '{task_name}'"
+            )
+        seen.add(key)
+        overrides.setdefault(task_name, {})[parameter_name] = value
+    return overrides
+
+
 def _cmd_run_hook(args: argparse.Namespace) -> None:
     project_path = _filter_path_from_arg(args.tm1project)
     if not project_path.is_file():
@@ -493,11 +525,35 @@ def _cmd_run_hook(args: argparse.Namespace) -> None:
         phase,
         args.environment,
     )
-    response = task_runner(
-        tm1_service=_tm1_connection(args.server),
-        environment=args.environment,
-        project_file_path=project_path,
-    )
+    parameter_overrides = getattr(args, "parameter_overrides", None) or None
+    for task_name, parameters in (parameter_overrides or {}).items():
+        # Values can be credentials, so they are logged at debug level only.
+        logger.info(
+            "Run parameters for task '%s': %s", task_name, ", ".join(parameters)
+        )
+        logger.debug("Run parameter values for task '%s': %s", task_name, parameters)
+    try:
+        response = task_runner(
+            tm1_service=_tm1_connection(args.server),
+            environment=args.environment,
+            project_file_path=project_path,
+            parameter_overrides=parameter_overrides,
+        )
+    except DeploymentHookError as exc:
+        for failure in exc.failures:
+            logger.error(
+                "Task '%s' (process '%s') logged an error: %s",
+                failure.get("task_name"),
+                failure.get("process_name"),
+                failure.get("message"),
+            )
+        logger.error(
+            "%s project tasks failed for %s phase in environment '%s'",
+            operation.capitalize(),
+            phase,
+            args.environment,
+        )
+        sys.exit(1)
     if response is None:
         logger.info(
             "No %s project tasks configured for %s phase in environment '%s'",
@@ -678,9 +734,26 @@ def main():
         choices=["pre", "post"],
         help="Run tasks before or after source-control model tracking",
     )
+    p_run_hook.add_argument(
+        "-p",
+        "--parameter",
+        action="append",
+        default=[],
+        metavar="TASK.NAME=VALUE",
+        help=(
+            "Process parameter value for one task of this run, for example "
+            "PrePullDropRules.pRun=1. TASK is the task name in tm1project.json. "
+            "Overrides the task's Parameters in tm1project.json. Repeatable"
+        ),
+    )
     p_run_hook.set_defaults(handler=_cmd_run_hook)
 
     args = parser.parse_args()
+    if args.command == "run-hook":
+        try:
+            args.parameter_overrides = _parse_hook_parameters(args.parameter)
+        except ValueError as exc:
+            p_run_hook.error(str(exc))
     setup_logging(
         "DEBUG" if bool(getattr(args, "debug", False)) else None,
         enable_console=bool(getattr(args, "console_logs", False)),
