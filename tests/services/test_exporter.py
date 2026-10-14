@@ -448,15 +448,19 @@ class TestExporter:
             return_value=["MyProcess"],
         )
 
-        tm1_conn.processes.get.return_value = types.SimpleNamespace(
-            name="MyProcess",
-            has_security_access=True,
-            parameters=[],
-            variables=[],
-            prolog_procedure="",
-            metadata_procedure="",
-            data_procedure="",
-            epilog_procedure="",
+        mocker.patch(
+            "tm1_git_py.services.exporter.get_raw_process",
+            return_value={
+                "Name": "MyProcess",
+                "HasSecurityAccess": True,
+                "Parameters": [],
+                "Variables": [],
+                "PrologProcedure": "",
+                "MetadataProcedure": "",
+                "DataProcedure": "",
+                "EpilogProcedure": "",
+                "DataSource": {"Type": "None"},
+            },
         )
 
         processes, errors = procs_to_model(
@@ -472,7 +476,7 @@ class TestExporter:
         assert "MyProcess" in processes
         assert errors == {}
 
-    def test_procs_to_model_reads_datasource_ui_data_and_variables_ui_data_from_process_body(self, mocker):
+    def test_procs_to_model_reads_datasource_ui_data_and_variables_ui_data_from_raw_process(self, mocker):
         from tm1_git_py.services.exporter import procs_to_model
 
         tm1_conn = mocker.Mock()
@@ -480,27 +484,28 @@ class TestExporter:
             "tm1_git_py.services.exporter.get_process_names",
             return_value=["ProcWithBody"],
         )
-
-        tm1_conn.processes.get.return_value = types.SimpleNamespace(
-            name="ProcWithBody",
-            has_security_access=False,
-            parameters=[],
-            variables=[],
-            prolog_procedure="",
-            metadata_procedure="",
-            data_procedure="",
-            epilog_procedure="",
-            body=json.dumps(
-                {
-                    "UIData": "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f",
-                    "DataSource": {
-                        "Type": "ASCII",
-                        "asciiDelimiterChar": ";",
-                        "dataSourceNameForServer": "sample.csv",
-                    },
-                    "VariablesUIData": ["VarType=32\fColType=827\f"],
-                }
-            ),
+        mocker.patch(
+            "tm1_git_py.services.exporter.get_raw_process",
+            return_value={
+                "@odata.context": "$metadata#Processes/$entity",
+                "Name": "ProcWithBody",
+                "HasSecurityAccess": False,
+                "Parameters": [],
+                "Variables": [],
+                "PrologProcedure": "",
+                "MetadataProcedure": "",
+                "DataProcedure": "",
+                "EpilogProcedure": "",
+                "UIData": "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f",
+                "DataSource": {
+                    "@odata.type": "#ibm.tm1.api.v1.ASCIIDataSource",
+                    "Type": "ASCII",
+                    "asciiDelimiterChar": ";",
+                    "dataSourceNameForServer": "sample.csv",
+                    "view": "",
+                },
+                "VariablesUIData": ["VarType=32\fColType=827\f"],
+            },
         )
 
         processes, errors = procs_to_model(
@@ -512,11 +517,72 @@ class TestExporter:
         process_obj = processes["ProcWithBody"]
         assert process_obj.datasource == {
             "Type": "ASCII",
+            "asciiDecimalSeparator": "",
             "asciiDelimiterChar": ";",
+            "asciiDelimiterType": "",
+            "asciiHeaderRecords": "",
+            "asciiQuoteCharacter": "",
+            "asciiThousandSeparator": "",
+            "dataSourceNameForClient": "",
             "dataSourceNameForServer": "sample.csv",
         }
         assert process_obj.ui_data == "CubeAction=1511\fDataAction=1503\fCubeLogChanges=0\f"
         assert process_obj.variables_ui_data == ["VarType=32\fColType=827\f"]
+        tm1_conn.processes.get.assert_not_called()
+
+    def test_procs_to_model_keeps_procedures_and_datasource_names_as_the_server_returns_them(self, mocker):
+        from tm1_git_py.services.exporter import procs_to_model
+
+        # A footer with three stars is not the header TM1py looks for, and the
+        # client name differs from the server name.
+        prolog = "#****Begin: Generated Statements***\r\n#****End: Generated Statements***\r\nsCube = 'SLP';"
+        mocker.patch(
+            "tm1_git_py.services.exporter.get_process_names",
+            return_value=["Proc"],
+        )
+        mocker.patch(
+            "tm1_git_py.services.exporter.get_raw_process",
+            return_value={
+                "Name": "Proc",
+                "HasSecurityAccess": False,
+                "Parameters": [],
+                "Variables": [],
+                "PrologProcedure": prolog,
+                "MetadataProcedure": "",
+                "DataProcedure": "",
+                "EpilogProcedure": "",
+                "DataSource": {
+                    "Type": "TM1CubeView",
+                    "dataSourceNameForClient": "Parameters Cube",
+                    "dataSourceNameForServer": "",
+                    "view": "",
+                },
+            },
+        )
+
+        processes, errors = procs_to_model(mocker.Mock(), filter_rules=FilterRules([]))
+
+        assert errors == {}
+        assert processes["Proc"].ti.prolog_procedure == prolog
+        assert processes["Proc"].ti.metadata_procedure == ""
+        assert processes["Proc"].datasource == {
+            "Type": "TM1CubeView",
+            "dataSourceNameForClient": "Parameters Cube",
+            "dataSourceNameForServer": "",
+            "view": "",
+        }
+
+    def test_get_raw_process_returns_the_response_json(self, mocker):
+        from tm1_git_py.tm1_api import get_raw_process
+
+        tm1_conn = mocker.Mock()
+        tm1_conn.connection.GET.return_value.json.return_value = {"Name": "Director's Cut"}
+
+        assert get_raw_process(tm1_conn, "Director's Cut") == {"Name": "Director's Cut"}
+        url = tm1_conn.connection.GET.call_args.args[0]
+        assert url.startswith("/Processes('Director''s Cut')?$select=*,UIData,VariablesUIData,")
+        assert "DataSource/dataSourceNameForClient" in url
+        tm1_conn.processes.get.assert_not_called()
 
     def test_cube_service_get_all_names_page_builds_query(self, mocker):
         tm1_conn = mocker.Mock()
@@ -843,6 +909,52 @@ class TestExporter:
         cube_json = json.loads(cube.as_json())
         assert cube_json["Rules@Code.link"] == "Sales.rules"
         assert cube_json["DrillthroughRules@Code.link"] == "Sales.drillthrough.rules"
+
+    def test_cubes_to_model_exports_rule_that_holds_only_comments(self, mocker):
+        import TM1py
+
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        rule_text = "# PERSONAL COST\r\n#### DEPRECATED\r\n\r\n"
+        source_cube = TM1py.Cube(name="Sales", dimensions=["Versions"], rules=TM1py.Rules(rule_text))
+        drill_cube = TM1py.Cube(
+            name="}CubeDrill_Sales",
+            dimensions=["Versions", "}CubeDrillString"],
+            rules=TM1py.Rules("# no drill\r\n"),
+        )
+        # TM1py reports no rules here, because neither text has a statement.
+        assert not source_cube.has_rules
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Sales"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.exists.return_value = True
+        tm1_conn.cubes.get.side_effect = lambda cube_name: {
+            "Sales": source_cube,
+            "}CubeDrill_Sales": drill_cube,
+        }[cube_name]
+
+        cubes, errors = cubes_to_model(tm1_conn, _dimensions={}, filter_rules=FilterRules([]))
+
+        assert errors == {}
+        assert cubes["Sales"].get_rule_text() == rule_text
+        assert cubes["Sales"].get_drillthrough_rule_text() == "# no drill\r\n"
+
+    def test_cubes_to_model_exports_no_rule_for_cube_without_rules(self, mocker):
+        import TM1py
+
+        from tm1_git_py.services.exporter import cubes_to_model
+
+        tm1_conn = mocker.Mock()
+        mocker.patch("tm1_git_py.services.exporter.get_cube_names", return_value=["Sales"])
+        mocker.patch("tm1_git_py.services.exporter.get_views", return_value=([], []))
+        tm1_conn.cubes.exists.return_value = False
+        tm1_conn.cubes.get.return_value = TM1py.Cube(name="Sales", dimensions=["Versions"], rules=None)
+
+        cubes, errors = cubes_to_model(tm1_conn, _dimensions={}, filter_rules=FilterRules([]))
+
+        assert errors == {}
+        assert cubes["Sales"].rules == []
 
     def test_cubes_to_model_omits_drillthrough_rules_without_technical_cube(self, mocker):
         from tm1_git_py.services.exporter import cubes_to_model

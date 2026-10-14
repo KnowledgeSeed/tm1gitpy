@@ -29,6 +29,7 @@ from tm1_git_py.tm1_api.hierarchy_service import (
 from tm1_git_py.tm1_api.process_service import (
     ProcessNamesResult,
     get_all_names as get_process_names,
+    get_raw as get_raw_process,
 )
 from tm1_git_py.tm1_api.subset_service import (
     _get_subsets_page,
@@ -61,6 +62,7 @@ __all__ = [
     "get_hierarchy_names",
     "get_names",
     "get_process_names",
+    "get_raw_process",
     "get_subsets",
     "get_subsets_count",
     "get_subsets_identity_etag",

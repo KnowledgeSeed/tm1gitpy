@@ -18,6 +18,15 @@ from tm1_git_py.model.tm1git_json import MDX_VIEW_JSON_SPACED_COLON_KEYS, dump_a
 # }
 
 
+_DEFAULT_FORMAT_STRING = "0.#########"
+
+
+def _meta_has_content(meta: Any) -> bool:
+    if not isinstance(meta, dict):
+        return False
+    return any(bool(value) for value in meta.values())
+
+
 class MDXView:
     def __init__(
         self,
@@ -53,9 +62,16 @@ class MDXView:
             return NotImplemented
         if self.name != other.name:
             return False
-        if self.format_string != other.format_string:
+        # FormatString and Meta are not returned by the TM1 REST API, so a view
+        # exported from a live server always holds the defaults. Compare them
+        # only when both sides actually carry a value.
+        if (
+            self.format_string != _DEFAULT_FORMAT_STRING
+            and other.format_string != _DEFAULT_FORMAT_STRING
+            and self.format_string != other.format_string
+        ):
             return False
-        if self.meta != other.meta:
+        if _meta_has_content(self.meta) and _meta_has_content(other.meta) and self.meta != other.meta:
             return False
         remove_newlines = str.maketrans(' ', ' ', '\r\n')
         if self.mdx.translate(remove_newlines) != other.mdx.translate(remove_newlines):

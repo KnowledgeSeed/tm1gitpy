@@ -47,6 +47,7 @@ from tm1_git_py.tm1_api import (
     _get_edges_page,
     _get_subsets_page,
     get_process_names,
+    get_raw_process,
     get_subsets_identity_etag,
     get_subsets_count,
     get_views,
@@ -327,6 +328,56 @@ def chores_to_model(
     return _chores, _errors
 
 
+# The data source keys kept for each data source type, as in the body that a
+# TM1py.Process builds. A key the server does not return is kept as "".
+_PROCESS_DATASOURCE_KEYS: Dict[str, tuple[str, ...]] = {
+    "None": (),
+    "ASCII": (
+        "asciiDecimalSeparator",
+        "asciiDelimiterChar",
+        "asciiDelimiterType",
+        "asciiHeaderRecords",
+        "asciiQuoteCharacter",
+        "asciiThousandSeparator",
+        "dataSourceNameForClient",
+        "dataSourceNameForServer",
+    ),
+    "ODBC": (
+        "dataSourceNameForClient",
+        "dataSourceNameForServer",
+        "userName",
+        "password",
+        "query",
+        "usesUnicode",
+    ),
+    "TM1CubeView": ("dataSourceNameForClient", "dataSourceNameForServer", "view"),
+    "TM1DimensionSubset": ("dataSourceNameForClient", "dataSourceNameForServer", "subset"),
+    "JSON": (
+        "dataSourceNameForClient",
+        "dataSourceNameForServer",
+        "jsonRootPointer",
+        "jsonVariableMapping",
+    ),
+}
+
+
+def _process_datasource_from_raw(raw_datasource: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    raw_datasource = raw_datasource or {}
+    datasource_type = raw_datasource.get("Type") or "None"
+    keys = _PROCESS_DATASOURCE_KEYS.get(datasource_type)
+    if keys is None:
+        datasource = {key: value for key, value in raw_datasource.items() if "@" not in key}
+        datasource["Type"] = datasource_type
+        return datasource
+
+    datasource = {"Type": datasource_type}
+    for key in keys:
+        datasource[key] = raw_datasource.get(key, "")
+    if datasource.get("asciiDelimiterType") == "FixedWidth":
+        del datasource["asciiDelimiterChar"]
+    return datasource
+
+
 def procs_to_model(
     tm1_conn :TM1Service,
     filter_rules: FilterRules,
@@ -347,26 +398,22 @@ def procs_to_model(
     for idx, process_name in enumerate(filtered_process_names, start=1):
         progress_sink.on_event(ProgressEvent.worker_line(current=0, total=1, message=f"Fetching process {process_name}"))
         try:
-            process = tm1_conn.processes.get(name_process=process_name)
-            process_body = {}
-            raw_body = getattr(process, "body", None)
-            if raw_body:
-                try:
-                    process_body = json.loads(raw_body)
-                except (TypeError, json.JSONDecodeError):
-                    logger.warning("Failed to parse process body for %s", process_name, exc_info=True)
+            # Read the raw response: a TM1py.Process rewrites the procedures
+            # and the data source, see get_raw_process.
+            process = get_raw_process(tm1_conn, process_name)
 
-            _ti = TI(prolog_procedure=process.prolog_procedure,
-                     metadata_procedure=process.metadata_procedure,
-                     data_procedure=process.data_procedure,
-                     epilog_procedure=process.epilog_procedure)
-            _process = Process(name=process.name, hasSecurityAccess=process.has_security_access,
+            _ti = TI(prolog_procedure=process.get("PrologProcedure") or "",
+                     metadata_procedure=process.get("MetadataProcedure") or "",
+                     data_procedure=process.get("DataProcedure") or "",
+                     epilog_procedure=process.get("EpilogProcedure") or "")
+            _process = Process(name=process["Name"], hasSecurityAccess=process.get("HasSecurityAccess", False),
                                code_link=process_name + '.ti',
-                               datasource=process_body.get("DataSource"),
-                               parameters=process.parameters, variables=process.variables, ti=_ti,
-                               variables_ui_data=process_body.get("VariablesUIData"),
-                               ui_data=process_body.get("UIData"))
-            _processes[process.name] = _process
+                               datasource=_process_datasource_from_raw(process.get("DataSource")),
+                               parameters=list(process.get("Parameters") or []),
+                               variables=list(process.get("Variables") or []), ti=_ti,
+                               variables_ui_data=process.get("VariablesUIData"),
+                               ui_data=process.get("UIData"))
+            _processes[_process.name] = _process
         finally:
             progress_sink.on_event(ProgressEvent.total_line(current_delta=1))
             progress_sink.on_event(ProgressEvent.worker_line(current=1, total=1, message=f"Fetching process {process_name}"))
@@ -481,9 +528,12 @@ def cubes_to_model(
 
 
 def _extract_cube_rule_text(cube: Any) -> str:
-    if not getattr(cube, "has_rules", False):
+    # Do not ask cube.has_rules: a TM1py.Rules object counts statements, so a
+    # rule that holds only comments is falsy and would be exported as no rule.
+    rules = getattr(cube, "rules", None)
+    if rules is None:
         return ""
-    raw_body = getattr(getattr(cube, "rules", None), "body", "")
+    raw_body = getattr(rules, "body", "")
     try:
         rule_data = json.loads(raw_body)
         return rule_data.get("Rules", "")

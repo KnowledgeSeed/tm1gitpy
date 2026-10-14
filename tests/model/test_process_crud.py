@@ -1,4 +1,5 @@
 from tests.unit_common import *
+import TM1py
 
 
 class TestProcessCRUD:
@@ -67,10 +68,8 @@ class TestProcessCRUD:
         assert tm1_process_obj.has_security_access is True
 
         # No parameter/variable modifications because lists are identical
-        tm1_process_obj.add_parameter.assert_not_called()
-        tm1_process_obj.remove_parameter.assert_not_called()
-        tm1_process_obj.add_variable.assert_not_called()
-        tm1_process_obj.remove_variable.assert_not_called()
+        assert tm1_process_obj.parameters == process_new.parameters
+        assert tm1_process_obj.variables == process_new.variables
 
         # Update call + propagated result
         tm1_service.processes.update.assert_called_once_with(tm1_process_obj)
@@ -118,25 +117,72 @@ class TestProcessCRUD:
         # Act
         result = process.update_process(tm1_service, process_new)
 
-        # Check add/remove for parameters
-        tm1_process_obj.add_parameter.assert_called_once_with(
-            name="p3",
-            prompt="P3",
-            value="3",
-            parameter_type="String",
-        )
-        tm1_process_obj.remove_parameter.assert_called_once_with(name="p2")
-
-        # Check add/remove for variables
-        tm1_process_obj.add_variable.assert_called_once_with(
-            name="v3",
-            variable_type="String",
-        )
-        tm1_process_obj.remove_variable.assert_called_once_with(name="v2")
+        # Parameters and variables are replaced by the target lists
+        assert tm1_process_obj.parameters == params_new
+        assert tm1_process_obj.variables == vars_new
 
         # Ensure update was still called with the process object
         tm1_service.processes.update.assert_called_once_with(tm1_process_obj)
         assert result is update_result
+
+    def test_update_process_writes_parameters_in_target_order(self, mocker):
+        tm1_service = mocker.Mock()
+        params_new = [
+            {"Name": "p1", "Prompt": "", "Value": "asd", "Type": "String"},
+            {"Name": "p2", "Prompt": "", "Value": 1, "Type": "Numeric"},
+        ]
+        process_new = make_process(name="Proc_Order", datasource_type="None", parameters=params_new)
+
+        tm1_process_obj = TM1py.Process(name="Proc_Order", parameters=list(reversed(params_new)))
+        tm1_service.processes.get.return_value = tm1_process_obj
+
+        process.update_process(tm1_service, process_new)
+
+        assert tm1_process_obj.parameters == params_new
+
+    def test_update_process_adds_parameters_to_empty_process_in_target_order(self, mocker):
+        tm1_service = mocker.Mock()
+        params_new = [
+            {"Name": f"p{i}", "Prompt": "", "Value": str(i), "Type": "String"}
+            for i in range(10)
+        ]
+        process_new = make_process(name="Proc_Order", datasource_type="None", parameters=params_new)
+
+        tm1_process_obj = TM1py.Process(name="Proc_Order")
+        tm1_service.processes.get.return_value = tm1_process_obj
+
+        process.update_process(tm1_service, process_new)
+
+        assert tm1_process_obj.parameters == params_new
+
+    def test_update_process_writes_variables_in_target_order_and_keeps_their_ui_data(self, mocker):
+        tm1_service = mocker.Mock()
+        vars_new = [
+            {"Name": "v1", "Type": "String", "Position": 1, "StartByte": 0, "EndByte": 0},
+            {"Name": "v2", "Type": "Numeric", "Position": 2, "StartByte": 0, "EndByte": 0},
+            {"Name": "v3", "Type": "Numeric", "Position": 3, "StartByte": 0, "EndByte": 0},
+        ]
+        process_new = make_process(name="Proc_Order", datasource_type="None", variables=vars_new)
+        process_new.variables_ui_data = None
+
+        tm1_process_obj = TM1py.Process(
+            name="Proc_Order",
+            variables=[
+                {"Name": "v2", "Type": "Numeric", "Position": 1, "StartByte": 0, "EndByte": 0},
+                {"Name": "v1", "Type": "String", "Position": 2, "StartByte": 0, "EndByte": 0},
+            ],
+            variables_ui_data=["live-v2", "live-v1"],
+        )
+        tm1_service.processes.get.return_value = tm1_process_obj
+
+        process.update_process(tm1_service, process_new)
+
+        assert tm1_process_obj.variables == vars_new
+        assert tm1_process_obj._variables_ui_data == [
+            "live-v1",
+            "live-v2",
+            "VarType=33\fColType=827\f",
+        ]
 
     def test_update_process_sets_variables_ui_data_after_variable_removal(self, mocker):
         tm1_service = mocker.Mock()

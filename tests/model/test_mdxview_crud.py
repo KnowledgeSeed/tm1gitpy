@@ -82,3 +82,41 @@ class TestMDXViewCRUD:
 
         # Function returns whatever TM1 update() returned
         assert result == "update-result"
+
+
+    def test_mdx_view_with_default_meta_equals_view_with_meta(self):
+        # A live export cannot read Meta, so it holds the empty default.
+        exported = MDXView(name="View_A", mdx="SELECT FROM [Cube_A]")
+        on_disk = MDXView(
+            name="View_A",
+            mdx="SELECT FROM [Cube_A]",
+            meta={
+                "Aliases": {},
+                "ContextSets": {"[D].[D]": {"Expression": "{[D].[D].Members}"}},
+                "ExpandAboves": {"[D].[D]": False},
+            },
+        )
+
+        assert exported == on_disk
+        assert on_disk == exported
+
+    def test_mdx_views_with_different_meta_are_not_equal(self):
+        view_a = MDXView(
+            name="View_A",
+            mdx="SELECT FROM [Cube_A]",
+            meta={"Aliases": {}, "ContextSets": {}, "ExpandAboves": {"[D].[D]": False}},
+        )
+        view_b = MDXView(
+            name="View_A",
+            mdx="SELECT FROM [Cube_A]",
+            meta={"Aliases": {}, "ContextSets": {}, "ExpandAboves": {"[D].[D]": True}},
+        )
+
+        assert view_a != view_b
+
+    def test_mdx_view_with_default_format_string_equals_view_with_format_string(self):
+        exported = MDXView(name="View_A", mdx="SELECT FROM [Cube_A]")
+        on_disk = MDXView(name="View_A", mdx="SELECT FROM [Cube_A]", format_string="0.00")
+
+        assert exported == on_disk
+        assert MDXView(name="View_A", mdx="SELECT FROM [Cube_A]", format_string="0.0") != on_disk

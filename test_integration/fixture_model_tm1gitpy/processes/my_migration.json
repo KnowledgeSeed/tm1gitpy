@@ -1,0 +1,26 @@
+{
+	"@type":"Process",
+	"Name":"my_migration",
+	"HasSecurityAccess":false,
+	"Code@Code.link":"my_migration.ti",
+	"DataSource":
+	{
+		"Type":"None"
+	},
+	"Parameters":
+	[
+		{
+			"Name":"pRun",
+			"Prompt":"REQUIRED: only runs with value 1",
+			"Value":0,
+			"Type":"Numeric"
+		},
+		{
+			"Name":"pMarker",
+			"Prompt":"",
+			"Value":"",
+			"Type":"String"
+		}
+	],
+	"Variables":[]
+}

@@ -324,6 +324,12 @@ def delete_process(tm1_service: TM1Service, process: Process) -> Response:
     return tm1_service.processes.delete(process.name)
 
 
+def _default_variable_ui_data(variable_type: Any) -> str:
+    # Same default TM1py.Process.add_variable writes: VarType 33 Numeric / 32 String, ColType 827 Other.
+    var_type = 33 if variable_type == "Numeric" else 32
+    return f"VarType={var_type}\fColType=827\f"
+
+
 def _update_process_variables(process_new: Process, process_object: TM1py.Process):
     variables_old = process_object.variables
     process_new = TM1py.Process(
@@ -336,15 +342,25 @@ def _update_process_variables(process_new: Process, process_object: TM1py.Proces
     variables_new = process_new.variables
     if variables_new != variables_old:
         vars_to_add, vars_to_remove = _diff_lists(variables_old, variables_new)
-        for var in vars_to_add:
-            process_object.add_variable(
-                name=var.get('Name'),
-                variable_type=var.get('Type')
-            )
-        logger.info(f"Added Variables: {vars_to_add} to Process: {process_new.name}.")
 
-        for var in vars_to_remove:
-            process_object.remove_variable(name=var.get('Name'))
+        # VariablesUIData is positional, so it has to follow the variables into their new order.
+        ui_data_old = getattr(process_object, "_variables_ui_data", None)
+        if not isinstance(ui_data_old, list):
+            ui_data_old = []
+        ui_data_by_variable = {
+            (var.get('Name'), var.get('Type')): ui_data
+            for var, ui_data in zip(variables_old, ui_data_old)
+        }
+        process_object._variables_ui_data = [
+            ui_data_by_variable.get(
+                (var.get('Name'), var.get('Type')),
+                _default_variable_ui_data(var.get('Type')),
+            )
+            for var in variables_new
+        ]
+        # Replace the list as a whole: the order of the variables is part of the process.
+        variables_old[:] = [dict(var) for var in variables_new]
+        logger.info(f"Added Variables: {vars_to_add} to Process: {process_new.name}.")
         logger.info(f"Removed Variables: {vars_to_remove} from Process: {process_new.name}.")
 
 
@@ -360,17 +376,9 @@ def _update_process_parameters(process_new: Process, process_object: TM1py.Proce
     parameters_new = process_new.parameters
     if parameters_new != parameters_old:
         params_to_add, params_to_remove = _diff_lists(parameters_old, parameters_new)
-        for param in params_to_add:
-            process_object.add_parameter(
-                name=param.get('Name'),
-                prompt=param.get('Prompt'),
-                value=param.get('Value'),
-                parameter_type=param.get('Type')
-            )
+        # Replace the list as a whole: the order of the parameters is part of the process.
+        parameters_old[:] = [dict(param) for param in parameters_new]
         logger.debug(f"Added Parameters: {params_to_add} to Process: {process_new.name}.")
-
-        for param in params_to_remove:
-            process_object.remove_parameter(name=param.get('Name'))
         logger.debug(f"Removed Parameters: {params_to_remove} from Process: {process_new.name}.")
 
 

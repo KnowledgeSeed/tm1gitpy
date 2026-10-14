@@ -10,7 +10,7 @@ from typing import Any, Iterable, Iterator, Optional
 import orjson
 
 from tm1_git_py.db._worker_db import WorkerDBLease, WorkerDBRegistry
-
+from tm1_git_py.internal.element_reference import element_reference_id_from_payload
 
 DEFAULT_BULK_INSERT_BATCH_SIZE = 10_000
 DEFAULT_ITER_PROGRESS_EVERY = 100_000
@@ -412,18 +412,10 @@ class ModelStore:
             element_payloads = payload.get("Elements")
         if element_payloads is None:
             return []
-        element_ids: list[str] = []
-        for element_payload in element_payloads:
-            if isinstance(element_payload, str):
-                element_ids.append(element_payload)
-                continue
-            if isinstance(element_payload, dict):
-                element_id = element_payload.get("@id") or element_payload.get("@odata.id")
-                if isinstance(element_id, str):
-                    element_ids.append(element_id)
-                    continue
-            raise ValueError(f"Unable to resolve subset element reference id from payload: {element_payload!r}")
-        return element_ids
+        return [
+            element_reference_id_from_payload(element_payload)
+            for element_payload in element_payloads
+        ]
 
     @staticmethod
     def _subset_expression_from_payload(payload: dict[str, Any]) -> Any:

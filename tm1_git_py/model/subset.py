@@ -6,6 +6,7 @@ import TM1py
 from TM1py import TM1Service, Subset
 from requests import Response
 
+from tm1_git_py.internal.element_reference import element_reference_id_from_payload
 from tm1_git_py.model.tm1git_json import dumps_tm1git
 
 
@@ -14,16 +15,6 @@ from tm1_git_py.model.tm1git_json import dumps_tm1git
 # 	"Name":"jhj",
 # 	"Expression":"{[Balance Sheet Planning Ledger].[Balance Sheet Planning Ledger].Members}"
 # }
-
-
-def _element_reference_id_from_payload(payload: Any) -> str:
-    if isinstance(payload, str):
-        return payload
-    if isinstance(payload, dict):
-        element_id = payload.get("@id") or payload.get("@odata.id")
-        if isinstance(element_id, str):
-            return element_id
-    raise ValueError(f"Unable to resolve subset element reference id from payload: {payload!r}")
 
 
 class Subset:
@@ -96,7 +87,7 @@ class Subset:
             name=name,
             expression=expression,
             element_ids=[
-                _element_reference_id_from_payload(payload)
+                element_reference_id_from_payload(payload)
                 for payload in element_payloads
             ],
         )
